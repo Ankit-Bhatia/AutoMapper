@@ -9,6 +9,9 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app.api.metadata import router as metadata_router
+from app.api.export import router as export_router
+from app.api.review import router as review_router
+from app.api.import import router as import_router
 from app.core.config import settings
 
 # Configure logging
@@ -46,6 +49,9 @@ app.add_middleware(
 
 # Include routers
 app.include_router(metadata_router)
+app.include_router(export_router)
+app.include_router(review_router)
+app.include_router(import_router)
 
 # Global exception handler
 @app.exception_handler(Exception)

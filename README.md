@@ -8,6 +8,9 @@ An intelligent agent for automating metadata management across enterprise system
 - **Unified Metadata Model**: Standardized representation of objects, tables, and columns
 - **Metadata Comparison**: Compare metadata structures between systems
 - **Synchronization**: Sync metadata changes across systems
+- **Custom Mapping Management**: Handle customer-specific system modifications
+- **Data Export/Import**: Export metadata to CSV, JSON, Excel and import custom mappings
+- **Review & Update System**: Review and update metadata mappings through API
 - **RESTful API**: Complete API for all metadata operations
 - **Monitoring & Logging**: Comprehensive monitoring and logging capabilities
 - **Configuration Management**: Flexible configuration system for different environments
@@ -192,6 +195,67 @@ curl -X POST "http://localhost:8000/api/v1/metadata/sync" \
   }'
 ```
 
+### Export Metadata for Review
+
+```bash
+# Export columns to CSV
+curl "http://localhost:8000/api/v1/export/columns/csv?system_type=salesforce" \
+  -o salesforce_columns.csv
+
+# Export complete metadata to Excel
+curl "http://localhost:8000/api/v1/export/complete/excel" \
+  -o complete_metadata.xlsx
+
+# Export to JSON
+curl "http://localhost:8000/api/v1/export/complete/json" \
+  -o metadata_export.json
+```
+
+### Review and Update Custom Mappings
+
+```bash
+# Get columns for review
+curl "http://localhost:8000/api/v1/review/columns?system_type=salesforce&has_custom_mapping=false"
+
+# Update column metadata
+curl -X PUT "http://localhost:8000/api/v1/review/columns/123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "custom_data_type": "string",
+    "custom_label": "Account Name",
+    "mapping_notes": "Maps to SAP KNA1.NAME1"
+  }' \
+  -G -d "updated_by=admin"
+
+# Create custom mapping
+curl -X POST "http://localhost:8000/api/v1/review/mappings" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_system": "salesforce",
+    "target_system": "sap",
+    "source_object": "Account",
+    "target_object": "KNA1",
+    "mapping_type": "object",
+    "mapping_notes": "Customer master mapping"
+  }' \
+  -G -d "created_by=admin"
+```
+
+### Import Updated Mappings
+
+```bash
+# Import column updates from CSV
+curl -X POST "http://localhost:8000/api/v1/import/columns/csv" \
+  -F "file=@updated_columns.csv" \
+  -F "system_type=salesforce" \
+  -F "update_mode=update_only"
+
+# Import mappings from Excel
+curl -X POST "http://localhost:8000/api/v1/import/excel" \
+  -F "file=@mappings.xlsx" \
+  -F "system_type=salesforce"
+```
+
 ## Monitoring
 
 ### Health Check
@@ -353,8 +417,50 @@ For support and questions:
 - Contact the development team
 - Check the documentation
 
+## Custom Mapping Workflow
+
+The agent provides a comprehensive workflow for handling customer-specific system modifications:
+
+### 1. Extract and Export
+- Extract metadata from both systems
+- Export to CSV, JSON, or Excel for review
+- Include custom mappings and notes
+
+### 2. Review and Update
+- Review exported metadata in familiar tools (Excel, etc.)
+- Add custom mappings, notes, and transformations
+- Update data types, labels, and descriptions
+
+### 3. Import and Apply
+- Import updated mappings back to the system
+- Validate custom mappings
+- Apply mappings during synchronization
+
+### 4. Monitor and Maintain
+- Track mapping changes and approvals
+- Monitor sync operations with custom mappings
+- Maintain mapping documentation
+
+## Example Workflow
+
+```python
+# Run the custom mapping workflow demo
+python examples/custom_mapping_workflow.py
+```
+
+This example demonstrates:
+- Testing system connections
+- Extracting metadata from both systems
+- Comparing metadata structures
+- Exporting data for review
+- Creating custom mappings
+- Reviewing and updating mappings
+
 ## Roadmap
 
+- [x] Custom mapping management system
+- [x] Data export/import functionality
+- [x] Review and update API endpoints
 - [ ] Additional system connectors (Oracle, SQL Server, etc.)
 - [ ] Web UI for metadata management
 - [ ] Automated metadata validation
