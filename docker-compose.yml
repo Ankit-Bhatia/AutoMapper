@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  metadata-agent:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_DEBUG=True
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    depends_on:
+      - postgres
+    networks:
+      - metadata-network
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=metadata_db
+      - POSTGRES_USER=metadata_user
+      - POSTGRES_PASSWORD=metadata_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - metadata-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - metadata-network
+
+volumes:
+  postgres_data:
+
+networks:
+  metadata-network:
+    driver: bridge
