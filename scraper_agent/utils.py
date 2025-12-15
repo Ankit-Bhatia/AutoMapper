@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlparse, urlunparse
 
 
@@ -59,3 +60,42 @@ def clean_text(text: str) -> str:
     text = text.replace("\u00a0", " ")
     text = _ws_re.sub(" ", text)
     return text.strip()
+
+
+_word_re = re.compile(r"\w+|[^\w\s]+", re.UNICODE)
+
+
+def word_tokens(text: str) -> list[str]:
+    """Tokenize text for word-by-word comparisons.
+
+    Keeps punctuation as separate tokens so diffs are more readable.
+    """
+    text = clean_text(text)
+    if not text:
+        return []
+    return _word_re.findall(text)
+
+
+def url_to_site_relpath(url: str) -> str:
+    """Map a URL to a stable local path inside the mirrored site.
+
+    Examples:
+    - https://example.com/               -> index.html
+    - https://example.com/about-us       -> about-us/index.html
+    - https://example.com/blog/post/     -> blog/post/index.html
+    - https://example.com/x.html         -> x.html
+    """
+    p = urlparse(url)
+    path = p.path or "/"
+    posix = PurePosixPath(path)
+
+    # Root
+    if str(posix) == "/":
+        return "index.html"
+
+    # If it looks like a file, keep it
+    if posix.suffix:
+        return str(posix).lstrip("/")
+
+    # Otherwise treat as folder
+    return str(posix).lstrip("/") + "/index.html"

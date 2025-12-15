@@ -43,5 +43,39 @@ class CrawlSummary:
         )
 
 
+@dataclass
+class SiteBuildSummary:
+    out_dir: str
+    site_dir: str
+    pages_written: int
+    assets_copied: int
+
+    def to_console_string(self) -> str:
+        return (
+            f"Local site build complete\n"
+            f"- out_dir: {self.out_dir}\n"
+            f"- site_dir: {self.site_dir}\n"
+            f"- pages_written: {self.pages_written}\n"
+            f"- assets_copied: {self.assets_copied}\n"
+        )
+
+
+@dataclass
+class CompareSummary:
+    out_dir: str
+    site_dir: str
+    pages_compared: int
+    pages_with_diffs: int
+
+    def to_console_string(self) -> str:
+        return (
+            f"Word-by-word comparison complete\n"
+            f"- out_dir: {self.out_dir}\n"
+            f"- site_dir: {self.site_dir}\n"
+            f"- pages_compared: {self.pages_compared}\n"
+            f"- pages_with_diffs: {self.pages_with_diffs}\n"
+        )
+
+
 def now_iso() -> str:
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"

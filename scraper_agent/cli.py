@@ -2,6 +2,8 @@ import argparse
 from pathlib import Path
 
 from .agent import WebScraperAgent
+from .comparator import SiteComparator
+from .site_builder import SiteBuilder
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,12 +64,32 @@ def main(argv: list[str] | None = None) -> int:
         default=8,
         help="Concurrent requests (default: 8)",
     )
+    parser.add_argument(
+        "--site-dir",
+        default="./local_site",
+        help="Local mirrored site output directory (default: ./local_site)",
+    )
+    parser.add_argument(
+        "--build-site",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Build a locally browsable mirror site (default: true)",
+    )
+    parser.add_argument(
+        "--compare",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Word-by-word compare remote vs local pages (default: true)",
+    )
 
     args = parser.parse_args(argv)
 
+    out_dir = Path(args.out_dir)
+    site_dir = Path(args.site_dir)
+
     agent = WebScraperAgent(
         start_url=args.start_url,
-        out_dir=Path(args.out_dir),
+        out_dir=out_dir,
         max_pages=args.max_pages,
         max_depth=args.max_depth,
         same_domain_only=args.same_domain_only,
@@ -80,4 +102,13 @@ def main(argv: list[str] | None = None) -> int:
 
     summary = agent.run()
     print(summary.to_console_string())
+
+    if args.build_site:
+        build_summary = SiteBuilder(out_dir=out_dir, site_dir=site_dir, start_url=args.start_url).build()
+        print(build_summary.to_console_string())
+
+    if args.compare:
+        compare_summary = SiteComparator(out_dir=out_dir, site_dir=site_dir).compare()
+        print(compare_summary.to_console_string())
+        print(f"Comparison report written to: {site_dir / 'compare.html'}")
     return 0
