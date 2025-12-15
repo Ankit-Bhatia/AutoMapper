@@ -1,0 +1,261 @@
+{
+  "start_url": "https://techcivita9365.builtwithrocket.new/about-us",
+  "out_dir": "/workspace/scrape_out2",
+  "started_at": "2025-12-15T17:28:33Z",
+  "finished_at": "2025-12-15T17:29:08Z",
+  "pages_ok": 25,
+  "pages_failed": 0,
+  "assets_saved": 85,
+  "pages": [
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/about-us",
+      "final_url": "https://techcivita9365.builtwithrocket.new/about-us",
+      "status_code": 200,
+      "title": "About Us - TechCivitas Enterprise",
+      "links_count": 23,
+      "code_blocks_count": 0,
+      "assets_count": 23,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/homepage",
+      "final_url": "https://techcivita9365.builtwithrocket.new/homepage",
+      "status_code": 200,
+      "title": "TechCivitas Enterprise - AI Transformation & Enterprise Modernization",
+      "links_count": 40,
+      "code_blocks_count": 0,
+      "assets_count": 29,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/capabilities",
+      "final_url": "https://techcivita9365.builtwithrocket.new/capabilities",
+      "status_code": 200,
+      "title": "AI Transformation Capabilities - TechCivitas Enterprise",
+      "links_count": 6,
+      "code_blocks_count": 0,
+      "assets_count": 11,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries",
+      "final_url": "https://techcivita9365.builtwithrocket.new/industries",
+      "status_code": 200,
+      "title": "Industries - TechCivitas Enterprise",
+      "links_count": 20,
+      "code_blocks_count": 0,
+      "assets_count": 43,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/ai-strategy-assessment",
+      "final_url": "https://techcivita9365.builtwithrocket.new/ai-strategy-assessment",
+      "status_code": 200,
+      "title": "AI Strategy Assessment - TechCivitas Enterprise",
+      "links_count": 6,
+      "code_blocks_count": 0,
+      "assets_count": 11,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/contact",
+      "final_url": "https://techcivita9365.builtwithrocket.new/contact",
+      "status_code": 200,
+      "title": "Contact Us - TechCivitas Enterprise",
+      "links_count": 7,
+      "code_blocks_count": 0,
+      "assets_count": 11,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/privacy",
+      "final_url": "https://techcivita9365.builtwithrocket.new/privacy",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/terms",
+      "final_url": "https://techcivita9365.builtwithrocket.new/terms",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/security",
+      "final_url": "https://techcivita9365.builtwithrocket.new/security",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/compliance",
+      "final_url": "https://techcivita9365.builtwithrocket.new/compliance",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/future-enterprise-ai",
+      "final_url": "https://techcivita9365.builtwithrocket.new/insights/future-enterprise-ai",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/ai-first-culture",
+      "final_url": "https://techcivita9365.builtwithrocket.new/insights/ai-first-culture",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/manufacturing-transformation",
+      "final_url": "https://techcivita9365.builtwithrocket.new/insights/manufacturing-transformation",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/ai-governance",
+      "final_url": "https://techcivita9365.builtwithrocket.new/insights/ai-governance",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/financial-services-ai",
+      "final_url": "https://techcivita9365.builtwithrocket.new/insights/financial-services-ai",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/data-modernization",
+      "final_url": "https://techcivita9365.builtwithrocket.new/insights/data-modernization",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights",
+      "final_url": "https://techcivita9365.builtwithrocket.new/insights",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/case-studies",
+      "final_url": "https://techcivita9365.builtwithrocket.new/case-studies",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/whitepapers",
+      "final_url": "https://techcivita9365.builtwithrocket.new/whitepapers",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/healthcare",
+      "final_url": "https://techcivita9365.builtwithrocket.new/industries/healthcare",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/financial-services",
+      "final_url": "https://techcivita9365.builtwithrocket.new/industries/financial-services",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/manufacturing",
+      "final_url": "https://techcivita9365.builtwithrocket.new/industries/manufacturing",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/retail-ecommerce",
+      "final_url": "https://techcivita9365.builtwithrocket.new/industries/retail-ecommerce",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/telecommunications",
+      "final_url": "https://techcivita9365.builtwithrocket.new/industries/telecommunications",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/energy-utilities",
+      "final_url": "https://techcivita9365.builtwithrocket.new/industries/energy-utilities",
+      "status_code": 404,
+      "title": "Next.js with Tailwind CSS",
+      "links_count": 0,
+      "code_blocks_count": 0,
+      "assets_count": 10,
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,456 @@
+{
+  "out_dir": "/workspace/scrape_out_local",
+  "site_dir": "/workspace/local_site",
+  "pages_compared": 32,
+  "pages_with_diffs": 0,
+  "pages": [
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/ai-governance",
+      "local_path": "insights/ai-governance/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/data-modernization",
+      "local_path": "insights/data-modernization/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/telecommunications",
+      "local_path": "industries/telecommunications/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/healthcare",
+      "local_path": "industries/healthcare/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights",
+      "local_path": "insights/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/terms",
+      "local_path": "terms/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/future-enterprise-ai",
+      "local_path": "insights/future-enterprise-ai/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/whitepapers",
+      "local_path": "whitepapers/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/insurance",
+      "local_path": "industries/insurance/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/security",
+      "local_path": "security/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/media-entertainment",
+      "local_path": "industries/media-entertainment/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/contact",
+      "local_path": "contact/index.html",
+      "remote_words": 415,
+      "local_words": 415,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 415,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/ai-strategy-assessment",
+      "local_path": "ai-strategy-assessment/index.html",
+      "remote_words": 16,
+      "local_words": 16,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 16,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/privacy",
+      "local_path": "privacy/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/manufacturing-transformation",
+      "local_path": "insights/manufacturing-transformation/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/transportation-logistics",
+      "local_path": "industries/transportation-logistics/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/compliance",
+      "local_path": "compliance/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/homepage",
+      "local_path": "homepage/index.html",
+      "remote_words": 568,
+      "local_words": 568,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 568,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/education",
+      "local_path": "industries/education/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/manufacturing",
+      "local_path": "industries/manufacturing/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/financial-services-ai",
+      "local_path": "insights/financial-services-ai/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/retail-ecommerce",
+      "local_path": "industries/retail-ecommerce/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/agriculture",
+      "local_path": "industries/agriculture/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/about-us",
+      "local_path": "about-us/index.html",
+      "remote_words": 1445,
+      "local_words": 1445,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 1445,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/capabilities",
+      "local_path": "capabilities/index.html",
+      "remote_words": 16,
+      "local_words": 16,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 16,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries",
+      "local_path": "industries/index.html",
+      "remote_words": 1171,
+      "local_words": 1171,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 1171,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/financial-services",
+      "local_path": "industries/financial-services/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/real-estate",
+      "local_path": "industries/real-estate/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/trust-center",
+      "local_path": "trust-center/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/industries/energy-utilities",
+      "local_path": "industries/energy-utilities/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/case-studies",
+      "local_path": "case-studies/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    },
+    {
+      "url": "https://techcivita9365.builtwithrocket.new/insights/ai-first-culture",
+      "local_path": "insights/ai-first-culture/index.html",
+      "remote_words": 34,
+      "local_words": 34,
+      "diff_ops": 0,
+      "stats": {
+        "equal": 34,
+        "replace": 0,
+        "delete": 0,
+        "insert": 0
+      },
+      "diff_preview": []
+    }
+  ]
+}

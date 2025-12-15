@@ -1,0 +1,50 @@
+{
+  "url": "https://techcivita9365.builtwithrocket.new/contact",
+  "final_url": "https://techcivita9365.builtwithrocket.new/contact",
+  "status_code": 200,
+  "fetched_at": "2025-12-15T17:28:44Z",
+  "title": "Contact Us - TechCivitas Enterprise",
+  "text": "Contact Us - TechCivitas Enterprise TechCivitas Home Capabilities Industries About Us More Assess AI Readiness Let's Transform Your Enterprise Together Whether you're exploring AI possibilities or ready to accelerate transformation, our team is here to guide your journey. Choose the engagement path that matches your needs. Choose Your Engagement Path Select the option that best matches your transformation timeline and organizational needs. Global Presence, Local Expertise Our dual-location model combines US strategic leadership with India's engineering excellence, delivering 24/7 transformation support. United States Headquarters Executive & Strategy Center 500 Innovation Drive, Suite 2000 San Francisco , CA 94105 United States +1 (415) 555-0100 us.contact@techcivitas.com PST (UTC-8) Monday - Friday: 9:00 AM - 6:00 PM PST Core Specialties: Executive Strategy Consulting AI Transformation Planning C-Suite Advisory Services Industry-Specific Solutions India Engineering Center Technology & Implementation Hub Tech Park, Tower B, 8th Floor Bangalore , Karnataka 560001 India +91 8527070084 india.contact@techcivitas.com IST (UTC+5:30) Monday - Friday: 9:00 AM - 6:00 PM IST Core Specialties: AI/ML Engineering Cloud Architecture Enterprise Integration 24/7 Support Services Follow-the-Sun Support Model Our global presence enables continuous transformation support. When your US team ends their day, our India engineering center continues the work, ensuring rapid progress and 24/7 availability for critical initiatives. This cultural bridge combines American business acumen with Indian technical excellence. Your Trust, Our Foundation We understand the sensitivity of transformation discussions. Every interaction is protected by enterprise-grade security and confidentiality. Enterprise-Grade Security SOC 2 Type II certified with comprehensive data protection and compliance frameworks for regulated industries. Privacy First GDPR compliant with strict data handling policies. Your information is never shared without explicit consent. 24-Hour Response Guaranteed response within 24 business hours. Emergency consultations available for urgent transformation needs. Confidentiality Guaranteed All discussions covered under NDA. Your strategic initiatives and competitive information remain completely confidential. Certified & Compliant ISO 27001, SOC 2 Type II, GDPR, HIPAA-ready infrastructure View Trust Center",
+  "code_blocks": [],
+  "links": [
+    "https://techcivita9365.builtwithrocket.new/homepage",
+    "https://techcivita9365.builtwithrocket.new/homepage",
+    "https://techcivita9365.builtwithrocket.new/capabilities",
+    "https://techcivita9365.builtwithrocket.new/industries",
+    "https://techcivita9365.builtwithrocket.new/about-us",
+    "https://techcivita9365.builtwithrocket.new/ai-strategy-assessment",
+    "https://techcivita9365.builtwithrocket.new/trust-center"
+  ],
+  "assets": [
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/main-app.js?v=1765819724887",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/app-pages-internals.js",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/app/contact/page.js",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/app/not-found.js",
+    "https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Ftechcivita9365back.builtwithrocket.new&_be=https%3A%2F%2Fapplication.rocket.new&_v=0.1.11",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/polyfills.js",
+    "https://static.rocket.new/rocket-shot.js?v=0.0.1",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/webpack.js?v=1765819724887",
+    "https://techcivita9365.builtwithrocket.new/_next/static/css/css-src_styles_index_css-src_styles_tailwind_css.css?v=1765819724887",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/webpack.js?v=1765819724887",
+    "https://techcivita9365.builtwithrocket.new/favicon.ico"
+  ],
+  "headers": {
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Mon, 15 Dec 2025 17:28:44 GMT",
+    "content-type": "text/html; charset=utf-8",
+    "transfer-encoding": "chunked",
+    "connection": "keep-alive",
+    "vary": "RSC, Next-Router-State-Tree, Next-Router-Prefetch, Accept-Encoding",
+    "cache-control": "no-store, must-revalidate, no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+    "x-powered-by": "Next.js",
+    "content-encoding": "gzip",
+    "access-control-allow-origin": "*",
+    "access-control-allow-credentials": "true",
+    "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "access-control-allow-headers": "Origin, Content-Type, Accept, Authorization, companyid, applicationversion, pageurl, platformtype, fromplatform, apporigin, Cache-Control, pragma, X-Thread-Id, expires",
+    "last-modified": "Monday, 15-Dec-2025 17:28:44 GMT",
+    "pragma": "no-cache",
+    "expires": "0"
+  },
+  "error": null
+}

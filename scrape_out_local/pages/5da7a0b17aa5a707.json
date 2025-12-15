@@ -1,0 +1,49 @@
+{
+  "url": "https://techcivita9365.builtwithrocket.new/ai-strategy-assessment",
+  "final_url": "https://techcivita9365.builtwithrocket.new/ai-strategy-assessment",
+  "status_code": 200,
+  "fetched_at": "2025-12-15T17:44:54Z",
+  "title": "AI Strategy Assessment - TechCivitas Enterprise",
+  "text": "AI Strategy Assessment - TechCivitas Enterprise TechCivitas Home Capabilities Industries About Us More Assess AI Readiness",
+  "code_blocks": [],
+  "links": [
+    "https://techcivita9365.builtwithrocket.new/homepage",
+    "https://techcivita9365.builtwithrocket.new/homepage",
+    "https://techcivita9365.builtwithrocket.new/capabilities",
+    "https://techcivita9365.builtwithrocket.new/industries",
+    "https://techcivita9365.builtwithrocket.new/about-us",
+    "https://techcivita9365.builtwithrocket.new/ai-strategy-assessment"
+  ],
+  "assets": [
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/main-app.js?v=1765820694941",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/app-pages-internals.js",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/app/ai-strategy-assessment/page.js",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/app/not-found.js",
+    "https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Ftechcivita9365back.builtwithrocket.new&_be=https%3A%2F%2Fapplication.rocket.new&_v=0.1.11",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/polyfills.js",
+    "https://static.rocket.new/rocket-shot.js?v=0.0.1",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/webpack.js?v=1765820694941",
+    "https://techcivita9365.builtwithrocket.new/_next/static/css/css-src_styles_index_css-src_styles_tailwind_css.css?v=1765820694941",
+    "https://techcivita9365.builtwithrocket.new/_next/static/chunks/webpack.js?v=1765820694941",
+    "https://techcivita9365.builtwithrocket.new/favicon.ico"
+  ],
+  "headers": {
+    "server": "nginx/1.24.0 (Ubuntu)",
+    "date": "Mon, 15 Dec 2025 17:44:54 GMT",
+    "content-type": "text/html; charset=utf-8",
+    "transfer-encoding": "chunked",
+    "connection": "keep-alive",
+    "vary": "RSC, Next-Router-State-Tree, Next-Router-Prefetch, Accept-Encoding",
+    "cache-control": "no-store, must-revalidate, no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+    "x-powered-by": "Next.js",
+    "content-encoding": "gzip",
+    "access-control-allow-origin": "*",
+    "access-control-allow-credentials": "true",
+    "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "access-control-allow-headers": "Origin, Content-Type, Accept, Authorization, companyid, applicationversion, pageurl, platformtype, fromplatform, apporigin, Cache-Control, pragma, X-Thread-Id, expires",
+    "last-modified": "Monday, 15-Dec-2025 17:44:54 GMT",
+    "pragma": "no-cache",
+    "expires": "0"
+  },
+  "error": null
+}
