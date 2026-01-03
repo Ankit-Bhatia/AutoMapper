@@ -1,5 +1,5 @@
 /* eslint-disable no-alert */
-const STORAGE_KEY = "vc_salesforce_prompt_template_v1";
+const STORAGE_KEY = "vc_salesforce_prompt_template_v2";
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,6 +26,19 @@ function bulletsFromTextarea(text) {
 function joinBullets(items) {
   if (!items || items.length === 0) return "- (none provided)";
   return items.map((x) => `- ${x}`).join("\n");
+}
+
+function roleLabel(persona) {
+  switch (persona) {
+    case "Developer":
+      return "Salesforce Developer";
+    case "Architect":
+      return "Salesforce Architect";
+    case "Business Analyst":
+      return "Business Analyst";
+    default:
+      return persona || "Salesforce Developer";
+  }
 }
 
 function buildArtifactChecklist(artifact) {
@@ -94,84 +107,33 @@ function artifactName(artifact) {
   }
 }
 
-function workProductGuidance(workProduct) {
-  switch (workProduct) {
-    case "Story":
-      return {
-        outcomes: [
-          "A well-formed story with title, narrative, scope, assumptions, acceptance criteria, and out-of-scope items.",
-          "A validation checklist (security/perf/governor limits/testing/UX).",
-          "Explicit dependencies and questions if information is missing.",
-        ],
-        outputFormat: [
-          "Title",
-          "Narrative (As a / I want / So that)",
-          "In scope / Out of scope",
-          "Acceptance Criteria (bullet list)",
-          "Non-functional requirements",
-          "Dependencies & Risks",
-          "Open Questions",
-        ],
-      };
-    case "Design":
-      return {
-        outcomes: [
-          "A technical design with components, data model, automation boundaries, and integration approach.",
-          "Trade-offs, risks, and mitigations.",
-          "A build plan with sequencing and test strategy.",
-        ],
-        outputFormat: [
-          "Context & Goals",
-          "Assumptions",
-          "Proposed Solution (components + responsibilities)",
-          "Data Model / Security Model",
-          "Automation & Integration",
-          "Error Handling / Observability",
-          "Testing Strategy",
-          "Risks & Alternatives",
-          "Implementation Plan",
-        ],
-      };
-    case "Build":
-    default:
-      return {
-        outcomes: [
-          "Correct, production-ready implementation artifacts aligned to Salesforce best practices.",
-          "Explanation of key decisions and how they meet constraints/guardrails.",
-          "A test plan (and tests where applicable).",
-        ],
-        outputFormat: [
-          "Overview",
-          "Implementation (code / metadata)",
-          "Configuration steps (if any)",
-          "Testing (unit + manual)",
-          "Notes / Trade-offs",
-        ],
-      };
-  }
-}
-
 function orgModeGuidance(orgMode) {
   if (orgMode === "ExistingOrg") {
     return {
-      contextAddendum: [
-        "This is an existing Salesforce org. Before building anything, you MUST first propose an inventory/analysis plan to understand the current state and avoid duplicating functionality.",
-        "You MUST identify existing components that can be reused or extended, and you MUST call out dependencies/impacts.",
-      ],
-      firstStep: [
-        "Step 0 (Discovery): list exactly what you need to inspect (objects/fields, flows, LWCs, Apex classes, permission sets, sharing model, managed packages, naming conventions, integrations) and the questions you must answer before implementation.",
-        "Only after discovery should you propose the solution and generate code/metadata.",
+      discoveryDirective: [
+        "This is an existing Salesforce org.",
+        "Your first task is discovery: propose an inventory/analysis plan to understand existing components and avoid duplicating functionality.",
+        "Do not produce production-ready code until discovery questions are answered; provide a plan, assumptions, and options.",
       ],
     };
   }
   return {
-    contextAddendum: [
-      "This is a greenfield build for the described scope. You may propose sensible defaults, but you MUST label assumptions and keep them minimal.",
-    ],
-    firstStep: [
-      "Step 0 (Assumptions): if key details are missing, list clarifying questions and proceed only with clearly stated assumptions.",
+    discoveryDirective: [
+      "This is a greenfield build (from scratch).",
+      "If key information is missing, ask clarifying questions before proceeding; if you must proceed, label assumptions explicitly and keep them minimal.",
     ],
   };
+}
+
+function defaultTask({ persona, artifact, workProduct, orgMode }) {
+  const role = roleLabel(persona);
+  const artifactLabel = artifactName(artifact);
+  if (workProduct === "Story") return `Create user stories and acceptance criteria for: ${artifactLabel}.`;
+  if (workProduct === "Design") return `Design a solution architecture / technical design for: ${artifactLabel}.`;
+  if (orgMode === "ExistingOrg") return `Understand existing Salesforce org components, then plan and implement changes for: ${artifactLabel}.`;
+  if (role === "Business Analyst") return `Create user stories and acceptance criteria for: ${artifactLabel}.`;
+  if (role === "Salesforce Architect") return `Design solution architecture and implementation approach for: ${artifactLabel}.`;
+  return `Write implementation artifacts for: ${artifactLabel}.`;
 }
 
 function buildPrompt(modelInputs) {
@@ -180,91 +142,158 @@ function buildPrompt(modelInputs) {
   const workProduct = safe(modelInputs.workProduct);
   const orgMode = safe(modelInputs.orgMode);
 
-  const goal = safe(modelInputs.goal);
+  const projectName = safe(modelInputs.projectName);
+  const businessObjective = safe(modelInputs.businessObjective);
+  const products = safe(modelInputs.products);
   const objects = safe(modelInputs.objects);
   const users = safe(modelInputs.users);
-  const requirements = bulletsFromTextarea(modelInputs.requirements);
-  const constraints = bulletsFromTextarea(modelInputs.constraints);
+  const functionalScope = safe(modelInputs.functionalScope);
+  const nfrSecurity = safe(modelInputs.nfrSecurity);
+  const nfrPerformance = safe(modelInputs.nfrPerformance);
+  const nfrScalability = safe(modelInputs.nfrScalability);
+  const nfrCompliance = safe(modelInputs.nfrCompliance);
+  const task = safe(modelInputs.task);
+  const additionalConstraints = bulletsFromTextarea(modelInputs.constraints);
   const existingComponents = safe(modelInputs.existingComponents);
   const orgDetails = safe(modelInputs.orgDetails);
   const integration = safe(modelInputs.integration);
+  const additionalNotes = safe(modelInputs.additionalNotes);
   const outputStyle = safe(modelInputs.outputStyle);
 
   const artifactChecklist = buildArtifactChecklist(artifact);
-  const work = workProductGuidance(workProduct);
   const org = orgModeGuidance(orgMode);
 
-  const baseGuardrails = [
-    "Do NOT invent org-specific names/IDs. If missing, ask questions or state assumptions explicitly.",
-    "Prefer secure-by-default design: least privilege, CRUD/FLS, sharing, input validation, and safe error messages.",
-    "If requirements conflict, call out the conflict and propose options rather than guessing.",
-    "If you cannot safely proceed, output clarifying questions instead of code.",
-    "Output must be copy/paste ready and organized using clear headings and checklists.",
+  const mustConstraints = [
+    "Follow Salesforce best practices",
+    "Assume enterprise-scale usage",
+    "Avoid hardcoding values",
+    "Ensure bulkification and governor limit safety",
+    "Design for maintainability and extensibility",
+    "Use declarative approaches before code where appropriate",
+    "Clearly separate concerns (UI, service, data layers)",
+    ...artifactChecklist,
   ];
 
-  const salesforceGuardrails = [
-    "No hardcoded record IDs, profile IDs, or endpoint URLs. Use metadata, Custom Metadata/Settings, Named Credentials, and labels where appropriate.",
-    "Be governor-limit aware and bulk-safe (especially for Apex and record-triggered automation).",
-    "Explain how the solution aligns with Salesforce best practices and what trade-offs were made.",
+  const mustNotConstraints = [
+    "Bypass Salesforce security model",
+    "Use deprecated features",
+    "Assume admin-level permissions for users",
+    "Produce production-ready code without explanation",
+  ];
+
+  const guardrails = [
+    "Treat AI output as a first draft, not final authority",
+    "Clearly call out assumptions",
+    "Explicitly list risks and trade-offs",
+    "Provide alternatives where applicable",
+    "Do NOT hallucinate Salesforce features",
+    "Do NOT invent org-specific names/IDs. If missing, ask clarifying questions.",
   ];
 
   const outputStyleNote =
     outputStyle === "Jira"
-      ? "Format the output to be Jira-ready (concise headings + acceptance criteria)."
+      ? "Use concise, Jira-ready phrasing, but keep the required 1–9 section structure."
       : outputStyle === "Engineering"
-        ? "Format the output as an engineering spec with crisp sections and decision logs."
-        : "Format the output in Markdown with clear headings and bullet lists.";
+        ? "Use engineering-spec depth, but keep the required 1–9 section structure."
+        : "Use clear Markdown, but keep the required 1–9 section structure.";
+
+  const effectiveTask =
+    task || defaultTask({ persona, artifact, workProduct, orgMode });
+
+  const role = roleLabel(persona);
 
   const prompt = [
-    `You are a senior Salesforce ${persona} and an expert AI pair-programmer.`,
     "",
-    "## Role",
-    `Act as a Salesforce ${persona}. Your goal is to help produce a high-quality ${workProduct} for: ${artifactName(artifact)}.`,
+    "ROLE",
+    "You are acting as a senior Salesforce professional based on the role specified below.",
+    `Role: ${role}`,
     "",
-    "## Context",
-    `- Date: ${nowIsoDate()}`,
-    `- Artifact type: ${artifactName(artifact)}`,
-    `- Work product: ${workProduct}`,
-    `- Org mode: ${orgMode === "ExistingOrg" ? "Existing org (analyze first)" : "Greenfield (build from scratch)"}`,
-    `- Goal: ${goal || "(not provided)"}`,
-    `- Primary object(s): ${objects || "(not provided)"}`,
-    `- Users/personas: ${users || "(not provided)"}`,
+    "You must respond strictly from this role’s perspective.",
     "",
-    "### Requirements",
-    joinBullets(requirements),
+    "--------------------------------------------------",
     "",
-    orgDetails ? "### Org details\n" + orgDetails : "",
-    integration ? "### Data / integration\n" + integration : "",
+    "CONTEXT",
+    `Project / Feature Name:\n${projectName || "(not provided)"}`,
+    "",
+    `Business Objective:\n${businessObjective || "(not provided)"}`,
+    "",
+    `Salesforce Clouds / Products in Scope:\n${products || "(not provided)"}`,
+    "",
+    `Users & Personas:\n${users || "(not provided)"}`,
+    "",
+    `Functional Scope:\n${functionalScope || "(not provided)"}`,
+    "",
+    "Non-Functional Requirements:",
+    `- Security:\n  ${nfrSecurity || "(not provided)"}`,
+    `- Performance:\n  ${nfrPerformance || "(not provided)"}`,
+    `- Scalability:\n  ${nfrScalability || "(not provided)"}`,
+    `- Compliance (PII, GDPR, etc.):\n  ${nfrCompliance || "(not provided)"}`,
+    "",
+    `Primary object(s):\n${objects || "(not provided)"}`,
+    "",
+    `Org mode:\n${orgMode === "ExistingOrg" ? "Existing org (understand existing components first)" : "Greenfield (build from scratch)"}`,
+    "",
+    orgDetails ? `Org details:\n${orgDetails}` : "",
+    integration ? `Data / integration:\n${integration}` : "",
     orgMode === "ExistingOrg"
-      ? `### Known existing components / constraints\n${existingComponents || "(none provided)"}`
+      ? `Known existing components / constraints:\n${existingComponents || "(none provided)"}`
       : "",
+    additionalNotes ? `Additional notes:\n${additionalNotes}` : "",
     "",
-    "## Constraints",
-    joinBullets(
-      constraints.length ? constraints : ["Follow Salesforce best practices and the org’s established patterns and naming conventions."]
-    ),
     "",
-    "## Guardrails",
-    joinBullets([...baseGuardrails, ...salesforceGuardrails, ...artifactChecklist]),
+    "--------------------------------------------------",
     "",
-    "## Outcomes (definition of done)",
-    joinBullets(work.outcomes),
+    "TASK",
+    "Based on the role specified, perform the following task:",
+    effectiveTask,
     "",
-    "## Process",
-    joinBullets(org.firstStep),
+    `Artifact type: ${artifactName(artifact)}`,
+    `Work product: ${workProduct}`,
     "",
-    "## Output format",
-    `- ${outputStyleNote}`,
-    ...work.outputFormat.map((x) => `- Include section: ${x}`),
+    ...org.discoveryDirective.map((x) => `- ${x}`),
     "",
-    "## Required final checks",
-    joinBullets([
-      "Confirm you met the goal and each requirement.",
-      "List any assumptions and open questions.",
-      "List security considerations (CRUD/FLS/sharing/PII).",
-      "List testing approach (unit + manual).",
-      "If generating code/metadata, ensure naming is consistent and all referenced fields/objects are defined.",
-    ]),
+    "",
+    "--------------------------------------------------",
+    "",
+    "CONSTRAINTS (NON-NEGOTIABLE)",
+    "You must:",
+    joinBullets(mustConstraints),
+    "",
+    "You must NOT:",
+    joinBullets(mustNotConstraints),
+    "",
+    additionalConstraints.length ? "Additional constraints:\n" + joinBullets(additionalConstraints) : "",
+    "",
+    "",
+    "--------------------------------------------------",
+    "",
+    "GUARDRAILS",
+    joinBullets(guardrails),
+    "",
+    "",
+    "--------------------------------------------------",
+    "",
+    "EXPECTED OUTPUT FORMAT",
+    outputStyleNote,
+    "",
+    "Provide your response in the following structure:",
+    "",
+    "1. Understanding of the Requirement",
+    "2. Assumptions",
+    "3. Recommended Salesforce Approach",
+    "4. Architecture / Design (if applicable)",
+    "5. Data Model Impact",
+    "6. Security & Access Considerations",
+    "7. Performance & Governor Limit Considerations",
+    "8. Risks & Mitigations",
+    "9. Next Steps",
+    "",
+    "",
+    "--------------------------------------------------",
+    "",
+    "QUALITY BAR",
+    "If information is missing, ask clarifying questions before proceeding.",
+    "Accuracy and Salesforce correctness take priority over speed.",
   ]
     .filter((x) => x !== "")
     .join("\n");
@@ -278,15 +307,23 @@ function readStateFromUI() {
     artifact: $("artifact").value,
     workProduct: $("workProduct").value,
     orgMode: $("orgMode").value,
-    goal: $("goal").value,
+    projectName: $("projectName").value,
+    businessObjective: $("businessObjective").value,
+    products: $("products").value,
     objects: $("objects").value,
     users: $("users").value,
-    requirements: $("requirements").value,
+    functionalScope: $("functionalScope").value,
+    nfrSecurity: $("nfrSecurity").value,
+    nfrPerformance: $("nfrPerformance").value,
+    nfrScalability: $("nfrScalability").value,
+    nfrCompliance: $("nfrCompliance").value,
+    task: $("task").value,
     existingComponents: $("existingComponents").value,
     constraints: $("constraints").value,
     outputStyle: $("outputStyle").value,
     orgDetails: $("orgDetails").value,
     integration: $("integration").value,
+    additionalNotes: $("additionalNotes").value,
   };
 }
 
@@ -296,15 +333,23 @@ function writeStateToUI(state) {
   $("artifact").value = s.artifact || "LWC";
   $("workProduct").value = s.workProduct || "Build";
   $("orgMode").value = s.orgMode || "Greenfield";
-  $("goal").value = s.goal || "";
+  $("projectName").value = s.projectName || "";
+  $("businessObjective").value = s.businessObjective || "";
+  $("products").value = s.products || "";
   $("objects").value = s.objects || "";
   $("users").value = s.users || "";
-  $("requirements").value = s.requirements || "";
+  $("functionalScope").value = s.functionalScope || "";
+  $("nfrSecurity").value = s.nfrSecurity || "";
+  $("nfrPerformance").value = s.nfrPerformance || "";
+  $("nfrScalability").value = s.nfrScalability || "";
+  $("nfrCompliance").value = s.nfrCompliance || "";
+  $("task").value = s.task || "";
   $("existingComponents").value = s.existingComponents || "";
   $("constraints").value = s.constraints || "";
-  $("outputStyle").value = s.outputStyle || "Markdown";
+  $("outputStyle").value = s.outputStyle || "Standard";
   $("orgDetails").value = s.orgDetails || "";
   $("integration").value = s.integration || "";
+  $("additionalNotes").value = s.additionalNotes || "";
 }
 
 function updateExistingOrgVisibility() {
@@ -318,7 +363,8 @@ function updatePrompt() {
   const prompt = buildPrompt(state);
   $("output").value = prompt;
 
-  const meta = `${state.persona} • ${artifactName(state.artifact)} • ${state.orgMode === "ExistingOrg" ? "Existing org" : "Greenfield"} • ${state.workProduct}`;
+  const metaLeft = `${roleLabel(state.persona)} • ${artifactName(state.artifact)} • ${state.orgMode === "ExistingOrg" ? "Existing org" : "Greenfield"} • ${state.workProduct}`;
+  const meta = state.projectName ? `${metaLeft} • ${state.projectName}` : metaLeft;
   $("promptMeta").textContent = meta;
 
   try {
@@ -342,13 +388,19 @@ async function copyPrompt() {
 
 function downloadPrompt() {
   const state = readStateFromUI();
+  const pn = safe(state.projectName)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
   const nameParts = [
     "prompt",
     state.artifact.toLowerCase(),
     state.orgMode === "ExistingOrg" ? "existing-org" : "greenfield",
     state.workProduct.toLowerCase(),
+    pn || null,
   ];
-  const filename = `${nameParts.join("_")}.md`;
+  const filename = `${nameParts.filter(Boolean).join("_")}.md`;
   const blob = new Blob([$("output").value || ""], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -367,15 +419,23 @@ function resetAll() {
     artifact: "LWC",
     workProduct: "Build",
     orgMode: "Greenfield",
-    goal: "",
+    projectName: "",
+    businessObjective: "",
+    products: "",
     objects: "",
     users: "",
-    requirements: "",
+    functionalScope: "",
+    nfrSecurity: "",
+    nfrPerformance: "",
+    nfrScalability: "",
+    nfrCompliance: "",
+    task: "",
     existingComponents: "",
     constraints: "",
-    outputStyle: "Markdown",
+    outputStyle: "Standard",
     orgDetails: "",
     integration: "",
+    additionalNotes: "",
   });
   updatePrompt();
 }
@@ -395,15 +455,23 @@ function init() {
     "artifact",
     "workProduct",
     "orgMode",
-    "goal",
+    "projectName",
+    "businessObjective",
+    "products",
     "objects",
     "users",
-    "requirements",
+    "functionalScope",
+    "nfrSecurity",
+    "nfrPerformance",
+    "nfrScalability",
+    "nfrCompliance",
+    "task",
     "existingComponents",
     "constraints",
     "outputStyle",
     "orgDetails",
     "integration",
+    "additionalNotes",
   ];
   for (const id of inputs) {
     $(id).addEventListener("input", updatePrompt);

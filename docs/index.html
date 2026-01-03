@@ -72,13 +72,29 @@
           </label>
         </div>
 
+        <div class="grid">
+          <label class="field">
+            <span class="field__label">Project / Feature name</span>
+            <input id="projectName" class="field__control" type="text" placeholder="e.g., Case Intake Modernization" />
+          </label>
+          <label class="field">
+            <span class="field__label">Salesforce Clouds / Products in scope</span>
+            <input
+              id="products"
+              class="field__control"
+              type="text"
+              placeholder="e.g., Service Cloud, Experience Cloud, OmniStudio, MuleSoft"
+            />
+          </label>
+        </div>
+
         <label class="field">
-          <span class="field__label">Goal</span>
+          <span class="field__label">Business objective</span>
           <textarea
-            id="goal"
+            id="businessObjective"
             class="field__control field__control--textarea"
             rows="3"
-            placeholder="What should be delivered? (e.g., 'Create a Case Intake screen and automate routing based on priority')"
+            placeholder="Describe the business problem being solved and how success will be measured."
           ></textarea>
         </label>
 
@@ -99,12 +115,64 @@
         </div>
 
         <label class="field">
-          <span class="field__label">Requirements</span>
+          <span class="field__label">Functional scope</span>
           <textarea
-            id="requirements"
+            id="functionalScope"
             class="field__control field__control--textarea"
             rows="5"
-            placeholder="- Functional requirements&#10;- Non-functional requirements (perf, security, UX)&#10;- Edge cases"
+            placeholder="What must be built? Include user journeys, business rules, and key scenarios."
+          ></textarea>
+        </label>
+
+        <div class="card">
+          <div class="card__title">Non-functional requirements</div>
+          <div class="grid">
+            <label class="field">
+              <span class="field__label">Security</span>
+              <textarea
+                id="nfrSecurity"
+                class="field__control field__control--textarea"
+                rows="3"
+                placeholder="AuthN/AuthZ, CRUD/FLS, sharing, PII handling, audit, encryption, etc."
+              ></textarea>
+            </label>
+            <label class="field">
+              <span class="field__label">Performance</span>
+              <textarea
+                id="nfrPerformance"
+                class="field__control field__control--textarea"
+                rows="3"
+                placeholder="Latency, throughput, async needs, caching, limits, SLAs, etc."
+              ></textarea>
+            </label>
+            <label class="field">
+              <span class="field__label">Scalability</span>
+              <textarea
+                id="nfrScalability"
+                class="field__control field__control--textarea"
+                rows="3"
+                placeholder="Data volume, concurrency, growth, batch/async patterns, etc."
+              ></textarea>
+            </label>
+            <label class="field">
+              <span class="field__label">Compliance (PII, GDPR, etc.)</span>
+              <textarea
+                id="nfrCompliance"
+                class="field__control field__control--textarea"
+                rows="3"
+                placeholder="PII fields, retention, consent, logging, regulatory constraints, etc."
+              ></textarea>
+            </label>
+          </div>
+        </div>
+
+        <label class="field">
+          <span class="field__label">Task</span>
+          <textarea
+            id="task"
+            class="field__control field__control--textarea"
+            rows="3"
+            placeholder="Based on the role specified, what must be done? (e.g., 'Create user stories', 'Design solution architecture', 'Write Apex + LWC', 'Create flows')"
           ></textarea>
         </label>
 
@@ -126,7 +194,7 @@
 
         <div class="grid">
           <label class="field">
-            <span class="field__label">Constraints</span>
+            <span class="field__label">Additional constraints (optional)</span>
             <textarea
               id="constraints"
               class="field__control field__control--textarea"
@@ -135,9 +203,9 @@
             ></textarea>
           </label>
           <label class="field">
-            <span class="field__label">Output preference</span>
+            <span class="field__label">Output formatting</span>
             <select id="outputStyle" class="field__control">
-              <option value="Markdown">Markdown</option>
+              <option value="Standard">Standard (matches 1–9 template)</option>
               <option value="Jira">Jira-ready (headings + AC)</option>
               <option value="Engineering">Engineering spec (structured)</option>
             </select>
@@ -165,6 +233,15 @@
                 class="field__control field__control--textarea"
                 rows="4"
                 placeholder="APIs, external systems, auth model, async patterns, events, callouts, Named Credentials, etc."
+              ></textarea>
+            </label>
+            <label class="field">
+              <span class="field__label">Additional notes (optional)</span>
+              <textarea
+                id="additionalNotes"
+                class="field__control field__control--textarea"
+                rows="4"
+                placeholder="Anything else the model should know (constraints, dependencies, org standards, etc.)."
               ></textarea>
             </label>
           </div>
