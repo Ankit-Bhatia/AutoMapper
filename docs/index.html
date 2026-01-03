@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vibe Coding Prompt Templates — Salesforce</title>
+    <meta
+      name="description"
+      content="Generate AI prompt templates for Salesforce development (LWC, Apex, Tests, Flows, Objects) using role/context/constraints/guardrails/outcomes."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="container header">
+      <div class="brand">
+        <div class="brand__mark" aria-hidden="true">VC</div>
+        <div class="brand__text">
+          <div class="brand__title">Vibe Coding Prompt Templates</div>
+          <div class="brand__subtitle">Salesforce (LWC • Apex • Tests • Flows • Objects)</div>
+        </div>
+      </div>
+      <div class="header__actions">
+        <button id="btnReset" class="btn btn--ghost" type="button">Reset</button>
+        <button id="btnCopy" class="btn" type="button">Copy prompt</button>
+      </div>
+    </header>
+
+    <main class="container layout">
+      <section class="panel">
+        <h2 class="panel__title">Inputs</h2>
+        <p class="panel__hint">
+          Choose what you’re building and provide enough context so the model can produce correct, secure, and org-aligned
+          output.
+        </p>
+
+        <div class="grid">
+          <label class="field">
+            <span class="field__label">Persona (who is asking)</span>
+            <select id="persona" class="field__control">
+              <option value="Developer">Developer</option>
+              <option value="Architect">Architect</option>
+              <option value="Business Analyst">Business Analyst</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Artifact type</span>
+            <select id="artifact" class="field__control">
+              <option value="LWC">Lightning Web Component (LWC)</option>
+              <option value="Apex">Apex (classes / triggers / services)</option>
+              <option value="TestClass">Apex Test Class</option>
+              <option value="Flow">Flow</option>
+              <option value="Object">Object / Data Model</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Work product</span>
+            <select id="workProduct" class="field__control">
+              <option value="Build">Build implementation</option>
+              <option value="Story">Write a user story / acceptance criteria</option>
+              <option value="Design">Architecture / technical design</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Org mode</span>
+            <select id="orgMode" class="field__control">
+              <option value="Greenfield">Greenfield (build from scratch)</option>
+              <option value="ExistingOrg">Existing org (understand existing components first)</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field__label">Goal</span>
+          <textarea
+            id="goal"
+            class="field__control field__control--textarea"
+            rows="3"
+            placeholder="What should be delivered? (e.g., 'Create a Case Intake screen and automate routing based on priority')"
+          ></textarea>
+        </label>
+
+        <div class="grid">
+          <label class="field">
+            <span class="field__label">Primary object(s)</span>
+            <input
+              id="objects"
+              class="field__control"
+              type="text"
+              placeholder="e.g., Case, Account, CustomObject__c"
+            />
+          </label>
+          <label class="field">
+            <span class="field__label">Users / personas</span>
+            <input id="users" class="field__control" type="text" placeholder="e.g., Support Agent, Manager" />
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field__label">Requirements</span>
+          <textarea
+            id="requirements"
+            class="field__control field__control--textarea"
+            rows="5"
+            placeholder="- Functional requirements&#10;- Non-functional requirements (perf, security, UX)&#10;- Edge cases"
+          ></textarea>
+        </label>
+
+        <div id="existingOrgFields" class="card card--muted" hidden>
+          <div class="card__title">Existing org discovery</div>
+          <p class="card__hint">
+            When you select “Existing org”, the prompt will force an inventory/analysis step before building.
+          </p>
+          <label class="field">
+            <span class="field__label">Known existing components / constraints</span>
+            <textarea
+              id="existingComponents"
+              class="field__control field__control--textarea"
+              rows="5"
+              placeholder="List anything you already know: existing LWCs, Apex classes, managed packages, flows, objects, naming conventions, integration patterns, security model, etc."
+            ></textarea>
+          </label>
+        </div>
+
+        <div class="grid">
+          <label class="field">
+            <span class="field__label">Constraints</span>
+            <textarea
+              id="constraints"
+              class="field__control field__control--textarea"
+              rows="4"
+              placeholder="- No hardcoding IDs&#10;- Follow security best practices&#10;- Use bulk-safe Apex&#10;- Governor limits"
+            ></textarea>
+          </label>
+          <label class="field">
+            <span class="field__label">Output preference</span>
+            <select id="outputStyle" class="field__control">
+              <option value="Markdown">Markdown</option>
+              <option value="Jira">Jira-ready (headings + AC)</option>
+              <option value="Engineering">Engineering spec (structured)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <details class="advanced">
+          <summary class="advanced__summary">Advanced (optional)</summary>
+          <div class="advanced__body">
+            <label class="field">
+              <span class="field__label">Org details</span>
+              <textarea
+                id="orgDetails"
+                class="field__control field__control--textarea"
+                rows="4"
+                placeholder="Edition, namespaces, packaging, environments, CI/CD notes, data volume, compliance (PII), sharing model, etc."
+              ></textarea>
+            </label>
+            <label class="field">
+              <span class="field__label">Data / integration</span>
+              <textarea
+                id="integration"
+                class="field__control field__control--textarea"
+                rows="4"
+                placeholder="APIs, external systems, auth model, async patterns, events, callouts, Named Credentials, etc."
+              ></textarea>
+            </label>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel">
+        <div class="panel__titleRow">
+          <h2 class="panel__title">Generated prompt</h2>
+          <div class="pill" id="promptMeta"></div>
+        </div>
+        <p class="panel__hint">This is the prompt you paste into your AI tool. It includes explicit guardrails and output format.</p>
+
+        <textarea id="output" class="output" spellcheck="false"></textarea>
+
+        <div class="actions">
+          <button id="btnDownload" class="btn btn--ghost" type="button">Download .md</button>
+          <button id="btnCopy2" class="btn" type="button">Copy prompt</button>
+        </div>
+
+        <div class="footnote">
+          Tip: if the model can’t proceed, it should ask clarifying questions instead of guessing—this is enforced in the guardrails.
+        </div>
+      </section>
+    </main>
+
+    <footer class="container footer">
+      <div>
+        Built as a static site for GitHub Pages. No data leaves your browser unless you paste it into an AI tool.
+      </div>
+      <div class="footer__right">
+        <a class="link" href="./" aria-label="Reload">Reload</a>
+      </div>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
