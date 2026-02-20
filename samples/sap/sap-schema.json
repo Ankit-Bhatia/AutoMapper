@@ -1,0 +1,44 @@
+{
+  "entities": [
+    {
+      "name": "SAP.Customer",
+      "label": "Customer Master",
+      "fields": [
+        { "name": "CustomerNumber", "dataType": "string", "isKey": true, "required": true },
+        { "name": "Name1", "dataType": "string" },
+        { "name": "Name2", "dataType": "string" },
+        { "name": "CountryCode", "dataType": "string" }
+      ]
+    },
+    {
+      "name": "SAP.Address",
+      "label": "Address",
+      "fields": [
+        { "name": "Street", "dataType": "string" },
+        { "name": "City", "dataType": "string" },
+        { "name": "PostalCode", "dataType": "string" },
+        { "name": "Country", "dataType": "string" }
+      ]
+    },
+    {
+      "name": "SAP.Contact",
+      "label": "Contact",
+      "fields": [
+        { "name": "Email", "dataType": "email" },
+        { "name": "Phone", "dataType": "phone" }
+      ]
+    },
+    {
+      "name": "SAP.SalesArea",
+      "label": "Sales Area",
+      "fields": [
+        { "name": "SalesOrg", "dataType": "picklist", "picklistValues": ["1000", "2000", "3000"] }
+      ]
+    }
+  ],
+  "relationships": [
+    { "fromEntity": "SAP.Customer", "toEntity": "SAP.Address", "type": "lookup" },
+    { "fromEntity": "SAP.Customer", "toEntity": "SAP.Contact", "type": "parentchild" },
+    { "fromEntity": "SAP.Customer", "toEntity": "SAP.SalesArea", "type": "parentchild" }
+  ]
+}

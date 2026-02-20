@@ -1,0 +1,15 @@
+{
+  "warnings": [
+    {
+      "type": "missing_required",
+      "entityMappingId": "emap_001",
+      "message": "Required target field Name is not mapped"
+    }
+  ],
+  "summary": {
+    "totalWarnings": 1,
+    "typeMismatch": 0,
+    "missingRequired": 1,
+    "picklistCoverage": 0
+  }
+}

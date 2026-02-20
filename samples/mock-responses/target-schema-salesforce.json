@@ -1,0 +1,18 @@
+{
+  "entities": [
+    { "id": "ent_sf_account", "systemId": "sys_sf_001", "name": "Account", "label": "Account" },
+    { "id": "ent_sf_contact", "systemId": "sys_sf_001", "name": "Contact", "label": "Contact" },
+    { "id": "ent_sf_sales_area", "systemId": "sys_sf_001", "name": "Sales_Area__c", "label": "Sales Area" }
+  ],
+  "fields": [
+    { "id": "fld_sf_external_id", "entityId": "ent_sf_account", "name": "External_ID__c", "dataType": "string", "isExternalId": true },
+    { "id": "fld_sf_account_name", "entityId": "ent_sf_account", "name": "Name", "dataType": "string", "required": true },
+    { "id": "fld_sf_billing_street", "entityId": "ent_sf_account", "name": "BillingStreet", "dataType": "string" },
+    { "id": "fld_sf_billing_city", "entityId": "ent_sf_account", "name": "BillingCity", "dataType": "string" },
+    { "id": "fld_sf_contact_email", "entityId": "ent_sf_contact", "name": "Email", "dataType": "email" },
+    { "id": "fld_sf_contact_phone", "entityId": "ent_sf_contact", "name": "Phone", "dataType": "phone" },
+    { "id": "fld_sf_sales_org", "entityId": "ent_sf_sales_area", "name": "Sales_Org__c", "dataType": "picklist", "picklistValues": ["1000", "2000", "3000"] }
+  ],
+  "relationships": [],
+  "mode": "mock"
+}

@@ -1,0 +1,62 @@
+{
+  "entityMappings": [
+    {
+      "id": "emap_001",
+      "projectId": "proj_demo_001",
+      "sourceEntityId": "ent_sap_customer",
+      "targetEntityId": "ent_sf_account",
+      "confidence": 0.93,
+      "rationale": "Customer aligns with Account business entity semantics"
+    },
+    {
+      "id": "emap_002",
+      "projectId": "proj_demo_001",
+      "sourceEntityId": "ent_sap_contact",
+      "targetEntityId": "ent_sf_contact",
+      "confidence": 0.94,
+      "rationale": "Direct entity name and field alignment"
+    }
+  ],
+  "fieldMappings": [
+    {
+      "id": "fmap_001",
+      "entityMappingId": "emap_001",
+      "sourceFieldId": "fld_sap_customer_number",
+      "targetFieldId": "fld_sf_external_id",
+      "transform": { "type": "direct", "config": {} },
+      "confidence": 0.96,
+      "rationale": "Identifier fields with matching intent and compatible types",
+      "status": "suggested"
+    },
+    {
+      "id": "fmap_002",
+      "entityMappingId": "emap_001",
+      "sourceFieldId": "fld_sap_name1",
+      "targetFieldId": "fld_sf_account_name",
+      "transform": { "type": "concat", "config": { "separator": " ", "sourceFields": ["Name1", "Name2"] } },
+      "confidence": 0.84,
+      "rationale": "Name1 and Name2 can be concatenated to target Name",
+      "status": "suggested"
+    },
+    {
+      "id": "fmap_003",
+      "entityMappingId": "emap_002",
+      "sourceFieldId": "fld_sap_email",
+      "targetFieldId": "fld_sf_contact_email",
+      "transform": { "type": "trim", "config": { "side": "both" } },
+      "confidence": 0.92,
+      "rationale": "Email-to-email direct match with normalization",
+      "status": "suggested"
+    }
+  ],
+  "validation": {
+    "warnings": [],
+    "summary": {
+      "totalWarnings": 0,
+      "typeMismatch": 0,
+      "missingRequired": 0,
+      "picklistCoverage": 0
+    }
+  },
+  "mode": "heuristic"
+}

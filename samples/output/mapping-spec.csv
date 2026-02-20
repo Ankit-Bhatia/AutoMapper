@@ -1,0 +1,3 @@
+project,sourceEntity,sourceField,targetEntity,targetField,transformType,transformConfig,confidence,status,rationale
+SAP to Salesforce Demo,SAP.Customer,CustomerNumber,Account,External_ID__c,direct,{},0.910,accepted,Key identifier match; type compatible
+SAP to Salesforce Demo,SAP.Customer,Name1,Account,Name,concat,"{""separator"":"" "",""sourceFields"": [""Name1"", ""Name2""]}",0.840,suggested,Name fields combine naturally
