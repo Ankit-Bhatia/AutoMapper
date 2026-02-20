@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx xmlns:edmx="http://schemas.microsoft.com/ado/2007/06/edmx" Version="1.0">
+  <edmx:DataServices>
+    <Schema Namespace="SAP.Demo" xmlns="http://schemas.microsoft.com/ado/2008/09/edm">
+      <EntityType Name="Customer">
+        <Key>
+          <PropertyRef Name="CustomerNumber" />
+        </Key>
+        <Property Name="CustomerNumber" Type="Edm.String" Nullable="false" MaxLength="10" />
+        <Property Name="Name1" Type="Edm.String" MaxLength="80" />
+        <Property Name="Name2" Type="Edm.String" MaxLength="80" />
+      </EntityType>
+      <EntityType Name="Contact">
+        <Property Name="Email" Type="Edm.String" MaxLength="100" />
+        <Property Name="Phone" Type="Edm.String" MaxLength="40" />
+      </EntityType>
+      <EntityType Name="SalesArea">
+        <Property Name="SalesOrg" Type="Edm.String" MaxLength="4" />
+      </EntityType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

@@ -1,0 +1,41 @@
+{
+  "project": {
+    "id": "demo-project",
+    "name": "SAP to Salesforce Demo",
+    "sourceSystemId": "sap-system",
+    "targetSystemId": "sf-system",
+    "createdAt": "2026-02-20T00:00:00.000Z",
+    "updatedAt": "2026-02-20T00:00:00.000Z"
+  },
+  "entityMappings": [
+    {
+      "sourceEntity": "SAP.Customer",
+      "targetEntity": "Account",
+      "fieldMappings": [
+        {
+          "sourceField": "CustomerNumber",
+          "targetField": "External_ID__c",
+          "transform": { "type": "direct", "config": {} },
+          "confidence": 0.91,
+          "rationale": "Key identifier match; type compatible"
+        },
+        {
+          "sourceField": "Name1",
+          "targetField": "Name",
+          "transform": { "type": "concat", "config": { "separator": " ", "sourceFields": ["Name1", "Name2"] } },
+          "confidence": 0.84,
+          "rationale": "Name fields combine naturally"
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "warnings": [],
+    "summary": {
+      "totalWarnings": 0,
+      "typeMismatch": 0,
+      "missingRequired": 0,
+      "picklistCoverage": 0
+    }
+  }
+}

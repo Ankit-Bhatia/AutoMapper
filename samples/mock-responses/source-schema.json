@@ -1,0 +1,19 @@
+{
+  "entities": [
+    { "id": "ent_sap_customer", "systemId": "sys_sap_001", "name": "SAP.Customer", "label": "Customer Master" },
+    { "id": "ent_sap_contact", "systemId": "sys_sap_001", "name": "SAP.Contact", "label": "Contact" },
+    { "id": "ent_sap_sales_area", "systemId": "sys_sap_001", "name": "SAP.SalesArea", "label": "Sales Area" }
+  ],
+  "fields": [
+    { "id": "fld_sap_customer_number", "entityId": "ent_sap_customer", "name": "CustomerNumber", "dataType": "string", "required": true, "isKey": true },
+    { "id": "fld_sap_name1", "entityId": "ent_sap_customer", "name": "Name1", "dataType": "string" },
+    { "id": "fld_sap_name2", "entityId": "ent_sap_customer", "name": "Name2", "dataType": "string" },
+    { "id": "fld_sap_email", "entityId": "ent_sap_contact", "name": "Email", "dataType": "email" },
+    { "id": "fld_sap_phone", "entityId": "ent_sap_contact", "name": "Phone", "dataType": "phone" },
+    { "id": "fld_sap_sales_org", "entityId": "ent_sap_sales_area", "name": "SalesOrg", "dataType": "picklist", "picklistValues": ["1000", "2000", "3000"] }
+  ],
+  "relationships": [
+    { "fromEntityId": "ent_sap_customer", "toEntityId": "ent_sap_contact", "type": "parentchild", "viaField": "CustomerNumber" }
+  ],
+  "message": "SAP schema ingested"
+}
