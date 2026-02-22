@@ -9,6 +9,7 @@ import { fetchSalesforceSchema } from './connectors/salesforce.js';
 import { suggestMappings } from './services/mapper.js';
 import { validateMappings } from './services/validator.js';
 import { buildCsvExport, buildJsonExport } from './services/exporter.js';
+import { runAgentRefinement, type RefinementStep } from './services/agentRefiner.js';
 
 const app = express();
 const upload = multer();
@@ -229,6 +230,65 @@ app.get('/api/projects/:id/export', (req, res) => {
     validation,
   });
   res.json(json);
+});
+
+app.post('/api/projects/:id/agent-refine', async (req, res) => {
+  const project = store.getProject(req.params.id);
+  if (!project) {
+    sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  const state = store.getState();
+  const entityMappings = state.entityMappings.filter((e) => e.projectId === project.id);
+  const entityMappingIds = new Set(entityMappings.map((e) => e.id));
+  const fieldMappings = state.fieldMappings.filter((f) => entityMappingIds.has(f.entityMappingId));
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+
+  const writeEvent = (payload: object) => {
+    res.write(`data: ${JSON.stringify(payload)}\\n\\n`);
+  };
+
+  writeEvent({
+    type: 'start',
+    projectId: project.id,
+    totalLowConfidence: fieldMappings.filter((fm) => fm.status === 'suggested' && fm.confidence < 0.65).length,
+    hasAi: Boolean(process.env.OPENAI_API_KEY),
+  });
+
+  try {
+    const result = await runAgentRefinement({
+      project,
+      entityMappings,
+      fieldMappings,
+      entities: state.entities,
+      fields: state.fields,
+      onStep: (step: RefinementStep) => {
+        writeEvent({ type: 'step', ...step });
+      },
+    });
+
+    store.upsertMappings(project.id, entityMappings, result.updatedFieldMappings);
+
+    writeEvent({
+      type: 'complete',
+      totalImproved: result.totalImproved,
+      updatedMappings: result.updatedFieldMappings.length,
+      validation: result.finalValidation,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Refinement failed';
+    writeEvent({ type: 'error', message });
+  } finally {
+    res.end();
+  }
 });
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

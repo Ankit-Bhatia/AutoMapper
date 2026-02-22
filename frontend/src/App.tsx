@@ -11,6 +11,12 @@ import type {
 } from './types';
 
 type Tab = 'setup' | 'review' | 'export';
+type RefinementStep = {
+  iteration: number;
+  phase: string;
+  improved: number;
+  message: string;
+};
 
 const TRANSFORMS = ['direct', 'concat', 'formatDate', 'lookup', 'static', 'regex', 'split', 'trim'];
 
@@ -27,6 +33,11 @@ export default function App() {
   const [selectedSapFile, setSelectedSapFile] = useState<File | null>(null);
   const [sfObjects, setSfObjects] = useState('Account,Contact,Sales_Area__c');
   const [status, setStatus] = useState('Ready');
+  const [agentRefining, setAgentRefining] = useState(false);
+  const [agentSteps, setAgentSteps] = useState<RefinementStep[]>([]);
+  const [agentDone, setAgentDone] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentStarted, setAgentStarted] = useState(false);
 
   const fieldById = useMemo(() => new Map(fields.map((f) => [f.id, f])), [fields]);
   const entityById = useMemo(
@@ -59,7 +70,7 @@ export default function App() {
     }
 
     setStatus('SAP schema ingested');
-    await refreshProject();
+    await loadProject();
   }
 
   async function loadSalesforceSchema() {
@@ -75,7 +86,7 @@ export default function App() {
     });
 
     setStatus(`Salesforce schema loaded (${result.mode})`);
-    await refreshProject();
+    await loadProject();
   }
 
   async function generateSuggestions() {
@@ -94,7 +105,7 @@ export default function App() {
     setTab('review');
   }
 
-  async function refreshProject() {
+  async function loadProject() {
     if (!project) return;
     const data = await api<ProjectPayload>(`/api/projects/${project.id}`);
     setProject(data.project);
@@ -103,6 +114,82 @@ export default function App() {
     setFields(data.fields);
     setEntityMappings(data.entityMappings);
     setFieldMappings(data.fieldMappings);
+  }
+
+  async function runAgentRefine() {
+    if (!project) return;
+    setAgentRefining(true);
+    setAgentSteps([]);
+    setAgentDone(false);
+    setAgentError(null);
+    setAgentStarted(false);
+    setStatus('Running agent refinement...');
+
+    try {
+      const response = await fetch(`${apiBase()}/api/projects/${project.id}/agent-refine`, {
+        method: 'POST',
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Agent refine failed (${response.status})`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let splitIndex = buffer.indexOf('\n');
+        while (splitIndex >= 0) {
+          const line = buffer.slice(0, splitIndex).trim();
+          buffer = buffer.slice(splitIndex + 1);
+          if (line.startsWith('data: ')) {
+            const payload = JSON.parse(line.slice(6)) as
+              | { type: 'start'; projectId: string; totalLowConfidence: number; hasAi: boolean }
+              | ({ type: 'step' } & RefinementStep)
+              | { type: 'complete'; totalImproved: number; updatedMappings: number; validation: ValidationReport }
+              | { type: 'error'; message: string };
+
+            if (payload.type === 'start') {
+              setAgentStarted(true);
+              setStatus(
+                `Agent started (${payload.hasAi ? 'AI enabled' : 'heuristic mode'}), low-confidence: ${payload.totalLowConfidence}`,
+              );
+            } else if (payload.type === 'step') {
+              const step: RefinementStep = {
+                iteration: payload.iteration,
+                phase: payload.phase,
+                improved: payload.improved,
+                message: payload.message,
+              };
+              setAgentSteps((prev) => [...prev, step]);
+            } else if (payload.type === 'complete') {
+              setAgentDone(true);
+              setAgentRefining(false);
+              setValidation(payload.validation);
+              setStatus(`Agent refinement complete (${payload.totalImproved} improvements)`);
+              await loadProject();
+            } else if (payload.type === 'error') {
+              setAgentError(payload.message);
+              setAgentRefining(false);
+              setStatus(`Agent refinement failed: ${payload.message}`);
+            }
+          }
+          splitIndex = buffer.indexOf('\n');
+        }
+      }
+
+      setAgentRefining(false);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Agent refinement failed';
+      setAgentError(message);
+      setStatus(`Agent refinement failed: ${message}`);
+      setAgentRefining(false);
+    }
   }
 
   async function patchFieldMapping(id: string, patch: Partial<FieldMapping>) {
@@ -161,8 +248,35 @@ export default function App() {
 
           <div className="actions">
             <button disabled={!project} onClick={generateSuggestions}>Generate Mapping Suggestions</button>
-            <button disabled={!project} onClick={refreshProject}>Refresh</button>
+            <button disabled={!project} onClick={loadProject}>Refresh</button>
           </div>
+
+          {project && entityMappings.length > 0 && (
+            <div className="actions">
+              <button disabled={agentRefining} onClick={runAgentRefine}>🤖 Agent Refine Mappings</button>
+            </div>
+          )}
+
+          {(agentRefining || agentStarted || agentSteps.length > 0 || agentDone || agentError) && (
+            <div>
+              <p>
+                {agentRefining
+                  ? 'Agent starting...'
+                  : agentDone
+                    ? 'Agent refinement complete.'
+                    : agentError
+                      ? `Agent error: ${agentError}`
+                      : 'Agent status pending.'}
+              </p>
+              <ul>
+                {agentSteps.map((step, idx) => (
+                  <li key={`${step.iteration}-${idx}`}>
+                    {`✅ Iteration ${step.iteration} (${step.phase}): improved ${step.improved} mappings — ${step.message}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       )}
 

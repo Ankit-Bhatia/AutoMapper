@@ -58,8 +58,8 @@ export function buildCsvExport(input: {
 
   const rows = input.fieldMappings.map((fm) => {
     const em = entityMappingById.get(fm.entityMappingId);
-    const sourceEntity = em ? entityById.get(em.sourceEntityId)?.name : '';
-    const targetEntity = em ? entityById.get(em.targetEntityId)?.name : '';
+    const sourceEntity = em ? (entityById.get(em.sourceEntityId)?.name ?? '') : '';
+    const targetEntity = em ? (entityById.get(em.targetEntityId)?.name ?? '') : '';
     const sourceField = fieldById.get(fm.sourceFieldId)?.name ?? fm.sourceFieldId;
     const targetField = fieldById.get(fm.targetFieldId)?.name ?? fm.targetFieldId;
     return [
