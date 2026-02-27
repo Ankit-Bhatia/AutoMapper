@@ -156,10 +156,10 @@ export class DbStore {
 
     const [sourceSystem, targetSystem, project] = await this.prisma.$transaction(async (tx) => {
       const src = await tx.system.create({
-        data: { id: uuidv4(), name: sourceSystemName, type: 'sap' },
+        data: { id: uuidv4(), name: sourceSystemName, type: inferSystemType(sourceSystemName) },
       });
       const tgt = await tx.system.create({
-        data: { id: uuidv4(), name: targetSystemName, type: 'salesforce' },
+        data: { id: uuidv4(), name: targetSystemName, type: inferSystemType(targetSystemName) },
       });
       const proj = await tx.mappingProject.create({
         data: {
@@ -336,4 +336,14 @@ export class DbStore {
       return undefined;
     }
   }
+}
+
+function inferSystemType(name: string): System['type'] {
+  const n = name.toLowerCase();
+  if (n.includes('salesforce')) return 'salesforce';
+  if (n.includes('sap')) return 'sap';
+  if (n.includes('jackhenry') || n.includes('silverlake') || n.includes('coredirector') || n.includes('symitar')) {
+    return 'jackhenry';
+  }
+  return 'generic';
 }

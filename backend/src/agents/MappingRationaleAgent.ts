@@ -177,14 +177,6 @@ export class MappingRationaleAgent extends AgentBase {
     const steps: Omit<AgentStep, 'agentName'>[] = [];
     let totalImproved = 0;
 
-    // Build lookup maps for entities
-    const sourceEntityMap = new Map(
-      sourceEntities.map((e) => [e.id, e]),
-    );
-    const targetEntityMap = new Map(
-      targetEntities.map((e) => [e.id, e]),
-    );
-
     for (const mapping of updatedFieldMappings) {
       // Skip mappings with low confidence
       if (mapping.confidence < 0.3) {
@@ -243,6 +235,7 @@ export class MappingRationaleAgent extends AgentBase {
           hasLLMInsight: !!llmRationale,
         },
       });
+      this.emit(context, steps[steps.length - 1]);
 
       totalImproved++;
     }
@@ -255,6 +248,7 @@ export class MappingRationaleAgent extends AgentBase {
     };
 
     steps.push(mainStep);
+    this.emit(context, mainStep);
 
     return {
       agentName: this.name,

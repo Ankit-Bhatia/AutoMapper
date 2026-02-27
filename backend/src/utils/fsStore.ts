@@ -49,10 +49,23 @@ export class FsStore {
     return this.state;
   }
 
-  createProject(name: string): MappingProject {
+  createProject(
+    name: string,
+    _userId?: string,
+    sourceSystemName = 'SAP',
+    targetSystemName = 'Salesforce',
+  ): MappingProject {
     const now = new Date().toISOString();
-    const sourceSystem: System = { id: uuidv4(), name: 'SAP', type: 'sap' };
-    const targetSystem: System = { id: uuidv4(), name: 'Salesforce', type: 'salesforce' };
+    const sourceSystem: System = {
+      id: uuidv4(),
+      name: sourceSystemName,
+      type: inferSystemType(sourceSystemName),
+    };
+    const targetSystem: System = {
+      id: uuidv4(),
+      name: targetSystemName,
+      type: inferSystemType(targetSystemName),
+    };
 
     this.state.systems.push(sourceSystem, targetSystem);
 
@@ -121,4 +134,14 @@ export class FsStore {
     this.persist();
     return mapping;
   }
+}
+
+function inferSystemType(name: string): System['type'] {
+  const n = name.toLowerCase();
+  if (n.includes('salesforce')) return 'salesforce';
+  if (n.includes('sap')) return 'sap';
+  if (n.includes('jackhenry') || n.includes('silverlake') || n.includes('coredirector') || n.includes('symitar')) {
+    return 'jackhenry';
+  }
+  return 'generic';
 }

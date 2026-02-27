@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { verifyToken, type JwtPayload } from './jwt.js';
+import { sendHttpError } from '../utils/httpErrors.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -19,20 +20,39 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   }
 
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({
-      error: { code: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header' },
-    });
+  const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : null;
+  let token: string | null = null;
+
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else if (queryToken) {
+    // SSE/EventSource cannot set custom Authorization headers in browsers.
+    token = queryToken;
+  } else {
+    sendHttpError(
+      req,
+      res,
+      401,
+      'UNAUTHORIZED',
+      'Missing or invalid Authorization header',
+      null,
+      'auth',
+    );
     return;
   }
 
-  const token = authHeader.slice(7);
   const payload = verifyToken(token);
 
   if (!payload) {
-    res.status(401).json({
-      error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' },
-    });
+    sendHttpError(
+      req,
+      res,
+      401,
+      'UNAUTHORIZED',
+      'Invalid or expired token',
+      null,
+      'auth',
+    );
     return;
   }
 

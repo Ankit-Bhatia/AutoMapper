@@ -4,18 +4,26 @@ import { generateToken } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { RegisterSchema, LoginSchema } from '../validation/schemas.js';
 import { v4 as uuidv4 } from 'uuid';
+import { sendHttpError } from '../utils/httpErrors.js';
 
 const HAS_DATABASE = Boolean(process.env.DATABASE_URL);
 
-function sendError(res: Response, status: number, code: string, message: string, details: unknown = null): void {
-  res.status(status).json({ error: { code, message, details } });
+function sendError(
+  req: Request,
+  res: Response,
+  status: number,
+  code: string,
+  message: string,
+  details: unknown = null,
+): void {
+  sendHttpError(req, res, status, code, message, details, 'auth');
 }
 
 export function setupAuthRoutes(app: Express): void {
   app.post('/api/auth/register', async (req: Request, res: Response) => {
     const parsed = RegisterSchema.safeParse(req.body);
     if (!parsed.success) {
-      sendError(res, 400, 'VALIDATION_ERROR', 'Invalid input', parsed.error.issues);
+      sendError(req, res, 400, 'VALIDATION_ERROR', 'Invalid input', parsed.error.issues);
       return;
     }
 
@@ -30,7 +38,7 @@ export function setupAuthRoutes(app: Express): void {
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      sendError(res, 409, 'EMAIL_TAKEN', 'Email is already registered');
+      sendError(req, res, 409, 'EMAIL_TAKEN', 'Email is already registered');
       return;
     }
 
@@ -49,7 +57,7 @@ export function setupAuthRoutes(app: Express): void {
   app.post('/api/auth/login', async (req: Request, res: Response) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
-      sendError(res, 400, 'VALIDATION_ERROR', 'Invalid input', parsed.error.issues);
+      sendError(req, res, 400, 'VALIDATION_ERROR', 'Invalid input', parsed.error.issues);
       return;
     }
 
@@ -66,13 +74,13 @@ export function setupAuthRoutes(app: Express): void {
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      sendError(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password');
+      sendError(req, res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password');
       return;
     }
 
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
-      sendError(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password');
+      sendError(req, res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password');
       return;
     }
 

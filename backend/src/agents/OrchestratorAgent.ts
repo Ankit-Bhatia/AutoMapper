@@ -4,7 +4,7 @@
  * Execution order:
  *   1. SchemaDiscoveryAgent     (enriches schema — sequential, always)
  *   2. ComplianceAgent          (flags compliance issues — sequential, always)
- *   3. Domain agents            (parallel — only applicable ones run)
+ *   3. Domain agents            (sequential — only applicable ones run)
  *      ├─ BankingDomainAgent    (if sourceSystemType === 'jackhenry')
  *      ├─ CRMDomainAgent        (if targetSystemType === 'salesforce')
  *      └─ ERPDomainAgent        (if sourceSystemType === 'sap')
@@ -82,31 +82,22 @@ export class OrchestratorAgent extends AgentBase {
     currentMappings = complianceResult.updatedFieldMappings;
     agentsRun.push(this.complianceAgent.name);
 
-    // ── 3. Domain agents (parallel) ──────────────────────────────────────────
+    // ── 3. Domain agents (sequential) ────────────────────────────────────────
     const domainAgents: AgentBase[] = [];
     if (context.sourceSystemType === 'jackhenry') domainAgents.push(this.bankingAgent);
     if (context.targetSystemType === 'salesforce') domainAgents.push(this.crmAgent);
     if (context.sourceSystemType === 'sap') domainAgents.push(this.erpAgent);
 
-    if (domainAgents.length > 0) {
-      // Run domain agents in parallel — each gets the same input mappings
-      // then we merge: take the highest confidence per mapping across all results
-      const domainResults = await Promise.all(
-        domainAgents.map((agent) =>
-          agent.run({ ...wrappedContext, fieldMappings: currentMappings }),
-        ),
-      );
+    for (const agent of domainAgents) {
+      const domainResult = await agent.run({ ...wrappedContext, fieldMappings: currentMappings });
 
-      // Merge: for each field mapping, take the max confidence across all agent results
+      // Keep the highest-confidence candidate per mapping while preserving sequence.
       const mergedMappings = currentMappings.map((mapping) => {
-        let best = mapping;
-        for (const result of domainResults) {
-          const candidate = result.updatedFieldMappings.find((m) => m.id === mapping.id);
-          if (candidate && candidate.confidence > best.confidence) {
-            best = candidate;
-          }
+        const candidate = domainResult.updatedFieldMappings.find((m) => m.id === mapping.id);
+        if (candidate && candidate.confidence > mapping.confidence) {
+          return candidate;
         }
-        return best;
+        return mapping;
       });
 
       const domainImproved = mergedMappings.filter(
@@ -115,7 +106,7 @@ export class OrchestratorAgent extends AgentBase {
 
       currentMappings = mergedMappings;
       totalImproved += domainImproved;
-      agentsRun.push(...domainAgents.map((a) => a.name));
+      agentsRun.push(agent.name);
     }
 
     // ── 4. LLM Mapping Proposal ──────────────────────────────────────────────

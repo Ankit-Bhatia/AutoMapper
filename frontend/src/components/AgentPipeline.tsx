@@ -1,17 +1,49 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { AgentStepState, EntityMapping, FieldMapping, ValidationReport, OrchestrationEvent } from '../types';
-import { apiBase, getEventSource, MockEventSource } from '../api/client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AgentStepState, EntityMapping, FieldMapping, OrchestrationEvent, ValidationReport } from '../types';
+import { api, apiBase, getAuthTokenForSse, getEventSource, MockEventSource } from '../api/client';
 
 // The 7 agents in orchestration order
 const AGENT_DEFS: { id: string; label: string; description: string }[] = [
-  { id: 'SchemaDiscoveryAgent', label: 'Schema Discovery', description: 'Validates ingested schemas and computes entity-level statistics.' },
-  { id: 'ComplianceAgent', label: 'Compliance Scan', description: 'Tags fields with GLBA, BSA/AML, PCI-DSS, SOX, FFIEC markers.' },
-  { id: 'BankingDomainAgent', label: 'Banking Domain', description: 'Detects numeric code fields and short-code enumerations.' },
-  { id: 'CRMDomainAgent', label: 'CRM Domain', description: 'Analyses CRM object relationships and picklist coverage.' },
-  { id: 'MappingProposalAgent', label: 'Mapping Proposal', description: 'Scores field pairs semantically; flags type conflicts.' },
-  { id: 'MappingRationaleAgent', label: 'Mapping Rationale', description: 'Generates natural-language intent summaries for each mapping.' },
-  { id: 'ValidationAgent', label: 'Validation', description: 'Checks type compatibility, required coverage, picklist gaps.' },
+  {
+    id: 'SchemaDiscoveryAgent',
+    label: 'Schema Discovery',
+    description: 'Validates ingested schemas and computes entity-level statistics.',
+  },
+  {
+    id: 'ComplianceAgent',
+    label: 'Compliance Scan',
+    description: 'Tags fields with GLBA, BSA/AML, PCI-DSS, SOX, FFIEC markers.',
+  },
+  {
+    id: 'BankingDomainAgent',
+    label: 'Banking Domain',
+    description: 'Detects numeric code fields and short-code enumerations.',
+  },
+  {
+    id: 'CRMDomainAgent',
+    label: 'CRM Domain',
+    description: 'Analyses CRM object relationships and picklist coverage.',
+  },
+  {
+    id: 'MappingProposalAgent',
+    label: 'Mapping Proposal',
+    description: 'Scores field pairs semantically; flags type conflicts.',
+  },
+  {
+    id: 'MappingRationaleAgent',
+    label: 'Mapping Rationale',
+    description: 'Generates natural-language intent summaries for each mapping.',
+  },
+  {
+    id: 'ValidationAgent',
+    label: 'Validation',
+    description: 'Checks type compatibility, required coverage, picklist gaps.',
+  },
 ];
+
+const MIN_STEP_VISIBLE_MS = 750;
+const MIN_PIPELINE_VISIBLE_MS = 6000;
+const STALL_TIMEOUT_MS = 20000;
 
 interface PipelineResult {
   entityMappings: EntityMapping[];
@@ -25,88 +57,255 @@ interface PipelineResult {
 interface AgentPipelineProps {
   projectId: string;
   onComplete: (result: PipelineResult) => void;
+  onReviewReady?: () => void;
   onError?: (msg: string) => void;
 }
 
-export function AgentPipeline({ projectId, onComplete, onError }: AgentPipelineProps) {
-  const [steps, setSteps] = useState<AgentStepState[]>(
-    AGENT_DEFS.map((d) => ({ id: d.id, label: d.label, status: 'pending' })),
-  );
+function createInitialSteps(): AgentStepState[] {
+  return AGENT_DEFS.map((d) => ({ id: d.id, label: d.label, status: 'pending' }));
+}
+
+function isTerminalStepAction(action?: string): boolean {
+  if (!action) return false;
+  return action.endsWith('_complete') || action === 'skip' || action === 'llm_error' || action === 'error';
+}
+
+export function AgentPipeline({ projectId, onComplete, onReviewReady, onError }: AgentPipelineProps) {
+  const [steps, setSteps] = useState<AgentStepState[]>(() => createInitialSteps());
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
   const esCurrent = useRef<EventSource | MockEventSource | null>(null);
+  const finishedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const runStartedAtRef = useRef<number | null>(null);
+  const lastEventAtRef = useRef<number>(Date.now());
+  const stepStartedAtRef = useRef<Record<string, number>>({});
+  const eventQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const waitTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const stepsRef = useRef<AgentStepState[]>(createInitialSteps());
 
-  const updateStep = useCallback((agentId: string, patch: Partial<AgentStepState>) => {
-    setSteps((prev) =>
-      prev.map((s) => (s.id === agentId ? { ...s, ...patch } : s)),
-    );
+  const replaceSteps = useCallback((next: AgentStepState[]) => {
+    stepsRef.current = next;
+    setSteps(next);
   }, []);
 
-  function startPipeline() {
+  const updateStep = useCallback((agentId: string, patch: Partial<AgentStepState>) => {
+    const next = stepsRef.current.map((s) => (s.id === agentId ? { ...s, ...patch } : s));
+    replaceSteps(next);
+  }, [replaceSteps]);
+
+  const resetSteps = useCallback(() => {
+    replaceSteps(createInitialSteps());
+    stepStartedAtRef.current = {};
+  }, [replaceSteps]);
+
+  const wait = useCallback((ms: number): Promise<void> => {
+    if (ms <= 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        waitTimersRef.current = waitTimersRef.current.filter((t) => t !== timer);
+        resolve();
+      }, ms);
+      waitTimersRef.current.push(timer);
+    });
+  }, []);
+
+  const markStepRunning = useCallback((agentId: string, output?: string) => {
+    const step = stepsRef.current.find((s) => s.id === agentId);
+    if (!step) return;
+    // Once a step is done, do not regress it back to running from follow-up
+    // informational events (e.g. compliance_issue after compliance_scan_complete).
+    if (step.status === 'done') return;
+    const startedAt = stepStartedAtRef.current[agentId] ?? Date.now();
+    stepStartedAtRef.current[agentId] = startedAt;
+    updateStep(agentId, {
+      status: 'running',
+      startedAt,
+      output: output ?? step.output,
+    });
+  }, [updateStep]);
+
+  const completeStepWithPacing = useCallback(async (agentId: string, output?: string) => {
+    const step = stepsRef.current.find((s) => s.id === agentId);
+    if (!step) return;
+
+    const startedAt = stepStartedAtRef.current[agentId] ?? Date.now();
+    stepStartedAtRef.current[agentId] = startedAt;
+    if (step.status === 'pending') {
+      updateStep(agentId, { status: 'running', startedAt });
+    }
+
+    const elapsed = Date.now() - startedAt;
+    const remaining = Math.max(0, MIN_STEP_VISIBLE_MS - elapsed);
+    if (remaining > 0) {
+      await wait(remaining);
+    }
+    if (!mountedRef.current) return;
+
+    const latestStep = stepsRef.current.find((s) => s.id === agentId);
+    updateStep(agentId, {
+      status: 'done',
+      finishedAt: Date.now(),
+      output: output ?? latestStep?.output,
+    });
+  }, [updateStep, wait]);
+
+  const finalizePipelineState = useCallback(async () => {
+    for (const step of AGENT_DEFS) {
+      const current = stepsRef.current.find((s) => s.id === step.id);
+      if (!current || current.status === 'done') continue;
+
+      const fallbackOutput =
+        current.status === 'pending'
+          ? 'Not applicable for this connector combination'
+          : current.output ?? 'Completed';
+      await completeStepWithPacing(step.id, fallbackOutput);
+    }
+  }, [completeStepWithPacing]);
+
+  const enqueueEvent = useCallback((handler: () => Promise<void> | void) => {
+    eventQueueRef.current = eventQueueRef.current
+      .then(() => handler())
+      .catch((err) => {
+        if (!mountedRef.current) return;
+        const msg = err instanceof Error ? err.message : 'Pipeline event processing failed';
+        setError(msg);
+        setRunning(false);
+        onError?.(msg);
+      });
+  }, [onError]);
+
+  const startPipeline = useCallback(() => {
     if (running || done) return;
     setRunning(true);
+    setDone(false);
     setError(null);
-    setStartedAt(Date.now());
+    setResult(null);
+    runStartedAtRef.current = Date.now();
+    lastEventAtRef.current = Date.now();
+    finishedRef.current = false;
+    eventQueueRef.current = Promise.resolve();
+    for (const timer of waitTimersRef.current) clearTimeout(timer);
+    waitTimersRef.current = [];
+    resetSteps();
 
-    // Reset all steps
-    setSteps(AGENT_DEFS.map((d) => ({ id: d.id, label: d.label, status: 'pending' })));
-
-    const url = `${apiBase()}/api/projects/${projectId}/orchestrate`;
+    const token = getAuthTokenForSse();
+    const url = token
+      ? `${apiBase()}/api/projects/${projectId}/orchestrate?access_token=${encodeURIComponent(token)}`
+      : `${apiBase()}/api/projects/${projectId}/orchestrate`;
     const es = getEventSource(url);
     esCurrent.current = es;
 
     es.onmessage = (e) => {
+      lastEventAtRef.current = Date.now();
+      let data: (OrchestrationEvent & {
+        type?: 'start' | 'step' | 'complete' | 'error';
+        message?: string;
+        agentName?: string;
+        action?: string;
+        detail?: string;
+        complianceSummary?: { errors?: number; warnings?: number };
+        durationMs?: number;
+      }) | null = null;
       try {
-        const data: OrchestrationEvent = JSON.parse(e.data);
+        data = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      if (!data) return;
 
-        if (data.event === 'agent_start' && data.agent) {
-          updateStep(data.agent, { status: 'running', startedAt: Date.now() });
+      const eventType: string | undefined = (data.event as string | undefined) ?? data.type;
+
+      // Mark completion immediately so a normal SSE socket close does not surface
+      // as a false "Lost connection" error while completion is still being processed.
+      if (eventType === 'pipeline_complete' || eventType === 'complete') {
+        finishedRef.current = true;
+        esCurrent.current?.close();
+        esCurrent.current = null;
+      }
+
+      enqueueEvent(async () => {
+        if (!eventType) return;
+
+        if (eventType === 'agent_start' && data.agent) {
+          markStepRunning(data.agent, data.detail ?? data.output);
+          return;
         }
 
-        if (data.event === 'agent_complete' && data.agent) {
-          updateStep(data.agent, {
-            status: 'done',
-            output: data.output,
-            finishedAt: Date.now(),
-          });
+        if (eventType === 'agent_complete' && data.agent) {
+          await completeStepWithPacing(data.agent, data.detail ?? data.output);
+          return;
         }
 
-        if (data.event === 'pipeline_complete') {
-          es.close();
-          esCurrent.current = null;
+        if (eventType === 'step' && data.agentName) {
+          const detail = data.detail ?? data.output;
+          if (data.action === 'start') {
+            markStepRunning(data.agentName, detail);
+            return;
+          }
+          if (isTerminalStepAction(data.action)) {
+            await completeStepWithPacing(data.agentName, detail);
+            return;
+          }
+          markStepRunning(data.agentName, detail);
+          return;
+        }
+
+        if (eventType === 'pipeline_complete' || eventType === 'complete') {
+          let payload: { entityMappings: EntityMapping[]; fieldMappings: FieldMapping[] } | null = null;
+          try {
+            payload = await api<{ entityMappings: EntityMapping[]; fieldMappings: FieldMapping[] }>(
+              `/api/projects/${projectId}`,
+            );
+          } catch {
+            // Fall back to SSE payload if project reload fails (for example transient auth/network issues).
+            payload = null;
+          }
+
+          await finalizePipelineState();
+
+          const elapsed = runStartedAtRef.current ? Date.now() - runStartedAtRef.current : 0;
+          const remaining = Math.max(0, MIN_PIPELINE_VISIBLE_MS - elapsed);
+          if (remaining > 0) {
+            await wait(remaining);
+          }
+          if (!mountedRef.current) return;
+
+          const complianceFlags = (data.complianceSummary?.errors ?? 0) + (data.complianceSummary?.warnings ?? 0);
+          const finalFieldMappings = payload?.fieldMappings ?? data.fieldMappings ?? [];
           const r: PipelineResult = {
-            entityMappings: data.entityMappings ?? [],
-            fieldMappings: data.fieldMappings ?? [],
+            entityMappings: payload?.entityMappings ?? data.entityMappings ?? [],
+            fieldMappings: finalFieldMappings,
             validation: data.validation ?? {
               warnings: [],
               summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
             },
-            totalMappings: data.totalMappings ?? 0,
-            complianceFlags: data.complianceFlags ?? 0,
-            processingMs: data.processingMs ?? (startedAt ? Date.now() - startedAt : 0),
+            totalMappings: finalFieldMappings.length,
+            complianceFlags: data.complianceFlags ?? complianceFlags,
+            processingMs: data.processingMs ?? data.durationMs ?? (runStartedAtRef.current ? Date.now() - runStartedAtRef.current : 0),
           };
           setResult(r);
           setDone(true);
           setRunning(false);
           onComplete(r);
+          return;
         }
 
-        if (data.event === 'error') {
+        if (eventType === 'error') {
+          const msg = data.message ?? data.output ?? 'Orchestration failed';
           es.close();
-          const msg = data.output ?? 'Orchestration failed';
+          esCurrent.current = null;
           setError(msg);
           setRunning(false);
           onError?.(msg);
         }
-      } catch {
-        // Malformed SSE data — ignore
-      }
+      });
     };
 
     es.onerror = () => {
+      if (finishedRef.current) return;
       es.close();
       esCurrent.current = null;
       const msg = 'Lost connection to orchestration pipeline.';
@@ -114,14 +313,44 @@ export function AgentPipeline({ projectId, onComplete, onError }: AgentPipelineP
       setRunning(false);
       onError?.(msg);
     };
-  }
+  }, [
+    completeStepWithPacing,
+    done,
+    enqueueEvent,
+    finalizePipelineState,
+    markStepRunning,
+    onComplete,
+    onError,
+    projectId,
+    resetSteps,
+    running,
+    wait,
+  ]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       esCurrent.current?.close();
+      for (const timer of waitTimersRef.current) clearTimeout(timer);
     };
   }, []);
+
+  // Guardrail: do not leave UI indefinitely in running state if SSE stalls.
+  useEffect(() => {
+    if (!running) return;
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - lastEventAtRef.current;
+      if (elapsed <= STALL_TIMEOUT_MS) return;
+      esCurrent.current?.close();
+      esCurrent.current = null;
+      setRunning(false);
+      const msg = 'Pipeline stalled: no progress events received for 20s. Please retry.';
+      setError(msg);
+      onError?.(msg);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [running, onError]);
 
   const doneCount = steps.filter((s) => s.status === 'done').length;
   const progressPct = (doneCount / AGENT_DEFS.length) * 100;
@@ -134,7 +363,7 @@ export function AgentPipeline({ projectId, onComplete, onError }: AgentPipelineP
           <h1 className="page-title">AI Orchestration Pipeline</h1>
           <p className="page-subtitle">
             Seven specialized agents analyse both schemas, detect compliance requirements, propose field mappings,
-            and validate the result — all in under 60 seconds.
+            and validate the result. Review unlocks only after all agent stages complete.
           </p>
         </div>
         {!done && !running && (
@@ -210,7 +439,7 @@ export function AgentPipeline({ projectId, onComplete, onError }: AgentPipelineP
 
       {/* Completion card */}
       {done && result && (
-        <div className="pipeline-result">
+        <div className="pipeline-result" aria-live="polite">
           <div className="pipeline-result-header">
             <div className="pipeline-result-icon">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -252,6 +481,17 @@ export function AgentPipeline({ projectId, onComplete, onError }: AgentPipelineP
               <span className="pipeline-stat-label">Warnings</span>
             </div>
           </div>
+          <div className="pipeline-review-ready">
+            <span className="badge badge--green">Review ready</span>
+            <span className="pipeline-review-text">
+              All steps are complete. Open review to inspect and adjust field-level mappings.
+            </span>
+            {onReviewReady && (
+              <button className="btn btn--primary btn--sm" onClick={onReviewReady}>
+                Open review stage
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -261,7 +501,7 @@ export function AgentPipeline({ projectId, onComplete, onError }: AgentPipelineP
           <div className="empty-state-icon">◈</div>
           <div className="empty-state-title">Ready to orchestrate</div>
           <p className="empty-state-body">
-            Click <strong>Run pipeline</strong> to start the 7-agent analysis. The entire process takes under 60 seconds.
+            Click <strong>Run pipeline</strong> to start the 7-agent analysis. Review unlocks when all steps complete.
           </p>
         </div>
       )}

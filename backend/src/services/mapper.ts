@@ -21,13 +21,9 @@ export async function suggestMappings(input: {
   const fieldMappings: FieldMapping[] = [];
 
   for (const sourceEntity of input.sourceEntities) {
-    const targetMatch = bestStringMatch(
-      sourceEntity.name,
-      input.targetEntities.map((e) => `${e.name} ${e.label ?? ''}`),
-    );
-
-    if (targetMatch.index < 0) continue;
-    const targetEntity = input.targetEntities[targetMatch.index];
+    const targetMatch = chooseTargetEntity(sourceEntity, input.targetEntities);
+    if (!targetMatch) continue;
+    const targetEntity = targetMatch.target;
     const sourceFields = input.fields.filter((f) => f.entityId === sourceEntity.id);
     const targetFields = input.fields.filter((f) => f.entityId === targetEntity.id);
 
@@ -44,7 +40,9 @@ export async function suggestMappings(input: {
       sourceEntityId: sourceEntity.id,
       targetEntityId: targetEntity.id,
       confidence: entityConfidence,
-      rationale: ai?.rationale ?? `Name similarity score ${targetMatch.score.toFixed(2)}`,
+      rationale:
+        ai?.rationale ??
+        `${targetMatch.reason}. Combined score ${targetMatch.score.toFixed(2)}`,
     });
 
     for (const sourceField of sourceFields) {
@@ -54,13 +52,22 @@ export async function suggestMappings(input: {
           `${targetField.name} ${targetField.label ?? ''}`,
         );
         const typeScore = typeCompatibilityScore(sourceField.dataType, targetField.dataType);
-        const base = 0.65 * nameScore + 0.35 * typeScore;
-        return { targetField, base, nameScore, typeScore };
+        const semanticBoost = coreToFscFieldBoost(
+          sourceEntity.name,
+          targetEntity.name,
+          sourceField.name,
+          targetField.name,
+        );
+        const base = clamp(0.65 * nameScore + 0.35 * typeScore + semanticBoost);
+        return { targetField, base, nameScore, typeScore, semanticBoost };
       });
 
       candidateScores.sort((a, b) => b.base - a.base);
       const best = candidateScores[0];
-      if (!best || best.base < 0.35) continue;
+      if (!best) continue;
+
+      const minThreshold = isCoreToFscPair(sourceEntity.name, targetEntity.name) ? 0.58 : 0.35;
+      if (best.base < minThreshold) continue;
 
       const aiField = ai?.fields.find(
         (f) =>
@@ -86,13 +93,167 @@ export async function suggestMappings(input: {
         confidence: finalConfidence,
         rationale:
           aiField?.rationale ||
-          `Name ${best.nameScore.toFixed(2)}, type ${best.typeScore.toFixed(2)} compatibility`,
+          `Name ${best.nameScore.toFixed(2)}, type ${best.typeScore.toFixed(2)}, semantic ${best.semanticBoost.toFixed(2)}`,
         status: 'suggested',
       });
     }
   }
 
   return { entityMappings, fieldMappings };
+}
+
+function chooseTargetEntity(
+  sourceEntity: Entity,
+  targetEntities: Entity[],
+): { target: Entity; score: number; reason: string } | null {
+  if (targetEntities.length === 0) return null;
+
+  const labels = targetEntities.map((e) => `${e.name} ${e.label ?? ''}`);
+  const fallback = bestStringMatch(sourceEntity.name, labels);
+  if (fallback.index < 0) return null;
+
+  const hasFscModel = targetEntities.some((e) => FSC_OBJECTS.has(normalize(e.name)));
+  if (!hasFscModel) {
+    return {
+      target: targetEntities[fallback.index],
+      score: fallback.score,
+      reason: 'Name similarity',
+    };
+  }
+
+  let best: { target: Entity; score: number; reason: string } | null = null;
+  const sourceText = `${sourceEntity.name} ${sourceEntity.label ?? ''}`;
+
+  for (const candidate of targetEntities) {
+    const targetText = `${candidate.name} ${candidate.label ?? ''}`;
+    const nameScore = jaccard(sourceText, targetText);
+    const boost = fscEntityBoost(sourceEntity.name, candidate.name);
+    const combined = clamp(nameScore + boost);
+    const reason = boost > 0
+      ? `FSC domain preference (${sourceEntity.name} -> ${candidate.name})`
+      : 'Name similarity';
+
+    if (!best || combined > best.score) {
+      best = { target: candidate, score: combined, reason };
+    }
+  }
+
+  return best;
+}
+
+const FSC_OBJECTS = new Set([
+  'financialaccount',
+  'accountparticipant',
+  'partyprofile',
+  'individualapplication',
+  'financialgoal',
+]);
+
+function fscEntityBoost(sourceEntityName: string, targetEntityName: string): number {
+  const src = normalize(sourceEntityName);
+  const tgt = normalize(targetEntityName);
+
+  const isPartyEntity = src === 'cif' || src.includes('customer') || src.includes('member') || src.includes('party');
+  const isFinancialAccountEntity =
+    src.includes('dda') ||
+    src.includes('loan') ||
+    src.includes('certificate') ||
+    src.includes('lineofcredit') ||
+    src.includes('share') ||
+    src.includes('deposit') ||
+    src.includes('account');
+
+  if (isPartyEntity && tgt === 'partyprofile') return 0.5;
+  if (isPartyEntity && tgt === 'accountparticipant') return 0.18;
+  if (isPartyEntity && (tgt === 'account' || tgt === 'contact')) return 0.1;
+
+  if (isFinancialAccountEntity && tgt === 'financialaccount') return 0.55;
+  if (isFinancialAccountEntity && tgt === 'accountparticipant') return 0.16;
+  if (isFinancialAccountEntity && tgt === 'financialgoal') return 0.1;
+  if (isFinancialAccountEntity && tgt === 'account') return 0.06;
+
+  if (src.includes('gl') && src.includes('account') && tgt === 'financialaccount') return 0.25;
+
+  return 0;
+}
+
+function isCoreToFscPair(sourceEntityName: string, targetEntityName: string): boolean {
+  const src = normalize(sourceEntityName);
+  const tgt = normalize(targetEntityName);
+  return CORE_ENTITY_NAMES.has(src) && FSC_OBJECTS.has(tgt);
+}
+
+const CORE_ENTITY_NAMES = new Set([
+  'cif',
+  'dda',
+  'loanaccount',
+  'glaccount',
+  'certificate',
+  'lineofcredit',
+  'member',
+  'share',
+]);
+
+const CORE_TO_FSC_FIELD_PREFS: Record<string, Record<string, string[]>> = {
+  cif: {
+    cifnumber: ['cifnumber'],
+    taxid: ['taxid'],
+    dateofbirth: ['birthdate'],
+    legalname: ['legalname', 'name'],
+    primaryemail: ['primaryemail'],
+    primaryphone: ['primaryphone'],
+    addressline1: ['addressline1'],
+    city: ['city'],
+    statecode: ['statecode'],
+    postalcode: ['postalcode'],
+    countrycode: ['countrycode'],
+  },
+  dda: {
+    accountnumber: ['financialaccountnumber'],
+    accounttype: ['financialaccounttype'],
+    accountstatus: ['status'],
+    currentbalance: ['currentbalance'],
+    collectedbalance: ['currentbalance'],
+    availablebalance: ['availablebalance'],
+    opendate: ['opendate'],
+    nickname: ['name'],
+  },
+  loanaccount: {
+    loannumber: ['financialaccountnumber'],
+    loantype: ['financialaccounttype'],
+    loanstatus: ['status'],
+    currentbalance: ['currentbalance'],
+    originalprincipal: ['currentbalance'],
+    originationdate: ['opendate'],
+  },
+  glaccount: {
+    glaccountnumber: ['financialaccountnumber'],
+    accountdescription: ['name'],
+    accountcategory: ['financialaccounttype'],
+    debitbalance: ['currentbalance'],
+    creditbalance: ['currentbalance'],
+    lastpostingdate: ['opendate'],
+  },
+};
+
+function coreToFscFieldBoost(
+  sourceEntityName: string,
+  targetEntityName: string,
+  sourceFieldName: string,
+  targetFieldName: string,
+): number {
+  if (!isCoreToFscPair(sourceEntityName, targetEntityName)) return 0;
+
+  const srcEntity = normalize(sourceEntityName);
+  const srcField = normalize(sourceFieldName);
+  const tgtField = normalize(targetFieldName);
+  const entityPrefs = CORE_TO_FSC_FIELD_PREFS[srcEntity];
+  if (!entityPrefs) return 0;
+
+  const preferred = entityPrefs[srcField];
+  if (!preferred) return 0;
+  if (preferred.includes(tgtField)) return 0.28;
+  return -0.05;
 }
 
 function inferTransform(source: Field, target: Field, aiTransform?: string): {

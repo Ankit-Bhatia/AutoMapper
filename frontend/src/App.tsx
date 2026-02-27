@@ -5,6 +5,8 @@ import { ConnectorGrid } from './components/ConnectorGrid';
 import { AgentPipeline } from './components/AgentPipeline';
 import { MappingTable } from './components/MappingTable';
 import { ExportPanel } from './components/ExportPanel';
+import { LandingPage } from './components/LandingPage';
+import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
 import type {
   Entity,
   EntityMapping,
@@ -36,6 +38,7 @@ interface PipelineResult {
 
 export default function App() {
   const demoUiMode = isDemoUiMode();
+  const [showLanding, setShowLanding] = useState<boolean>(true);
   // ── Workflow state ──────────────────────────────────────────────────────────
   const [step, setStep] = useState<WorkflowStep>('connect');
   const [loadingSetup, setLoadingSetup] = useState(false);
@@ -68,6 +71,15 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    setErrorReportingContext({
+      workflowStep: step,
+      projectId: project?.id,
+      sourceConnectorId,
+      targetConnectorId,
+    });
+  }, [project?.id, sourceConnectorId, step, targetConnectorId]);
+
   // ── Reload project data from API ────────────────────────────────────────────
   const loadProject = useCallback(async (pid: string) => {
     const data = await api<ProjectPayload>(`/api/projects/${pid}`);
@@ -96,6 +108,8 @@ export default function App() {
         method: 'POST',
         body: JSON.stringify({
           name: options?.projectName || `${CONNECTOR_NAMES[srcId] ?? srcId} → ${CONNECTOR_NAMES[tgtId] ?? tgtId}`,
+          sourceSystemName: srcId,
+          targetSystemName: tgtId,
         }),
       });
       const newProject = projectData.project;
@@ -160,6 +174,18 @@ export default function App() {
       setStep('orchestrate');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Setup failed';
+      void reportFrontendError({
+        source: 'frontend',
+        code: 'SETUP_FLOW_ERROR',
+        message: msg,
+        error: err,
+        projectId: project?.id,
+        context: {
+          sourceConnectorId: srcId,
+          targetConnectorId: tgtId,
+          during: 'handleConnectorProceed',
+        },
+      });
       setSetupError(msg);
       // Reset connector selections so user can retry
       setSourceConnectorId(null);
@@ -178,8 +204,6 @@ export default function App() {
     setFieldMappings(result.fieldMappings);
     setValidation(result.validation);
     setIsOrchestrated(true);
-    // Auto-advance to review
-    setTimeout(() => setStep('review'), 800);
   }
 
   // ── Reset: go back to connector selection ──────────────────────────────────
@@ -239,7 +263,17 @@ export default function App() {
           <AgentPipeline
             projectId={project.id}
             onComplete={handlePipelineComplete}
-            onError={(msg) => console.error('Pipeline error:', msg)}
+            onReviewReady={() => setStep('review')}
+            onError={(msg) => {
+              void reportFrontendError({
+                source: 'frontend',
+                code: 'PIPELINE_UI_ERROR',
+                message: msg,
+                projectId: project.id,
+                context: { workflowStep: 'orchestrate' },
+              });
+              console.error('Pipeline error:', msg);
+            }}
           />
         ) : null;
 
@@ -272,23 +306,27 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
-      <Sidebar
-        currentStep={step}
-        onStepClick={setStep}
-        onReset={handleReset}
-        projectName={project?.name}
-        sourceConnector={sourceConnectorName}
-        targetConnector={targetConnectorName}
-        sourceSchemaMode={sourceSchemaMode ?? undefined}
-        targetSchemaMode={targetSchemaMode ?? undefined}
-        mappingCount={fieldMappings.length}
-        isOrchestrated={isOrchestrated}
-        isDemoMode={demoUiMode}
-      />
-      <main className="main-content">
-        {renderContent()}
-      </main>
-    </div>
+    showLanding ? (
+      <LandingPage onEnterStudio={() => setShowLanding(false)} />
+    ) : (
+      <div className="app-shell">
+        <Sidebar
+          currentStep={step}
+          onStepClick={setStep}
+          onReset={handleReset}
+          projectName={project?.name}
+          sourceConnector={sourceConnectorName}
+          targetConnector={targetConnectorName}
+          sourceSchemaMode={sourceSchemaMode ?? undefined}
+          targetSchemaMode={targetSchemaMode ?? undefined}
+          mappingCount={fieldMappings.length}
+          isOrchestrated={isOrchestrated}
+          isDemoMode={demoUiMode}
+        />
+        <main className="main-content">
+          {renderContent()}
+        </main>
+      </div>
+    )
   );
 }

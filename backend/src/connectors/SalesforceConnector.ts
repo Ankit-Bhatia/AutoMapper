@@ -39,7 +39,18 @@ export class SalesforceConnector implements IConnector {
   private mode: 'live' | 'mock' = 'mock';
   private credentials: SalesforceCredentials = {};
   private conn: jsforce.Connection | null = null;
-  private static readonly DEFAULT_MOCK_OBJECTS = ['Account', 'Contact', 'Opportunity', 'Lead', 'Case'];
+  private static readonly DEFAULT_MOCK_OBJECTS = [
+    'Account',
+    'Contact',
+    'FinancialAccount',
+    'AccountParticipant',
+    'PartyProfile',
+    'IndividualApplication',
+    'FinancialGoal',
+    'Opportunity',
+    'Lead',
+    'Case',
+  ];
 
   constructor(credentials?: ConnectorCredentials) {
     if (credentials) {
@@ -298,6 +309,55 @@ function buildMockSalesforceSchema(objectNames: string[]): ConnectorSchema {
       { name: 'Priority', label: 'Priority', dataType: 'picklist', picklistValues: ['Low', 'Medium', 'High'], required: true },
       { name: 'AccountId', label: 'Account ID', dataType: 'reference' },
       { name: 'ContactId', label: 'Contact ID', dataType: 'reference' },
+    ],
+    FinancialAccount: [
+      { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
+      { name: 'Name', label: 'Financial Account Name', dataType: 'string', length: 255, required: true },
+      { name: 'FinancialAccountNumber', label: 'Financial Account Number', dataType: 'string', length: 34, required: true },
+      { name: 'CurrentBalance', label: 'Current Balance', dataType: 'decimal', precision: 18, scale: 2 },
+      { name: 'AvailableBalance', label: 'Available Balance', dataType: 'decimal', precision: 18, scale: 2 },
+      { name: 'OpenDate', label: 'Open Date', dataType: 'date' },
+      { name: 'Status', label: 'Status', dataType: 'picklist', picklistValues: ['Open', 'Inactive', 'Closed'] },
+      { name: 'FinancialAccountType', label: 'Financial Account Type', dataType: 'picklist', picklistValues: ['Checking', 'Savings', 'Loan', 'Certificate', 'Line of Credit'] },
+      { name: 'PrimaryOwnerId', label: 'Primary Owner ID', dataType: 'reference' },
+    ],
+    AccountParticipant: [
+      { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
+      { name: 'FinancialAccountId', label: 'Financial Account ID', dataType: 'reference', required: true },
+      { name: 'PartyProfileId', label: 'Party Profile ID', dataType: 'reference', required: true },
+      { name: 'ParticipantRole', label: 'Participant Role', dataType: 'picklist', picklistValues: ['Primary Owner', 'Joint Owner', 'Authorized Signer', 'Beneficiary'] },
+      { name: 'StartDate', label: 'Start Date', dataType: 'date' },
+      { name: 'EndDate', label: 'End Date', dataType: 'date' },
+    ],
+    PartyProfile: [
+      { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
+      { name: 'CIFNumber', label: 'CIF Number', dataType: 'string', length: 20, isExternalId: true },
+      { name: 'LegalName', label: 'Legal Name', dataType: 'string', length: 255, required: true },
+      { name: 'TaxId', label: 'Tax ID', dataType: 'string', length: 20 },
+      { name: 'BirthDate', label: 'Birth Date', dataType: 'date' },
+      { name: 'PrimaryEmail', label: 'Primary Email', dataType: 'email' },
+      { name: 'PrimaryPhone', label: 'Primary Phone', dataType: 'phone' },
+      { name: 'AddressLine1', label: 'Address Line 1', dataType: 'string', length: 255 },
+      { name: 'City', label: 'City', dataType: 'string', length: 100 },
+      { name: 'StateCode', label: 'State Code', dataType: 'string', length: 10 },
+      { name: 'PostalCode', label: 'Postal Code', dataType: 'string', length: 20 },
+      { name: 'CountryCode', label: 'Country Code', dataType: 'string', length: 5 },
+    ],
+    IndividualApplication: [
+      { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
+      { name: 'ApplicationNumber', label: 'Application Number', dataType: 'string', length: 30, required: true },
+      { name: 'Status', label: 'Application Status', dataType: 'picklist', picklistValues: ['Draft', 'Submitted', 'Under Review', 'Approved', 'Declined'] },
+      { name: 'ApplicantPartyProfileId', label: 'Applicant Party Profile ID', dataType: 'reference' },
+      { name: 'RequestedAmount', label: 'Requested Amount', dataType: 'decimal', precision: 18, scale: 2 },
+      { name: 'SubmittedDate', label: 'Submitted Date', dataType: 'date' },
+    ],
+    FinancialGoal: [
+      { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
+      { name: 'Name', label: 'Goal Name', dataType: 'string', required: true },
+      { name: 'TargetAmount', label: 'Target Amount', dataType: 'decimal', precision: 18, scale: 2 },
+      { name: 'TargetDate', label: 'Target Date', dataType: 'date' },
+      { name: 'Status', label: 'Goal Status', dataType: 'picklist', picklistValues: ['Planned', 'In Progress', 'Achieved', 'Cancelled'] },
+      { name: 'OwnerPartyProfileId', label: 'Owner Party Profile ID', dataType: 'reference' },
     ],
   };
 

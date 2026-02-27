@@ -56,6 +56,36 @@ const SF_STANDARD_FIELDS: Record<string, Record<string, string>> = {
     Type: 'classification',
     LeadSource: 'classification',
   },
+  FinancialAccount: {
+    Name: 'primary_name',
+    FinancialAccountNumber: 'account_number',
+    CurrentBalance: 'financial',
+    AvailableBalance: 'financial',
+    OpenDate: 'date_open',
+    Status: 'lifecycle_status',
+    FinancialAccountType: 'classification',
+    PrimaryOwnerId: 'owner',
+  },
+  PartyProfile: {
+    CIFNumber: 'external_id',
+    LegalName: 'primary_name',
+    TaxId: 'identifier',
+    BirthDate: 'date_birth',
+    PrimaryEmail: 'email',
+    PrimaryPhone: 'phone_main',
+    AddressLine1: 'address_street',
+    City: 'address_city',
+    StateCode: 'address_state',
+    PostalCode: 'address_postal',
+    CountryCode: 'address_country',
+  },
+  AccountParticipant: {
+    FinancialAccountId: 'parent_id',
+    PartyProfileId: 'reference',
+    ParticipantRole: 'classification',
+    StartDate: 'date_start',
+    EndDate: 'date_end',
+  },
 };
 
 /** Source field purpose → Salesforce standard field boosts */
@@ -76,7 +106,7 @@ export class CRMDomainAgent extends AgentBase {
 
   async run(context: AgentContext): Promise<AgentResult> {
     const start = Date.now();
-    const { fields, fieldMappings, targetSystemType, targetEntities } = context;
+    const { fields, fieldMappings, targetSystemType, targetEntities, sourceSystemType } = context;
 
     if (targetSystemType !== 'salesforce') {
       this.info(context, 'skip', `Target system is ${targetSystemType} — CRMDomainAgent not applicable`);
@@ -86,6 +116,9 @@ export class CRMDomainAgent extends AgentBase {
     this.info(context, 'start', 'Applying Salesforce CRM standard object/field heuristics...');
 
     const entityNameById = new Map(targetEntities.map((e) => [e.id, e.name]));
+    const hasFscTargets = targetEntities.some((e) =>
+      ['FinancialAccount', 'PartyProfile', 'AccountParticipant'].includes(e.name),
+    );
 
     const updatedMappings: FieldMapping[] = [];
     let improved = 0;
@@ -122,6 +155,17 @@ export class CRMDomainAgent extends AgentBase {
         if (mapping.confidence < 0.75) {
           boost -= 0.05;
           reason = `Custom field target ${tgtField.name} — confidence reduced pending manual review`;
+        }
+      }
+
+      // For core-banking sources, prefer Salesforce FSC objects over generic CRM pipeline objects.
+      if (sourceSystemType === 'jackhenry' && hasFscTargets) {
+        if (['FinancialAccount', 'PartyProfile', 'AccountParticipant'].includes(entityName)) {
+          boost += 0.1;
+          if (!reason) reason = `FSC target preferred for core-banking source: ${entityName}`;
+        } else if (['Opportunity', 'Lead', 'Case'].includes(entityName)) {
+          boost -= 0.12;
+          reason = `Generic CRM object penalized for core-banking source: ${entityName}`;
         }
       }
 

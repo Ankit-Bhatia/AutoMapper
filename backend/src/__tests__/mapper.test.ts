@@ -126,4 +126,55 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     expect(fm).toBeDefined();
     expect(fm?.transform.type).toBe('concat');
   });
+
+  it('core-banking entities prefer Salesforce FSC objects when available', async () => {
+    const srcCif = makeEntity('se-cif', 'src-sys', 'CIF', 'Customer Information File');
+    const srcDda = makeEntity('se-dda', 'src-sys', 'DDA', 'Demand Deposit Account');
+    const tgtParty = makeEntity('te-party', 'tgt-sys', 'PartyProfile', 'Party Profile');
+    const tgtFin = makeEntity('te-fin', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+    const tgtAccount = makeEntity('te-acc', 'tgt-sys', 'Account', 'Account');
+
+    const fields: Field[] = [
+      makeField('sf-cif-name', 'se-cif', 'LegalName', 'string'),
+      makeField('sf-dda-bal', 'se-dda', 'CurrentBalance', 'decimal'),
+      makeField('tf-party-name', 'te-party', 'LegalName', 'string'),
+      makeField('tf-fin-bal', 'te-fin', 'CurrentBalance', 'decimal'),
+      makeField('tf-acc-name', 'te-acc', 'Name', 'string'),
+    ];
+
+    const { entityMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcCif, srcDda],
+      targetEntities: [tgtAccount, tgtParty, tgtFin],
+      fields,
+    });
+
+    const cifMap = entityMappings.find((m) => m.sourceEntityId === 'se-cif');
+    const ddaMap = entityMappings.find((m) => m.sourceEntityId === 'se-dda');
+    expect(cifMap?.targetEntityId).toBe('te-party');
+    expect(ddaMap?.targetEntityId).toBe('te-fin');
+  });
+
+  it('filters low-relevance core-banking -> FSC field matches', async () => {
+    const srcDda = makeEntity('se-dda2', 'src-sys', 'DDA', 'Demand Deposit Account');
+    const tgtFin = makeEntity('te-fin2', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+
+    const fields: Field[] = [
+      makeField('sf-dda-bal2', 'se-dda2', 'CurrentBalance', 'decimal'),
+      makeField('sf-dda-branch2', 'se-dda2', 'BranchCode', 'string'),
+      makeField('tf-fin-bal2', 'te-fin2', 'CurrentBalance', 'decimal'),
+      makeField('tf-fin-name2', 'te-fin2', 'Name', 'string'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcDda],
+      targetEntities: [tgtFin],
+      fields,
+    });
+
+    const mappedSourceFields = new Set(fieldMappings.map((fm) => fm.sourceFieldId));
+    expect(mappedSourceFields.has('sf-dda-bal2')).toBe(true);
+    expect(mappedSourceFields.has('sf-dda-branch2')).toBe(false);
+  });
 });

@@ -1,5 +1,6 @@
 import type { FieldMapping, ProjectPayload } from '../types';
 import { mockProjectPayload, mockOrchestrationEvents } from './mockData';
+import { reportApiError } from '../telemetry/errorReporting';
 
 const STANDALONE = import.meta.env.VITE_STANDALONE === 'true';
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
@@ -92,6 +93,10 @@ function getAuthToken(): string | null {
   }
 }
 
+export function getAuthTokenForSse(): string | null {
+  return getAuthToken();
+}
+
 function setAuthToken(token: string): void {
   try {
     if (typeof window !== 'undefined') {
@@ -134,6 +139,13 @@ async function ensureDemoAuth(): Promise<void> {
     if (registerResp.status !== 409) {
       const errBody = await registerResp.json().catch(() => ({}));
       const msg = (errBody as { error?: { message?: string } }).error?.message || 'Demo registration failed';
+      await reportApiError({
+        path: '/api/auth/register',
+        method: 'POST',
+        status: registerResp.status,
+        message: msg,
+        responseBody: errBody,
+      });
       throw new Error(msg);
     }
 
@@ -146,6 +158,13 @@ async function ensureDemoAuth(): Promise<void> {
     if (!loginResp.ok) {
       const errBody = await loginResp.json().catch(() => ({}));
       const msg = (errBody as { error?: { message?: string } }).error?.message || 'Demo login failed';
+      await reportApiError({
+        path: '/api/auth/login',
+        method: 'POST',
+        status: loginResp.status,
+        message: msg,
+        responseBody: errBody,
+      });
       throw new Error(msg);
     }
 
@@ -174,20 +193,40 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken();
 
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  });
+  const method = (init?.method ?? 'GET').toUpperCase();
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+      ...init,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Network request failed';
+    await reportApiError({
+      path,
+      method,
+      message,
+      error,
+    });
+    throw error;
+  }
 
   if (!response.ok) {
     const errBody = await response.json().catch(() => ({}));
     const message =
       (errBody as { error?: { message?: string } }).error?.message ||
       `Request failed (${response.status})`;
+    await reportApiError({
+      path,
+      method,
+      status: response.status,
+      message,
+      responseBody: errBody,
+    });
     throw new Error(message);
   }
 

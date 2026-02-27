@@ -125,6 +125,34 @@ function buildMockSalesforceSchema(
       },
       { name: 'Account__c', dataType: 'reference' },
     ],
+    FinancialAccount: [
+      { name: 'FinancialAccountNumber', dataType: 'string', required: true },
+      { name: 'CurrentBalance', dataType: 'decimal' },
+      { name: 'AvailableBalance', dataType: 'decimal' },
+      { name: 'OpenDate', dataType: 'date' },
+      { name: 'Status', dataType: 'picklist', picklistValues: ['Open', 'Inactive', 'Closed'] },
+      { name: 'FinancialAccountType', dataType: 'picklist', picklistValues: ['Checking', 'Savings', 'Loan', 'Certificate', 'Line of Credit'] },
+    ],
+    PartyProfile: [
+      { name: 'CIFNumber', dataType: 'string', isExternalId: true },
+      { name: 'LegalName', dataType: 'string', required: true },
+      { name: 'TaxId', dataType: 'string' },
+      { name: 'BirthDate', dataType: 'date' },
+      { name: 'PrimaryEmail', dataType: 'email' },
+      { name: 'PrimaryPhone', dataType: 'phone' },
+      { name: 'AddressLine1', dataType: 'string' },
+      { name: 'City', dataType: 'string' },
+      { name: 'StateCode', dataType: 'string' },
+      { name: 'PostalCode', dataType: 'string' },
+      { name: 'CountryCode', dataType: 'string' },
+    ],
+    AccountParticipant: [
+      { name: 'FinancialAccountId', dataType: 'reference', required: true },
+      { name: 'PartyProfileId', dataType: 'reference', required: true },
+      { name: 'ParticipantRole', dataType: 'picklist', picklistValues: ['Primary Owner', 'Joint Owner', 'Authorized Signer', 'Beneficiary'] },
+      { name: 'StartDate', dataType: 'date' },
+      { name: 'EndDate', dataType: 'date' },
+    ],
   };
 
   const templates = {

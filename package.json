@@ -8,6 +8,9 @@
     "dev:frontend": "npm --workspace frontend run dev",
     "demo:backend": "npm --workspace backend run dev:demo",
     "demo:frontend": "npm --workspace frontend run dev -- --host 127.0.0.1",
-    "build": "npm --workspace backend run build && npm --workspace frontend run build"
+    "build": "npm --workspace backend run build && npm --workspace frontend run build",
+    "test": "npm --workspace backend run test -- --run && npm --workspace frontend run test -- --run",
+    "test:backend": "npm --workspace backend run test -- --run",
+    "test:frontend": "npm --workspace frontend run test -- --run"
   }
 }

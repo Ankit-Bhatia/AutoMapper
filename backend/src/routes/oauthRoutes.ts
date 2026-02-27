@@ -14,6 +14,18 @@
 import type { Express, Request, Response } from 'express';
 import { authMiddleware } from '../auth/authMiddleware.js';
 import { defaultSessionStore } from '../services/connectorSessionStore.js';
+import { captureException, sendHttpError } from '../utils/httpErrors.js';
+
+function sendError(
+  req: Request,
+  res: Response,
+  status: number,
+  code: string,
+  message: string,
+  details: unknown = null,
+): void {
+  sendHttpError(req, res, status, code, message, details, 'oauth');
+}
 
 /**
  * Setup OAuth routes for the application.
@@ -26,7 +38,7 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
   app.get('/api/oauth/salesforce/authorize', authMiddleware, (req: Request, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not authenticated' } });
+      sendError(req, res, 401, 'UNAUTHORIZED', 'User not authenticated');
       return;
     }
 
@@ -35,7 +47,7 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
     const loginUrl = process.env.SF_APP_LOGIN_URL || 'https://login.salesforce.com';
 
     if (!clientId) {
-      res.status(500).json({ error: { code: 'CONFIG_ERROR', message: 'SF_APP_CLIENT_ID not configured' } });
+      sendError(req, res, 500, 'CONFIG_ERROR', 'SF_APP_CLIENT_ID not configured');
       return;
     }
 
@@ -59,16 +71,12 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
     const { code, state, error, error_description } = req.query as Record<string, string>;
 
     if (error) {
-      res.status(400).json({
-        error: { code: error, message: error_description || 'OAuth authorization failed' },
-      });
+      sendError(req, res, 400, error, error_description || 'OAuth authorization failed');
       return;
     }
 
     if (!code || !state) {
-      res.status(400).json({
-        error: { code: 'INVALID_REQUEST', message: 'Missing code or state parameter' },
-      });
+      sendError(req, res, 400, 'INVALID_REQUEST', 'Missing code or state parameter');
       return;
     }
 
@@ -77,9 +85,7 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
     try {
       userId = Buffer.from(state, 'base64').toString('utf-8');
     } catch {
-      res.status(400).json({
-        error: { code: 'INVALID_STATE', message: 'Invalid state parameter' },
-      });
+      sendError(req, res, 400, 'INVALID_STATE', 'Invalid state parameter');
       return;
     }
 
@@ -89,7 +95,7 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
     const loginUrl = process.env.SF_APP_LOGIN_URL || 'https://login.salesforce.com';
 
     if (!clientId || !clientSecret) {
-      res.status(500).json({ error: { code: 'CONFIG_ERROR', message: 'OAuth credentials not configured' } });
+      sendError(req, res, 500, 'CONFIG_ERROR', 'OAuth credentials not configured');
       return;
     }
 
@@ -112,9 +118,7 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
 
       if (!response.ok) {
         const errorData = await response.text();
-        res.status(400).json({
-          error: { code: 'TOKEN_EXCHANGE_FAILED', message: `Salesforce token exchange failed: ${errorData}` },
-        });
+        sendError(req, res, 400, 'TOKEN_EXCHANGE_FAILED', `Salesforce token exchange failed: ${errorData}`);
         return;
       }
 
@@ -137,9 +141,16 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
       res.redirect(`${frontendUrl}/?sf_connected=true`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error during token exchange';
-      res.status(500).json({
-        error: { code: 'SERVER_ERROR', message },
+      captureException('oauth', error, {
+        code: 'OAUTH_SERVER_ERROR',
+        context: {
+          requestId: res.locals.requestId as string | undefined,
+          path: req.originalUrl || req.url,
+          method: req.method,
+          userId,
+        },
       });
+      sendError(req, res, 500, 'SERVER_ERROR', message);
     }
   });
 
@@ -148,7 +159,7 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
   app.delete('/api/oauth/salesforce/disconnect', authMiddleware, (req: Request, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not authenticated' } });
+      sendError(req, res, 401, 'UNAUTHORIZED', 'User not authenticated');
       return;
     }
 
@@ -161,7 +172,7 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
   app.get('/api/oauth/status', authMiddleware, (req: Request, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not authenticated' } });
+      sendError(req, res, 401, 'UNAUTHORIZED', 'User not authenticated');
       return;
     }
 

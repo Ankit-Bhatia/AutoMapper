@@ -17,15 +17,18 @@ import { normalizeConnectorCredentials } from '../connectors/credentialNormalize
 import { authMiddleware } from '../auth/authMiddleware.js';
 import { defaultSessionStore } from '../services/connectorSessionStore.js';
 import { parseUploadedSchema } from '../services/schemaUploadParser.js';
+import type { MappingProject, System } from '../types.js';
+import { sendHttpError } from '../utils/httpErrors.js';
 
 function sendError(
+  req: Request,
   res: Response,
   status: number,
   code: string,
   message: string,
   details: unknown = null,
 ): void {
-  res.status(status).json({ error: { code, message, details } });
+  sendHttpError(req, res, status, code, message, details, 'connector');
 }
 
 /**
@@ -65,6 +68,29 @@ function hasCredentialValues(credentials: ConnectorCredentials): boolean {
   return Object.values(credentials).some((value) => typeof value === 'string' && value.trim().length > 0);
 }
 
+const SALESFORCE_STANDARD_OBJECTS = ['Account', 'Contact', 'Opportunity', 'Case'];
+const SALESFORCE_FSC_OBJECTS = [
+  'FinancialAccount',
+  'AccountParticipant',
+  'PartyProfile',
+  'IndividualApplication',
+  'FinancialGoal',
+];
+
+function defaultSalesforceObjectsForProject(
+  side: 'source' | 'target',
+  project: MappingProject,
+  systems: System[],
+): string[] {
+  if (side === 'target') {
+    const sourceType = systems.find((s) => s.id === project.sourceSystemId)?.type;
+    if (sourceType === 'jackhenry') {
+      return [...SALESFORCE_FSC_OBJECTS, ...SALESFORCE_STANDARD_OBJECTS];
+    }
+  }
+  return SALESFORCE_STANDARD_OBJECTS;
+}
+
 export function setupConnectorRoutes(app: Express, store: DbStore): void {
   const upload = multer({ limits: { fileSize: 8 * 1024 * 1024 } });
 
@@ -83,7 +109,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
   app.get('/api/oauth/status', authMiddleware, (_req: Request, res: Response) => {
     const userId = _req.user?.userId;
     if (!userId) {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'User not authenticated' } });
+      sendError(_req, res, 401, 'UNAUTHORIZED', 'User not authenticated');
       return;
     }
 
@@ -101,7 +127,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
   app.post('/api/connectors/:id/test', async (req: Request, res: Response) => {
     const { id } = req.params;
     if (!defaultRegistry.has(id)) {
-      sendError(res, 404, 'CONNECTOR_NOT_FOUND', `No connector registered with id "${id}"`);
+      sendError(req, res, 404, 'CONNECTOR_NOT_FOUND', `No connector registered with id "${id}"`);
       return;
     }
 
@@ -117,6 +143,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       const info = await connector.getSystemInfo();
       if (hasCredentialValues(credentials) && info.mode !== 'live') {
         sendError(
+          req,
           res,
           502,
           'LIVE_CONNECTION_REQUIRED',
@@ -127,7 +154,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       res.json({ ...result, systemInfo: info });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Connection test failed';
-      sendError(res, 502, 'CONNECTION_ERROR', message);
+      sendError(req, res, 502, 'CONNECTION_ERROR', message);
     }
   });
 
@@ -135,7 +162,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
   app.post('/api/connectors/:id/objects', async (req: Request, res: Response) => {
     const { id } = req.params;
     if (!defaultRegistry.has(id)) {
-      sendError(res, 404, 'CONNECTOR_NOT_FOUND', `No connector registered with id "${id}"`);
+      sendError(req, res, 404, 'CONNECTOR_NOT_FOUND', `No connector registered with id "${id}"`);
       return;
     }
 
@@ -151,6 +178,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       const info = await connector.getSystemInfo();
       if (hasCredentialValues(credentials) && info.mode !== 'live') {
         sendError(
+          req,
           res,
           502,
           'LIVE_CONNECTION_REQUIRED',
@@ -161,7 +189,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       res.json({ objects, mode: info.mode, total: objects.length });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to list objects';
-      sendError(res, 502, 'CONNECTOR_ERROR', message);
+      sendError(req, res, 502, 'CONNECTOR_ERROR', message);
     }
   });
 
@@ -169,7 +197,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
   app.post('/api/connectors/:id/schema', async (req: Request, res: Response) => {
     const { id } = req.params;
     if (!defaultRegistry.has(id)) {
-      sendError(res, 404, 'CONNECTOR_NOT_FOUND', `No connector registered with id "${id}"`);
+      sendError(req, res, 404, 'CONNECTOR_NOT_FOUND', `No connector registered with id "${id}"`);
       return;
     }
 
@@ -187,6 +215,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       const schema = await connector.fetchSchema(objectNames);
       if (hasCredentialValues(credentials) && schema.mode !== 'live') {
         sendError(
+          req,
           res,
           502,
           'LIVE_CONNECTION_REQUIRED',
@@ -204,7 +233,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to fetch schema';
-      sendError(res, 502, 'CONNECTOR_ERROR', message);
+      sendError(req, res, 502, 'CONNECTOR_ERROR', message);
     }
   });
 
@@ -215,18 +244,18 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
     const { projectId } = req.params;
     const project = await store.getProject(projectId);
     if (!project) {
-      sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+      sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
       return;
     }
 
     if (!req.file) {
-      sendError(res, 400, 'VALIDATION_ERROR', 'Missing file upload');
+      sendError(req, res, 400, 'VALIDATION_ERROR', 'Missing file upload');
       return;
     }
 
     const sideRaw = typeof req.body.side === 'string' ? req.body.side : '';
     if (sideRaw !== 'source' && sideRaw !== 'target') {
-      sendError(res, 400, 'VALIDATION_ERROR', 'side must be either "source" or "target"');
+      sendError(req, res, 400, 'VALIDATION_ERROR', 'side must be either "source" or "target"');
       return;
     }
 
@@ -253,7 +282,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Schema upload parse failed';
-      sendError(res, 400, 'SCHEMA_PARSE_ERROR', message);
+      sendError(req, res, 400, 'SCHEMA_PARSE_ERROR', message);
     }
   });
 
@@ -264,12 +293,13 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
 
       const project = await store.getProject(projectId);
       if (!project) {
-        sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+        sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
         return;
       }
 
       if (!defaultRegistry.has(connectorId)) {
         sendError(
+          req,
           res,
           404,
           'CONNECTOR_NOT_FOUND',
@@ -281,7 +311,11 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       const body = req.body as Record<string, unknown>;
       const side = body.side === 'target' ? 'target' : 'source';
       const systemId = side === 'source' ? project.sourceSystemId : project.targetSystemId;
-      const objectNames = Array.isArray(body.objects) ? (body.objects as string[]) : undefined;
+      let objectNames = Array.isArray(body.objects) ? (body.objects as string[]) : undefined;
+      if ((!objectNames || objectNames.length === 0) && connectorId === 'salesforce') {
+        const state = await store.getState();
+        objectNames = defaultSalesforceObjectsForProject(side, project, state.systems);
+      }
 
       try {
         const userId = req.user?.userId;
@@ -294,6 +328,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
         const schema = await connector.fetchSchema(objectNames);
         if (hasCredentialValues(credentials) && schema.mode !== 'live') {
           sendError(
+            req,
             res,
             502,
             'LIVE_CONNECTION_REQUIRED',
@@ -321,7 +356,7 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
         });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Schema ingestion failed';
-        sendError(res, 502, 'CONNECTOR_ERROR', message);
+        sendError(req, res, 502, 'CONNECTOR_ERROR', message);
       }
     },
   );

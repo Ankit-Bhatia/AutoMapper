@@ -72,6 +72,18 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
   const [projectName, setProjectName] = useState('');
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [targetFile, setTargetFile] = useState<File | null>(null);
+  const [draggingConnectorId, setDraggingConnectorId] = useState<string | null>(null);
+  const [dragOverRole, setDragOverRole] = useState<'source' | 'target' | null>(null);
+
+  function assignConnectorRole(id: string, role: 'source' | 'target') {
+    if (role === 'source') {
+      setSource(id);
+      setTarget((prev) => (prev === id ? null : prev));
+      return;
+    }
+    setTarget(id);
+    setSource((prev) => (prev === id ? null : prev));
+  }
 
   function handleCardClick(id: string) {
     if (source === id) {
@@ -115,6 +127,36 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
     }
   }
 
+  function handleDragStart(id: string, e: React.DragEvent<HTMLButtonElement>) {
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggingConnectorId(id);
+  }
+
+  function handleDragEnd() {
+    setDraggingConnectorId(null);
+    setDragOverRole(null);
+  }
+
+  function handleDrop(role: 'source' | 'target', e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain') || draggingConnectorId;
+    if (!id) return;
+    assignConnectorRole(id, role);
+    setDraggingConnectorId(null);
+    setDragOverRole(null);
+  }
+
+  function handleDragOver(role: 'source' | 'target', e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverRole !== role) setDragOverRole(role);
+  }
+
+  function handleDragLeave() {
+    setDragOverRole(null);
+  }
+
   return (
     <div className="connector-grid-page">
       {/* Page header */}
@@ -130,20 +172,32 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
 
       {/* Selection legend */}
       <div className="connector-legend">
-        <div className={`legend-pill legend-pill--source ${source ? 'legend-pill--set' : ''}`}>
+        <div
+          className={`legend-pill legend-pill--source ${source ? 'legend-pill--set' : ''} ${dragOverRole === 'source' ? 'legend-pill--dragover' : ''}`}
+          onDrop={(e) => handleDrop('source', e)}
+          onDragOver={(e) => handleDragOver('source', e)}
+          onDragLeave={handleDragLeave}
+          aria-label="Source drop zone"
+        >
           <span className="legend-dot legend-dot--source" />
           {source
             ? CONNECTORS.find((c) => c.id === source)?.name ?? source
-            : 'Select source (click first)'}
+            : 'Select source (click first or drag here)'}
         </div>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M3 8h10M9 4l4 4-4 4" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <div className={`legend-pill legend-pill--target ${target ? 'legend-pill--set' : ''}`}>
+        <div
+          className={`legend-pill legend-pill--target ${target ? 'legend-pill--set' : ''} ${dragOverRole === 'target' ? 'legend-pill--dragover' : ''}`}
+          onDrop={(e) => handleDrop('target', e)}
+          onDragOver={(e) => handleDragOver('target', e)}
+          onDragLeave={handleDragLeave}
+          aria-label="Target drop zone"
+        >
           <span className="legend-dot legend-dot--target" />
           {target
             ? CONNECTORS.find((c) => c.id === target)?.name ?? target
-            : 'Select target (click second)'}
+            : 'Select target (click second or drag here)'}
         </div>
       </div>
 
@@ -154,8 +208,11 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
           return (
             <button
               key={c.id}
-              className={`connector-card ${role === 'source' ? 'sel-source' : ''} ${role === 'target' ? 'sel-target' : ''}`}
+              className={`connector-card ${role === 'source' ? 'sel-source' : ''} ${role === 'target' ? 'sel-target' : ''} ${draggingConnectorId === c.id ? 'is-dragging' : ''}`}
               onClick={() => handleCardClick(c.id)}
+              onDragStart={(e) => handleDragStart(c.id, e)}
+              onDragEnd={handleDragEnd}
+              draggable
               type="button"
             >
               {/* Selection badge */}
