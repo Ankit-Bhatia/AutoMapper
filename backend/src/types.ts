@@ -1,4 +1,13 @@
-export type SystemType = 'salesforce' | 'sap' | 'generic';
+export type SystemType = 'salesforce' | 'sap' | 'jackhenry' | 'generic';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'OWNER' | 'EDITOR' | 'VIEWER';
+  createdAt: string;
+  updatedAt: string;
+}
 
 export type DataType =
   | 'string'
@@ -44,6 +53,12 @@ export interface Field {
   isKey?: boolean;
   isExternalId?: boolean;
   picklistValues?: string[];
+  // Connector metadata — populated by Jack Henry / SAP / Salesforce connectors
+  jxchangeXPath?: string;        // e.g. "CIFInq.Rs.CIFRec.CIFInfo.TaxId"
+  jxchangeXtendElemKey?: string; // Core Director XtendElem override key
+  iso20022Name?: string;         // ISO 20022 canonical name e.g. "TaxIdentification"
+  complianceTags?: string[];     // e.g. ["GLBA_NPI", "BSA_AML"]
+  complianceNote?: string;       // human-readable compliance caveat
 }
 
 export interface Relationship {

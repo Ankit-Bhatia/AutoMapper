@@ -1,16 +1,23 @@
 const SYNONYMS: Record<string, string[]> = {
-  customer: ['cust', 'client', 'bp', 'businesspartner'],
+  customer: ['cust', 'client', 'bp', 'businesspartner', 'cif', 'member'],
+  account: ['customer', 'partner', 'businesspartner', 'cif', 'dda', 'deposit', 'loanaccount', 'loan'],
   soldto: ['sold_to', 'sold-to', 'soldto'],
   shipto: ['ship_to', 'ship-to', 'shipto'],
   zipcode: ['postal', 'postalcode', 'zip'],
   address: ['addr', 'street', 'location'],
   externalid: ['customernumber', 'customerid', 'legacyid'],
   phone: ['telephone', 'tel'],
-  name: ['name1', 'name2', 'fullname'],
+  name: ['name1', 'name2', 'fullname', 'legalname'],
+  amount: ['balance', 'currentbalance'],
+  status: ['state'],
 };
 
 function tokenize(value: string): string[] {
-  return value
+  const splitCamel = value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+
+  return splitCamel
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .split(' ')

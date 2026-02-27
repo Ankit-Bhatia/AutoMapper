@@ -1,0 +1,132 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String           @id @default(uuid())
+  email        String           @unique
+  name         String
+  passwordHash String
+  role         String           @default("OWNER")
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  projects     MappingProject[]
+}
+
+model System {
+  id             String           @id @default(uuid())
+  name           String
+  type           String
+  createdAt      DateTime         @default(now())
+  entities       Entity[]
+  sourceProjects MappingProject[] @relation("SourceSystem")
+  targetProjects MappingProject[] @relation("TargetSystem")
+}
+
+model Entity {
+  id                   String          @id @default(uuid())
+  systemId             String
+  system               System          @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  name                 String
+  label                String?
+  description          String?
+  createdAt            DateTime        @default(now())
+  fields               Field[]
+  sourceEntityMappings EntityMapping[] @relation("SourceEntity")
+  targetEntityMappings EntityMapping[] @relation("TargetEntity")
+
+  @@index([systemId])
+}
+
+model Field {
+  id                   String         @id @default(uuid())
+  entityId             String
+  entity               Entity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  name                 String
+  label                String?
+  dataType             String
+  length               Int?
+  precision            Int?
+  scale                Int?
+  required             Boolean        @default(false)
+  isKey                Boolean        @default(false)
+  isExternalId         Boolean        @default(false)
+  picklistValues       String[]       @default([])
+  // Connector metadata — persisted from jack henry / sap / salesforce connector fields
+  jxchangeXPath        String?        // e.g. "CIFInq.Rs.CIFRec.CIFInfo.TaxId"
+  jxchangeXtendElemKey String?        // Core Director XtendElem override key
+  iso20022Name         String?        // ISO 20022 canonical name e.g. "TaxIdentification"
+  complianceTags       String[]       @default([]) // e.g. ["GLBA_NPI","BSA_AML"]
+  complianceNote       String?        // human-readable compliance caveat
+  createdAt            DateTime       @default(now())
+  sourceFieldMappings  FieldMapping[] @relation("SourceField")
+  targetFieldMappings  FieldMapping[] @relation("TargetField")
+
+  @@index([entityId])
+}
+
+model Relationship {
+  id           String   @id @default(uuid())
+  fromEntityId String
+  toEntityId   String
+  type         String
+  viaField     String?
+  createdAt    DateTime @default(now())
+
+  @@index([fromEntityId])
+}
+
+model MappingProject {
+  id             String          @id @default(uuid())
+  name           String
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceSystemId String
+  targetSystemId String
+  sourceSystem   System          @relation("SourceSystem", fields: [sourceSystemId], references: [id])
+  targetSystem   System          @relation("TargetSystem", fields: [targetSystemId], references: [id])
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  entityMappings EntityMapping[]
+
+  @@index([userId])
+}
+
+model EntityMapping {
+  id             String         @id @default(uuid())
+  projectId      String
+  project        MappingProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceEntityId String
+  sourceEntity   Entity         @relation("SourceEntity", fields: [sourceEntityId], references: [id])
+  targetEntityId String
+  targetEntity   Entity         @relation("TargetEntity", fields: [targetEntityId], references: [id])
+  confidence     Float
+  rationale      String
+  createdAt      DateTime       @default(now())
+  fieldMappings  FieldMapping[]
+
+  @@index([projectId])
+}
+
+model FieldMapping {
+  id              String        @id @default(uuid())
+  entityMappingId String
+  entityMapping   EntityMapping @relation(fields: [entityMappingId], references: [id], onDelete: Cascade)
+  sourceFieldId   String
+  sourceField     Field         @relation("SourceField", fields: [sourceFieldId], references: [id])
+  targetFieldId   String
+  targetField     Field         @relation("TargetField", fields: [targetFieldId], references: [id])
+  transform       Json
+  confidence      Float
+  rationale       String
+  status          String        @default("suggested")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([entityMappingId])
+}

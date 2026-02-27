@@ -2,20 +2,36 @@ import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import path from 'node:path';
+import { DbStore } from './db/dbStore.js';
+import { prisma } from './db/prismaClient.js';
 import { FsStore } from './utils/fsStore.js';
 import { parseSapSchema } from './services/sapParser.js';
 import { fetchSalesforceSchema } from './connectors/salesforce.js';
 import { suggestMappings } from './services/mapper.js';
 import { validateMappings } from './services/validator.js';
-import { buildCsvExport, buildJsonExport } from './services/exporter.js';
+import { buildExport, EXPORT_FORMATS, type ExportFormat } from './services/exporter.js';
 import { runAgentRefinement, type RefinementStep } from './services/agentRefiner.js';
+import { setupAuthRoutes } from './routes/authRoutes.js';
+import { setupConnectorRoutes } from './routes/connectorRoutes.js';
+import { setupAgentRoutes } from './routes/agentRoutes.js';
+import { setupOAuthRoutes } from './routes/oauthRoutes.js';
+import { authMiddleware } from './auth/authMiddleware.js';
+import {
+  CreateProjectSchema,
+  SalesforceSchemaSchema,
+  PatchFieldMappingSchema,
+} from './validation/schemas.js';
+// Register all built-in connectors into the defaultRegistry (side-effect import)
+import './connectors/registerConnectors.js';
 
 const app = express();
 const upload = multer();
 const port = Number(process.env.PORT || 4000);
-const dataDir = path.resolve(process.env.DATA_DIR || './src/data');
-const store = new FsStore(dataDir);
+const store = (
+  process.env.DATABASE_URL
+    ? new DbStore(prisma)
+    : new FsStore(process.env.DATA_DIR || './data')
+) as unknown as DbStore;
 
 app.use(cors());
 app.use(express.json({ limit: '4mb' }));
@@ -28,7 +44,7 @@ function sendError(
   code: string,
   message: string,
   details: unknown = null,
-) {
+): void {
   res.status(status).json({
     error: {
       code,
@@ -38,24 +54,45 @@ function sendError(
   });
 }
 
-app.post('/api/projects', (req, res) => {
-  const name = String(req.body?.name || '').trim();
-  if (!name) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'Project name is required');
+// Auth routes (public — no middleware)
+setupAuthRoutes(app);
+
+// OAuth routes — Salesforce Web Server Flow + connection status endpoint
+// Salesforce credentials are stored per-user in ConnectorSessionStore (not in .env)
+// SF_APP_CLIENT_ID + SF_APP_CLIENT_SECRET in .env are the *app's* Connected App creds, not the customer's
+setupOAuthRoutes(app);
+
+// Connector routes (GET /api/connectors public; POST endpoints behind authMiddleware)
+// POST endpoints automatically merge session-stored OAuth tokens with request credentials
+setupConnectorRoutes(app, store);
+
+// Agent orchestration routes (POST /api/projects/:id/orchestrate, GET .../compliance)
+setupAgentRoutes(app, store);
+
+// Protect all project and field-mapping routes
+app.use('/api/projects', authMiddleware);
+app.use('/api/field-mappings', authMiddleware);
+
+app.post('/api/projects', async (req, res) => {
+  const parsed = CreateProjectSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, 'VALIDATION_ERROR', 'Invalid input', parsed.error.issues);
     return;
   }
-  const project = store.createProject(name);
+  const { name, sourceSystemName, targetSystemName } = parsed.data;
+  const userId = req.user!.userId;
+  const project = await store.createProject(name, userId, sourceSystemName, targetSystemName);
   res.status(201).json({ project });
 });
 
-app.get('/api/projects/:id', (req, res) => {
-  const project = store.getProject(req.params.id);
+app.get('/api/projects/:id', async (req, res) => {
+  const project = await store.getProject(req.params.id);
   if (!project) {
     sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
     return;
   }
 
-  const state = store.getState();
+  const state = await store.getState();
   const sourceEntities = state.entities.filter((e) => e.systemId === project.sourceSystemId);
   const targetEntities = state.entities.filter((e) => e.systemId === project.targetSystemId);
   const entityMappings = state.entityMappings.filter((m) => m.projectId === project.id);
@@ -74,8 +111,8 @@ app.get('/api/projects/:id', (req, res) => {
   });
 });
 
-app.post('/api/projects/:id/source-schema', upload.single('file'), (req, res) => {
-  const project = store.getProject(req.params.id);
+app.post('/api/projects/:id/source-schema', upload.single('file'), async (req, res) => {
+  const project = await store.getProject(req.params.id);
   if (!project) {
     sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
     return;
@@ -88,37 +125,44 @@ app.post('/api/projects/:id/source-schema', upload.single('file'), (req, res) =>
   try {
     const content = req.file.buffer.toString('utf8');
     const parsed = parseSapSchema(content, req.file.originalname, project.sourceSystemId);
-    store.replaceSystemSchema(project.sourceSystemId, parsed.entities, parsed.fields, parsed.relationships);
-    store.updateProjectTimestamp(project.id);
+    await store.replaceSystemSchema(project.sourceSystemId, parsed.entities, parsed.fields, parsed.relationships);
+    await store.updateProjectTimestamp(project.id);
     res.json({
       entities: parsed.entities,
       fields: parsed.fields,
       relationships: parsed.relationships,
       message: 'SAP schema ingested',
     });
-  } catch (error: any) {
-    sendError(res, 400, 'SCHEMA_PARSE_ERROR', error.message || 'Failed to parse SAP schema');
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to parse SAP schema';
+    sendError(res, 400, 'SCHEMA_PARSE_ERROR', message);
   }
 });
 
 app.post('/api/projects/:id/target-schema/salesforce', async (req, res) => {
-  const project = store.getProject(req.params.id);
+  const project = await store.getProject(req.params.id);
   if (!project) {
     sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
     return;
   }
 
-  const objects = Array.isArray(req.body?.objects)
-    ? req.body.objects.map((v: unknown) => String(v))
+  const schemaInput = SalesforceSchemaSchema.safeParse(req.body);
+  if (!schemaInput.success) {
+    sendError(res, 400, 'VALIDATION_ERROR', 'Invalid input', schemaInput.error.issues);
+    return;
+  }
+
+  const objects = Array.isArray(schemaInput.data.objects)
+    ? schemaInput.data.objects
     : ['Account', 'Contact', 'Sales_Area__c'];
 
   const schema = await fetchSalesforceSchema(project.targetSystemId, {
     objects,
-    credentials: req.body?.credentials,
+    credentials: schemaInput.data.credentials,
   });
 
-  store.replaceSystemSchema(project.targetSystemId, schema.entities, schema.fields, schema.relationships);
-  store.updateProjectTimestamp(project.id);
+  await store.replaceSystemSchema(project.targetSystemId, schema.entities, schema.fields, schema.relationships);
+  await store.updateProjectTimestamp(project.id);
 
   res.json({
     entities: schema.entities,
@@ -129,13 +173,13 @@ app.post('/api/projects/:id/target-schema/salesforce', async (req, res) => {
 });
 
 app.post('/api/projects/:id/suggest-mappings', async (req, res) => {
-  const project = store.getProject(req.params.id);
+  const project = await store.getProject(req.params.id);
   if (!project) {
     sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
     return;
   }
 
-  const state = store.getState();
+  const state = await store.getState();
   const sourceEntities = state.entities.filter((e) => e.systemId === project.sourceSystemId);
   const targetEntities = state.entities.filter((e) => e.systemId === project.targetSystemId);
 
@@ -150,7 +194,7 @@ app.post('/api/projects/:id/suggest-mappings', async (req, res) => {
     targetEntities,
     fields: state.fields,
   });
-  store.upsertMappings(project.id, suggestion.entityMappings, suggestion.fieldMappings);
+  await store.upsertMappings(project.id, suggestion.entityMappings, suggestion.fieldMappings);
 
   const validation = validateMappings({
     entityMappings: suggestion.entityMappings,
@@ -167,16 +211,14 @@ app.post('/api/projects/:id/suggest-mappings', async (req, res) => {
   });
 });
 
-app.patch('/api/field-mappings/:id', (req, res) => {
-  const mapping = store.patchFieldMapping(req.params.id, {
-    status: req.body?.status,
-    confidence: req.body?.confidence,
-    rationale: req.body?.rationale,
-    sourceFieldId: req.body?.sourceFieldId,
-    targetFieldId: req.body?.targetFieldId,
-    transform: req.body?.transform,
-  });
+app.patch('/api/field-mappings/:id', async (req, res) => {
+  const parsed = PatchFieldMappingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, 'VALIDATION_ERROR', 'Invalid input', parsed.error.issues);
+    return;
+  }
 
+  const mapping = await store.patchFieldMapping(req.params.id, parsed.data);
   if (!mapping) {
     sendError(res, 404, 'FIELD_MAPPING_NOT_FOUND', 'Field mapping not found');
     return;
@@ -184,19 +226,28 @@ app.patch('/api/field-mappings/:id', (req, res) => {
   res.json({ fieldMapping: mapping });
 });
 
-app.get('/api/projects/:id/export', (req, res) => {
-  const format = String(req.query.format || 'json');
-  const project = store.getProject(req.params.id);
+// GET /api/projects/:id/export?format=json|yaml|csv|dataweave|boomi|workato
+// Also accepts GET /api/projects/:id/export/formats to list available formats
+app.get('/api/projects/:id/export/formats', (_req, res) => {
+  res.json({ formats: EXPORT_FORMATS });
+});
+
+app.get('/api/projects/:id/export', async (req, res) => {
+  const format = String(req.query.format || 'json') as ExportFormat;
+  const project = await store.getProject(req.params.id);
   if (!project) {
     sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
     return;
   }
-  if (!['json', 'csv'].includes(format)) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'format must be json or csv');
+  if (!(format in EXPORT_FORMATS)) {
+    sendError(
+      res, 400, 'VALIDATION_ERROR',
+      `format must be one of: ${Object.keys(EXPORT_FORMATS).join(', ')}`,
+    );
     return;
   }
 
-  const state = store.getState();
+  const state = await store.getState();
   const entityMappings = state.entityMappings.filter((e) => e.projectId === project.id);
   const entityMappingIds = new Set(entityMappings.map((e) => e.id));
   const fieldMappings = state.fieldMappings.filter((f) => entityMappingIds.has(f.entityMappingId));
@@ -207,39 +258,39 @@ app.get('/api/projects/:id/export', (req, res) => {
     entities: state.entities,
   });
 
-  if (format === 'csv') {
-    const csv = buildCsvExport({
-      project,
-      entityMappings,
-      fieldMappings,
-      entities: state.entities,
-      fields: state.fields,
-    });
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${project.name}-mapping.csv"`);
-    res.send(csv);
-    return;
-  }
+  const projectSystems = state.systems.filter(
+    (s) => s.id === project.sourceSystemId || s.id === project.targetSystemId,
+  );
 
-  const json = buildJsonExport({
+  const result = buildExport(format, {
     project,
+    systems: projectSystems,
     entityMappings,
     fieldMappings,
     entities: state.entities,
     fields: state.fields,
     validation,
   });
-  res.json(json);
+
+  // For JSON/Workato: send as JSON object; for all others: send as text with file download
+  if (typeof result.content === 'object') {
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.json(result.content);
+  } else {
+    res.setHeader('Content-Type', result.mime);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.send(result.content);
+  }
 });
 
 app.post('/api/projects/:id/agent-refine', async (req, res) => {
-  const project = store.getProject(req.params.id);
+  const project = await store.getProject(req.params.id);
   if (!project) {
     sendError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
     return;
   }
 
-  const state = store.getState();
+  const state = await store.getState();
   const entityMappings = state.entityMappings.filter((e) => e.projectId === project.id);
   const entityMappingIds = new Set(entityMappings.map((e) => e.id));
   const fieldMappings = state.fieldMappings.filter((f) => entityMappingIds.has(f.entityMappingId));
@@ -253,7 +304,7 @@ app.post('/api/projects/:id/agent-refine', async (req, res) => {
   }
 
   const writeEvent = (payload: object) => {
-    res.write(`data: ${JSON.stringify(payload)}\\n\\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
 
   writeEvent({
@@ -275,7 +326,7 @@ app.post('/api/projects/:id/agent-refine', async (req, res) => {
       },
     });
 
-    store.upsertMappings(project.id, entityMappings, result.updatedFieldMappings);
+    await store.upsertMappings(project.id, entityMappings, result.updatedFieldMappings);
 
     writeEvent({
       type: 'complete',

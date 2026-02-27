@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import jsforce from 'jsforce';
 import type { Entity, Field, Relationship } from '../types.js';
 import { normalizeSalesforceType } from '../utils/typeUtils.js';
+import { getSalesforceMockObjectTemplates } from './salesforceMockCatalog.js';
 
 export interface SalesforceConnectionInput {
   objects: string[];
@@ -41,7 +42,8 @@ export async function fetchSalesforceSchema(
 
     const entities: Entity[] = [];
     const fields: Field[] = [];
-    const relationships: Relationship[] = [];
+    // Collect pending relationships to resolve after all entities are known
+    const pendingRelationships: Array<{ fromEntityId: string; referenceTo: string; viaField: string }> = [];
 
     for (const objectName of input.objects) {
       const desc = await conn.sobject(objectName).describe();
@@ -70,15 +72,24 @@ export async function fetchSalesforceSchema(
         });
 
         if (f.referenceTo?.length) {
-          relationships.push({
+          pendingRelationships.push({
             fromEntityId: entityId,
-            toEntityId: entityId,
-            type: 'lookup',
+            referenceTo: String(f.referenceTo[0]),
             viaField: f.name,
           });
         }
       }
     }
+
+    // Build name → id map after all entities have been collected
+    const nameToEntityId = new Map(entities.map((e) => [e.name, e.id]));
+
+    const relationships: Relationship[] = pendingRelationships.map((pr) => ({
+      fromEntityId: pr.fromEntityId,
+      toEntityId: nameToEntityId.get(pr.referenceTo) ?? pr.fromEntityId,
+      type: 'lookup',
+      viaField: pr.viaField,
+    }));
 
     return { entities, fields, relationships, mode: 'live' };
   } catch {
@@ -90,7 +101,7 @@ function buildMockSalesforceSchema(
   systemId: string,
   objects: string[],
 ): { entities: Entity[]; fields: Field[]; relationships: Relationship[]; mode: 'mock' } {
-  const templates: Record<string, Array<Omit<Field, 'id' | 'entityId'>>> = {
+  const seededTemplates: Record<string, Array<Omit<Field, 'id' | 'entityId'>>> = {
     Account: [
       { name: 'External_ID__c', dataType: 'string', isExternalId: true },
       { name: 'Name', dataType: 'string', required: true },
@@ -114,6 +125,11 @@ function buildMockSalesforceSchema(
       },
       { name: 'Account__c', dataType: 'reference' },
     ],
+  };
+
+  const templates = {
+    ...seededTemplates,
+    ...getSalesforceMockObjectTemplates(objects),
   };
 
   const entities: Entity[] = [];

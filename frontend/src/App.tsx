@@ -1,5 +1,10 @@
-import { useMemo, useState } from 'react';
-import { api, apiBase } from './api/client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { api, isDemoUiMode, resetMockState } from './api/client';
+import { Sidebar } from './components/Sidebar';
+import { ConnectorGrid } from './components/ConnectorGrid';
+import { AgentPipeline } from './components/AgentPipeline';
+import { MappingTable } from './components/MappingTable';
+import { ExportPanel } from './components/ExportPanel';
 import type {
   Entity,
   EntityMapping,
@@ -8,377 +13,282 @@ import type {
   Project,
   ProjectPayload,
   ValidationReport,
+  WorkflowStep,
 } from './types';
 
-type Tab = 'setup' | 'review' | 'export';
-type RefinementStep = {
-  iteration: number;
-  phase: string;
-  improved: number;
-  message: string;
+// Connector id → display name for sidebar
+const CONNECTOR_NAMES: Record<string, string> = {
+  'jackhenry-silverlake': 'SilverLake',
+  'jackhenry-coredirector': 'Core Director',
+  'jackhenry-symitar': 'Symitar',
+  salesforce: 'Salesforce',
+  sap: 'SAP S/4HANA',
 };
 
-const TRANSFORMS = ['direct', 'concat', 'formatDate', 'lookup', 'static', 'regex', 'split', 'trim'];
+interface PipelineResult {
+  entityMappings: EntityMapping[];
+  fieldMappings: FieldMapping[];
+  validation: ValidationReport;
+  totalMappings: number;
+  complianceFlags: number;
+  processingMs: number;
+}
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('setup');
-  const [projectName, setProjectName] = useState('SAP to Salesforce Demo');
+  const demoUiMode = isDemoUiMode();
+  // ── Workflow state ──────────────────────────────────────────────────────────
+  const [step, setStep] = useState<WorkflowStep>('connect');
+  const [loadingSetup, setLoadingSetup] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+
+  // ── Project state ───────────────────────────────────────────────────────────
   const [project, setProject] = useState<Project | null>(null);
+  const [sourceConnectorId, setSourceConnectorId] = useState<string | null>(null);
+  const [targetConnectorId, setTargetConnectorId] = useState<string | null>(null);
+
+  // ── Schema / mapping state ──────────────────────────────────────────────────
   const [sourceEntities, setSourceEntities] = useState<Entity[]>([]);
   const [targetEntities, setTargetEntities] = useState<Entity[]>([]);
   const [fields, setFields] = useState<Field[]>([]);
   const [entityMappings, setEntityMappings] = useState<EntityMapping[]>([]);
   const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([]);
-  const [validation, setValidation] = useState<ValidationReport | null>(null);
-  const [selectedSapFile, setSelectedSapFile] = useState<File | null>(null);
-  const [sfObjects, setSfObjects] = useState('Account,Contact,Sales_Area__c');
-  const [status, setStatus] = useState('Ready');
-  const [agentRefining, setAgentRefining] = useState(false);
-  const [agentSteps, setAgentSteps] = useState<RefinementStep[]>([]);
-  const [agentDone, setAgentDone] = useState(false);
-  const [agentError, setAgentError] = useState<string | null>(null);
-  const [agentStarted, setAgentStarted] = useState(false);
+  const [sourceSchemaMode, setSourceSchemaMode] = useState<'live' | 'mock' | 'uploaded' | null>(null);
+  const [targetSchemaMode, setTargetSchemaMode] = useState<'live' | 'mock' | 'uploaded' | null>(null);
+  const [validation, setValidation] = useState<ValidationReport>({
+    warnings: [],
+    summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+  });
+  const [isOrchestrated, setIsOrchestrated] = useState(false);
 
-  const fieldById = useMemo(() => new Map(fields.map((f) => [f.id, f])), [fields]);
-  const entityById = useMemo(
-    () => new Map([...sourceEntities, ...targetEntities].map((e) => [e.id, e])),
-    [sourceEntities, targetEntities],
-  );
-
-  async function createProject() {
-    const data = await api<{ project: Project }>('/api/projects', {
-      method: 'POST',
-      body: JSON.stringify({ name: projectName }),
-    });
-    setProject(data.project);
-    setStatus(`Project created: ${data.project.name}`);
-  }
-
-  async function uploadSapSchema() {
-    if (!project || !selectedSapFile) return;
-    const form = new FormData();
-    form.set('file', selectedSapFile);
-
-    const response = await fetch(`${apiBase()}/api/projects/${project.id}/source-schema`, {
-      method: 'POST',
-      body: form,
-    });
-
-    if (!response.ok) {
-      const body = await response.json();
-      throw new Error(body.error || 'Failed uploading schema');
+  // ── Salesforce OAuth callback handling ──────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('sf_connected') === 'true') {
+      window.history.replaceState({}, '', window.location.pathname);
     }
+  }, []);
 
-    setStatus('SAP schema ingested');
-    await loadProject();
-  }
-
-  async function loadSalesforceSchema() {
-    if (!project) return;
-    const objects = sfObjects
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const result = await api<{ mode: string }>(`/api/projects/${project.id}/target-schema/salesforce`, {
-      method: 'POST',
-      body: JSON.stringify({ objects }),
-    });
-
-    setStatus(`Salesforce schema loaded (${result.mode})`);
-    await loadProject();
-  }
-
-  async function generateSuggestions() {
-    if (!project) return;
-    const result = await api<{
-      entityMappings: EntityMapping[];
-      fieldMappings: FieldMapping[];
-      validation: ValidationReport;
-      mode: string;
-    }>(`/api/projects/${project.id}/suggest-mappings`, { method: 'POST', body: '{}' });
-
-    setEntityMappings(result.entityMappings);
-    setFieldMappings(result.fieldMappings);
-    setValidation(result.validation);
-    setStatus(`Mapping suggestions generated (${result.mode})`);
-    setTab('review');
-  }
-
-  async function loadProject() {
-    if (!project) return;
-    const data = await api<ProjectPayload>(`/api/projects/${project.id}`);
+  // ── Reload project data from API ────────────────────────────────────────────
+  const loadProject = useCallback(async (pid: string) => {
+    const data = await api<ProjectPayload>(`/api/projects/${pid}`);
     setProject(data.project);
     setSourceEntities(data.sourceEntities);
     setTargetEntities(data.targetEntities);
     setFields(data.fields);
     setEntityMappings(data.entityMappings);
     setFieldMappings(data.fieldMappings);
-  }
+  }, []);
 
-  async function runAgentRefine() {
-    if (!project) return;
-    setAgentRefining(true);
-    setAgentSteps([]);
-    setAgentDone(false);
-    setAgentError(null);
-    setAgentStarted(false);
-    setStatus('Running agent refinement...');
+  // ── Step 1: ConnectorGrid → proceed ────────────────────────────────────────
+  async function handleConnectorProceed(
+    srcId: string,
+    tgtId: string,
+    options?: { projectName?: string; sourceFile?: File | null; targetFile?: File | null },
+  ) {
+    setLoadingSetup(true);
+    setSetupError(null);
+    setSourceConnectorId(srcId);
+    setTargetConnectorId(tgtId);
 
     try {
-      const response = await fetch(`${apiBase()}/api/projects/${project.id}/agent-refine`, {
+      // 1. Create project
+      const projectData = await api<{ project: Project }>('/api/projects', {
         method: 'POST',
+        body: JSON.stringify({
+          name: options?.projectName || `${CONNECTOR_NAMES[srcId] ?? srcId} → ${CONNECTOR_NAMES[tgtId] ?? tgtId}`,
+        }),
+      });
+      const newProject = projectData.project;
+      setProject(newProject);
+
+      // 2. Ingest source schema
+      let sourceSchema: { mode?: 'live' | 'mock' | 'uploaded' };
+      if (options?.sourceFile) {
+        const form = new FormData();
+        form.append('side', 'source');
+        form.append('systemType', srcId);
+        form.append('file', options.sourceFile);
+        sourceSchema = await api<{ mode?: 'live' | 'mock' | 'uploaded' }>(
+          `/api/projects/${newProject.id}/schema/upload-file`,
+          { method: 'POST', body: form },
+        );
+      } else {
+        sourceSchema = await api<{ mode?: 'live' | 'mock' | 'uploaded' }>(`/api/projects/${newProject.id}/schema/${srcId}`, {
+          method: 'POST',
+          body: JSON.stringify({ side: 'source' }),
+        });
+      }
+      setSourceSchemaMode(sourceSchema.mode ?? null);
+
+      // 3. Ingest target schema
+      let targetSchema: { mode?: 'live' | 'mock' | 'uploaded' };
+      if (options?.targetFile) {
+        const form = new FormData();
+        form.append('side', 'target');
+        form.append('systemType', tgtId);
+        form.append('file', options.targetFile);
+        targetSchema = await api<{ mode?: 'live' | 'mock' | 'uploaded' }>(
+          `/api/projects/${newProject.id}/schema/upload-file`,
+          { method: 'POST', body: form },
+        );
+      } else {
+        targetSchema = await api<{ mode?: 'live' | 'mock' | 'uploaded' }>(`/api/projects/${newProject.id}/schema/${tgtId}`, {
+          method: 'POST',
+          body: JSON.stringify({ side: 'target' }),
+        });
+      }
+      setTargetSchemaMode(targetSchema.mode ?? null);
+
+      // 4. Generate heuristic mapping suggestions (populates pre-orchestration state)
+      const suggestions = await api<{
+        entityMappings: EntityMapping[];
+        fieldMappings: FieldMapping[];
+        validation: ValidationReport;
+      }>(`/api/projects/${newProject.id}/suggest-mappings`, {
+        method: 'POST',
+        body: '{}',
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error(`Agent refine failed (${response.status})`);
-      }
+      setEntityMappings(suggestions.entityMappings);
+      setFieldMappings(suggestions.fieldMappings);
+      setValidation(suggestions.validation);
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      // 5. Load full project data (entities + fields)
+      await loadProject(newProject.id);
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let splitIndex = buffer.indexOf('\n');
-        while (splitIndex >= 0) {
-          const line = buffer.slice(0, splitIndex).trim();
-          buffer = buffer.slice(splitIndex + 1);
-          if (line.startsWith('data: ')) {
-            const payload = JSON.parse(line.slice(6)) as
-              | { type: 'start'; projectId: string; totalLowConfidence: number; hasAi: boolean }
-              | ({ type: 'step' } & RefinementStep)
-              | { type: 'complete'; totalImproved: number; updatedMappings: number; validation: ValidationReport }
-              | { type: 'error'; message: string };
-
-            if (payload.type === 'start') {
-              setAgentStarted(true);
-              setStatus(
-                `Agent started (${payload.hasAi ? 'AI enabled' : 'heuristic mode'}), low-confidence: ${payload.totalLowConfidence}`,
-              );
-            } else if (payload.type === 'step') {
-              const step: RefinementStep = {
-                iteration: payload.iteration,
-                phase: payload.phase,
-                improved: payload.improved,
-                message: payload.message,
-              };
-              setAgentSteps((prev) => [...prev, step]);
-            } else if (payload.type === 'complete') {
-              setAgentDone(true);
-              setAgentRefining(false);
-              setValidation(payload.validation);
-              setStatus(`Agent refinement complete (${payload.totalImproved} improvements)`);
-              await loadProject();
-            } else if (payload.type === 'error') {
-              setAgentError(payload.message);
-              setAgentRefining(false);
-              setStatus(`Agent refinement failed: ${payload.message}`);
-            }
-          }
-          splitIndex = buffer.indexOf('\n');
-        }
-      }
-
-      setAgentRefining(false);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Agent refinement failed';
-      setAgentError(message);
-      setStatus(`Agent refinement failed: ${message}`);
-      setAgentRefining(false);
+      // 6. Move to orchestrate step
+      setStep('orchestrate');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Setup failed';
+      setSetupError(msg);
+      // Reset connector selections so user can retry
+      setSourceConnectorId(null);
+      setTargetConnectorId(null);
+      setProject(null);
+      setSourceSchemaMode(null);
+      setTargetSchemaMode(null);
+    } finally {
+      setLoadingSetup(false);
     }
   }
 
-  async function patchFieldMapping(id: string, patch: Partial<FieldMapping>) {
-    const result = await api<{ fieldMapping: FieldMapping }>(`/api/field-mappings/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    });
-    setFieldMappings((prev) => prev.map((fm) => (fm.id === id ? result.fieldMapping : fm)));
+  // ── Step 2: AgentPipeline → complete ───────────────────────────────────────
+  function handlePipelineComplete(result: PipelineResult) {
+    setEntityMappings(result.entityMappings);
+    setFieldMappings(result.fieldMappings);
+    setValidation(result.validation);
+    setIsOrchestrated(true);
+    // Auto-advance to review
+    setTimeout(() => setStep('review'), 800);
   }
 
-  async function editTransformConfig(mapping: FieldMapping) {
-    const current = JSON.stringify(mapping.transform.config);
-    const updated = window.prompt('Enter transform config JSON', current);
-    if (updated === null) return;
-    try {
-      const parsed = JSON.parse(updated);
-      await patchFieldMapping(mapping.id, {
-        transform: { ...mapping.transform, config: parsed },
-        status: 'modified',
-      });
-    } catch {
-      window.alert('Invalid JSON config.');
+  // ── Reset: go back to connector selection ──────────────────────────────────
+  function handleReset() {
+    resetMockState();
+    setStep('connect');
+    setProject(null);
+    setSourceConnectorId(null);
+    setTargetConnectorId(null);
+    setSourceSchemaMode(null);
+    setTargetSchemaMode(null);
+    setSourceEntities([]);
+    setTargetEntities([]);
+    setFields([]);
+    setEntityMappings([]);
+    setFieldMappings([]);
+    setValidation({ warnings: [], summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 } });
+    setIsOrchestrated(false);
+    setSetupError(null);
+  }
+
+  // ── Step 3: MappingTable → update single mapping ───────────────────────────
+  function handleMappingUpdate(updated: FieldMapping) {
+    setFieldMappings((prev) => prev.map((fm) => (fm.id === updated.id ? updated : fm)));
+  }
+
+  // ── Derived stats ───────────────────────────────────────────────────────────
+  const acceptedCount = useMemo(
+    () => fieldMappings.filter((fm) => fm.status === 'accepted').length,
+    [fieldMappings],
+  );
+
+  const sourceConnectorName = sourceConnectorId ? CONNECTOR_NAMES[sourceConnectorId] ?? sourceConnectorId : undefined;
+  const targetConnectorName = targetConnectorId ? CONNECTOR_NAMES[targetConnectorId] ?? targetConnectorId : undefined;
+
+  // ── Render main content by step ─────────────────────────────────────────────
+  function renderContent() {
+    switch (step) {
+      case 'connect':
+        return (
+          <>
+            <ConnectorGrid
+              onProceed={handleConnectorProceed}
+              loading={loadingSetup}
+            />
+            {setupError && (
+              <div className="validation-box validation-box--error" style={{ margin: '0 0 0 0' }}>
+                <div className="validation-box-title">Setup failed</div>
+                <p style={{ margin: 0, fontSize: '14px' }}>{setupError}</p>
+              </div>
+            )}
+          </>
+        );
+
+      case 'orchestrate':
+        return project ? (
+          <AgentPipeline
+            projectId={project.id}
+            onComplete={handlePipelineComplete}
+            onError={(msg) => console.error('Pipeline error:', msg)}
+          />
+        ) : null;
+
+      case 'review':
+        return project ? (
+          <MappingTable
+            projectId={project.id}
+            sourceEntities={sourceEntities}
+            targetEntities={targetEntities}
+            fields={fields}
+            entityMappings={entityMappings}
+            fieldMappings={fieldMappings}
+            validation={validation}
+            onMappingUpdate={handleMappingUpdate}
+            onProceedToExport={() => setStep('export')}
+          />
+        ) : null;
+
+      case 'export':
+        return project ? (
+          <ExportPanel
+            projectId={project.id}
+            fieldMappingCount={fieldMappings.length}
+            entityMappingCount={entityMappings.length}
+            acceptedCount={acceptedCount}
+            validation={validation}
+          />
+        ) : null;
     }
   }
 
   return (
-    <div className="app">
-      <header>
-        <h1>Auto Mapper - Phase 1 MVP</h1>
-        <p>{status}</p>
-      </header>
-
-      <nav className="tabs">
-        <button className={tab === 'setup' ? 'active' : ''} onClick={() => setTab('setup')}>Project Setup</button>
-        <button className={tab === 'review' ? 'active' : ''} onClick={() => setTab('review')}>Mapping Review</button>
-        <button className={tab === 'export' ? 'active' : ''} onClick={() => setTab('export')}>Export</button>
-      </nav>
-
-      {tab === 'setup' && (
-        <section className="card">
-          <h2>Create Project</h2>
-          <input value={projectName} onChange={(e) => setProjectName(e.target.value)} />
-          <button onClick={createProject}>Create</button>
-
-          <h3>Upload SAP Schema (JSON/XML/CSV)</h3>
-          <input type="file" onChange={(e) => setSelectedSapFile(e.target.files?.[0] ?? null)} />
-          <button disabled={!project || !selectedSapFile} onClick={uploadSapSchema}>Upload SAP Schema</button>
-
-          <h3>Connect Salesforce + Select Objects</h3>
-          <input
-            value={sfObjects}
-            onChange={(e) => setSfObjects(e.target.value)}
-            placeholder="Account,Contact,Sales_Area__c"
-          />
-          <button disabled={!project} onClick={loadSalesforceSchema}>Load Salesforce Metadata</button>
-
-          <div className="actions">
-            <button disabled={!project} onClick={generateSuggestions}>Generate Mapping Suggestions</button>
-            <button disabled={!project} onClick={loadProject}>Refresh</button>
-          </div>
-
-          {project && entityMappings.length > 0 && (
-            <div className="actions">
-              <button disabled={agentRefining} onClick={runAgentRefine}>🤖 Agent Refine Mappings</button>
-            </div>
-          )}
-
-          {(agentRefining || agentStarted || agentSteps.length > 0 || agentDone || agentError) && (
-            <div>
-              <p>
-                {agentRefining
-                  ? 'Agent starting...'
-                  : agentDone
-                    ? 'Agent refinement complete.'
-                    : agentError
-                      ? `Agent error: ${agentError}`
-                      : 'Agent status pending.'}
-              </p>
-              <ul>
-                {agentSteps.map((step, idx) => (
-                  <li key={`${step.iteration}-${idx}`}>
-                    {`✅ Iteration ${step.iteration} (${step.phase}): improved ${step.improved} mappings — ${step.message}`}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-      )}
-
-      {tab === 'review' && (
-        <section className="card">
-          <h2>Entity Mapping Suggestions</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Source Entity</th>
-                <th>Target Entity</th>
-                <th>Confidence</th>
-                <th>Rationale</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entityMappings.map((em) => (
-                <tr key={em.id}>
-                  <td>{entityById.get(em.sourceEntityId)?.name}</td>
-                  <td>{entityById.get(em.targetEntityId)?.name}</td>
-                  <td>{em.confidence.toFixed(2)}</td>
-                  <td>{em.rationale}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <h2>Field Mapping Suggestions</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th>Target</th>
-                <th>Transform</th>
-                <th>Confidence</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fieldMappings.map((fm) => {
-                const source = fieldById.get(fm.sourceFieldId);
-                const target = fieldById.get(fm.targetFieldId);
-                return (
-                  <tr key={fm.id}>
-                    <td>{source?.name}</td>
-                    <td>{target?.name}</td>
-                    <td>
-                      <select
-                        value={fm.transform.type}
-                        onChange={(e) =>
-                          patchFieldMapping(fm.id, {
-                            transform: { ...fm.transform, type: e.target.value },
-                            status: 'modified',
-                          })
-                        }
-                      >
-                        {TRANSFORMS.map((t) => (
-                          <option value={t} key={t}>{t}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>{fm.confidence.toFixed(2)}</td>
-                    <td>{fm.status}</td>
-                    <td>
-                      <button onClick={() => patchFieldMapping(fm.id, { status: 'accepted' })}>Accept</button>
-                      <button onClick={() => patchFieldMapping(fm.id, { status: 'rejected' })}>Reject</button>
-                      <button onClick={() => editTransformConfig(fm)}>Edit Config</button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {tab === 'export' && (
-        <section className="card">
-          <h2>Export Mapping Spec</h2>
-          {project && (
-            <div className="actions">
-              <a href={`${apiBase()}/api/projects/${project.id}/export?format=json`} target="_blank">Download JSON</a>
-              <a href={`${apiBase()}/api/projects/${project.id}/export?format=csv`} target="_blank">Download CSV</a>
-            </div>
-          )}
-
-          <h3>Validation Warnings</h3>
-          {validation ? (
-            <>
-              <p>Total: {validation.summary.totalWarnings}</p>
-              <ul>
-                {validation.warnings.map((w, idx) => (
-                  <li key={idx}>{w.type}: {w.message}</li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <p>Generate mappings to see validation report.</p>
-          )}
-        </section>
-      )}
+    <div className="app-shell">
+      <Sidebar
+        currentStep={step}
+        onStepClick={setStep}
+        onReset={handleReset}
+        projectName={project?.name}
+        sourceConnector={sourceConnectorName}
+        targetConnector={targetConnectorName}
+        sourceSchemaMode={sourceSchemaMode ?? undefined}
+        targetSchemaMode={targetSchemaMode ?? undefined}
+        mappingCount={fieldMappings.length}
+        isOrchestrated={isOrchestrated}
+        isDemoMode={demoUiMode}
+      />
+      <main className="main-content">
+        {renderContent()}
+      </main>
     </div>
   );
 }

@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoMapper — Enterprise Integration Mapping Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        .banner {
+            padding: 12px 20px;
+            font-weight: 500;
+            font-size: 14px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .banner.connected {
+            background: #dcfce7;
+            color: #166534;
+            border-bottom-color: #86efac;
+        }
+
+        .banner.demo {
+            background: #fef08a;
+            color: #854d0e;
+            border-bottom-color: #fcd34d;
+        }
+
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 280px;
+            background: #1e293b;
+            color: #f1f5f9;
+            padding: 24px 0;
+            overflow-y: auto;
+            border-right: 1px solid #0f172a;
+        }
+
+        .sidebar-title {
+            padding: 0 20px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+        }
+
+        .stepper {
+            list-style: none;
+        }
+
+        .stepper-item {
+            padding: 12px 16px;
+            margin: 0 12px 8px;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .stepper-item:hover {
+            background: #334155;
+        }
+
+        .stepper-item.active {
+            background: #0ea5e9;
+            color: white;
+            font-weight: 600;
+        }
+
+        .stepper-item.completed::before {
+            content: '✓';
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            background: #10b981;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .stepper-item.active::before {
+            content: attr(data-step);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            background: white;
+            color: #0ea5e9;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .stepper-item.pending::before {
+            content: attr(data-step);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            background: #475569;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: bold;
+            color: #cbd5e1;
+            flex-shrink: 0;
+        }
+
+        .content-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 32px;
+            background: white;
+        }
+
+        .step-panel {
+            display: none;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .step-panel.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .step-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #0f172a;
+        }
+
+        .step-description {
+            font-size: 14px;
+            color: #64748b;
+            margin-bottom: 24px;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            padding: 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: white;
+        }
+
+        .card:hover {
+            border-color: #0ea5e9;
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.1);
+        }
+
+        .card.selected {
+            border-color: #0ea5e9;
+            background: #f0f9ff;
+        }
+
+        .card-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #1e293b;
+            margin-bottom: 4px;
+        }
+
+        .card-subtitle {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-right: 4px;
+            margin-top: 4px;
+        }
+
+        .badge-glba { background: #fef3c7; color: #92400e; }
+        .badge-pci { background: #fee2e2; color: #991b1b; }
+        .badge-sox { background: #dbeafe; color: #0c4a6e; }
+        .badge-ffiec { background: #e9d5ff; color: #6b21a8; }
+        .badge-bsa { background: #fed7aa; color: #9a3412; }
+
+        .table-wrapper {
+            overflow-x: auto;
+            margin-bottom: 24px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th {
+            background: #f1f5f9;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #475569;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .confidence-bar {
+            width: 100px;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            transition: width 0.3s;
+        }
+
+        .confidence-fill.high { background: #10b981; }
+        .confidence-fill.medium { background: #f59e0b; }
+        .confidence-fill.low { background: #ef4444; }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .status-confirmed {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-suggested {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .agent-log {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 6px;
+            font-family: "Monaco", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 24px;
+        }
+
+        .agent-log-line {
+            padding: 4px 0;
+            opacity: 0;
+            animation: slideIn 0.3s ease-out forwards;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .agent-log-line.agent-1 { animation-delay: 0s; }
+        .agent-log-line.agent-2 { animation-delay: 0.8s; }
+        .agent-log-line.agent-3 { animation-delay: 1.6s; }
+        .agent-log-line.agent-4 { animation-delay: 2.4s; }
+        .agent-log-line.agent-5 { animation-delay: 3.2s; }
+        .agent-log-line.agent-6 { animation-delay: 4s; }
+
+        .agent-label {
+            color: #60a5fa;
+            font-weight: 600;
+        }
+
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-bottom: 24px;
+            font-family: "Monaco", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .string { color: #86efac; }
+        .number { color: #60a5fa; }
+        .key { color: #f472b6; }
+        .boolean { color: #fbbf24; }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #0ea5e9;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0284c7;
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #1e293b;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e1;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .footer {
+            padding: 16px 20px;
+            background: #f1f5f9;
+            border-top: 1px solid #e2e8f0;
+            font-size: 12px;
+            color: #64748b;
+            text-align: center;
+        }
+
+        .entity-card {
+            padding: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+
+        .entity-name {
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 4px;
+        }
+
+        .entity-fields {
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 8px;
+        }
+
+        .refinement-counter {
+            display: inline-block;
+            background: #dbeafe;
+            color: #0c4a6e;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 12px;
+            margin-top: 12px;
+        }
+
+        .copy-btn {
+            background: #10b981;
+            color: white;
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+
+        .copy-btn:hover {
+            background: #059669;
+        }
+
+        .copy-btn.copied {
+            background: #0ea5e9;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                padding: 16px 0;
+                max-height: 200px;
+            }
+            .content-area {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="banner" id="banner">
+            <span id="bannerText">Checking connection...</span>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <div class="sidebar-title">Workflow Steps</div>
+                <ul class="stepper" id="stepper">
+                    <li class="stepper-item pending" data-step="1" data-panel="select-source">Select Source System</li>
+                    <li class="stepper-item pending" data-step="2" data-panel="select-target">Select Target System</li>
+                    <li class="stepper-item pending" data-step="3" data-panel="load-schemas">Load Schemas</li>
+                    <li class="stepper-item pending" data-step="4" data-panel="mappings">Suggest Mappings</li>
+                    <li class="stepper-item pending" data-step="5" data-panel="refinement">Agent Refinement</li>
+                    <li class="stepper-item pending" data-step="6" data-panel="export">Export</li>
+                </ul>
+            </div>
+
+            <div class="content-area" id="contentArea">
+                <!-- Step 1: Select Source System -->
+                <div class="step-panel active" id="select-source">
+                    <div class="step-title">Select Source System</div>
+                    <div class="step-description">Choose the banking system to map from</div>
+                    <div class="cards-grid" id="sourceSystemCards"></div>
+                    <div class="button-group">
+                        <button class="btn-primary" onclick="app.nextStep()" id="nextBtn1">Next →</button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Select Target System -->
+                <div class="step-panel" id="select-target">
+                    <div class="step-title">Select Target System</div>
+                    <div class="step-description">Choose the enterprise system to map to</div>
+                    <div class="cards-grid" id="targetSystemCards"></div>
+                    <div class="button-group">
+                        <button class="btn-secondary" onclick="app.previousStep()">← Back</button>
+                        <button class="btn-primary" onclick="app.nextStep()" id="nextBtn2">Next →</button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Load Schemas -->
+                <div class="step-panel" id="load-schemas">
+                    <div class="step-title">Load Schemas</div>
+                    <div class="step-description">Fetch and review entity schemas from source and target systems</div>
+                    <button class="btn-primary" onclick="app.fetchSchemas()" id="fetchBtn">Fetch Schema</button>
+                    <div id="schemaContent" style="margin-top: 24px;"></div>
+                    <div class="button-group" style="margin-top: 24px;">
+                        <button class="btn-secondary" onclick="app.previousStep()">← Back</button>
+                        <button class="btn-primary" onclick="app.nextStep()" id="nextBtn3" style="display:none;">Next →</button>
+                    </div>
+                </div>
+
+                <!-- Step 4: Suggest Mappings -->
+                <div class="step-panel" id="mappings">
+                    <div class="step-title">Suggest Mappings</div>
+                    <div class="step-description">Review AI-suggested field mappings with confidence scores</div>
+                    <div class="table-wrapper">
+                        <table id="mappingsTable">
+                            <thead>
+                                <tr>
+                                    <th>Source Entity</th>
+                                    <th>Source Field</th>
+                                    <th>Target Entity</th>
+                                    <th>Target Field</th>
+                                    <th>Confidence</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mappingsTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn-secondary" onclick="app.previousStep()">← Back</button>
+                        <button class="btn-primary" onclick="app.nextStep()" id="nextBtn4">Next →</button>
+                    </div>
+                </div>
+
+                <!-- Step 5: Agent Refinement -->
+                <div class="step-panel" id="refinement">
+                    <div class="step-title">Agent Refinement</div>
+                    <div class="step-description">Watch the agent workflow improve mappings in real-time</div>
+                    <div class="agent-log" id="agentLog"></div>
+                    <div class="refinement-counter" id="refinementCounter">Mappings Improved: 0</div>
+                    <div class="button-group">
+                        <button class="btn-secondary" onclick="app.previousStep()">← Back</button>
+                        <button class="btn-primary" onclick="app.nextStep()" id="nextBtn5">Next →</button>
+                    </div>
+                </div>
+
+                <!-- Step 6: Export -->
+                <div class="step-panel" id="export">
+                    <div class="step-title">Export Mapping Specification</div>
+                    <div class="step-description">Download or copy the mapping configuration</div>
+                    <button class="btn-success copy-btn" onclick="app.copyExport()" id="copyBtn">📋 Copy to Clipboard</button>
+                    <div class="code-block" id="exportCode"></div>
+                    <div class="button-group">
+                        <button class="btn-secondary" onclick="app.previousStep()">← Back</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            Phase 0 ✓ Foundation | Phase 1 ✓ Connectors | Phase 2 🔄 Agents | Phase 3 ⏳ Canvas
+        </div>
+    </div>
+
+    <script>
+        const app = {
+            currentStep: 0,
+            apiConnected: false,
+            mode: 'DEMO',
+            selectedSource: null,
+            selectedTarget: null,
+            schemas: null,
+            mappings: null,
+            agentSteps: [],
+
+            async init() {
+                await this.detectAPI();
+                this.renderSourceSystems();
+                this.renderTargetSystems();
+                this.setupStepperListeners();
+                this.goToStep(0);
+            },
+
+            async detectAPI() {
+                try {
+                    const response = await fetch('http://localhost:4000/api/connectors', { timeout: 2000 });
+                    if (response.ok) {
+                        this.apiConnected = true;
+                        this.mode = 'LIVE';
+                        document.getElementById('banner').className = 'banner connected';
+                        document.getElementById('bannerText').textContent = '✅ Connected to AutoMapper API at localhost:4000';
+                    }
+                } catch (e) {
+                    this.apiConnected = false;
+                    this.mode = 'DEMO';
+                    document.getElementById('banner').className = 'banner demo';
+                    document.getElementById('bannerText').textContent = '⚡ Demo Mode — Using Mock Data';
+                }
+            },
+
+            renderSourceSystems() {
+                const sources = [
+                    { id: 'jackhenry-silverlake', name: 'Jack Henry SilverLake', type: 'Banking' },
+                    { id: 'jackhenry-symitar', name: 'Jack Henry Symitar (Episys)', type: 'Credit Union' },
+                    { id: 'sap-s4hana', name: 'SAP S/4HANA', type: 'ERP' }
+                ];
+                this.renderCards('sourceSystemCards', sources, 'source');
+            },
+
+            renderTargetSystems() {
+                const targets = [
+                    { id: 'salesforce-crm', name: 'Salesforce CRM', type: 'CRM' },
+                    { id: 'sap-erp', name: 'SAP ERP', type: 'ERP' }
+                ];
+                this.renderCards('targetSystemCards', targets, 'target');
+            },
+
+            renderCards(containerId, items, type) {
+                const container = document.getElementById(containerId);
+                container.innerHTML = items.map(item => `
+                    <div class="card" onclick="app.selectCard('${type}', '${item.id}')">
+                        <div class="card-title">${item.name}</div>
+                        <div class="card-subtitle">${item.type}</div>
+                    </div>
+                `).join('');
+            },
+
+            selectCard(type, id) {
+                if (type === 'source') {
+                    this.selectedSource = id;
+                    document.querySelectorAll('#sourceSystemCards .card').forEach(card => card.classList.remove('selected'));
+                    event.target.closest('.card').classList.add('selected');
+                } else {
+                    this.selectedTarget = id;
+                    document.querySelectorAll('#targetSystemCards .card').forEach(card => card.classList.remove('selected'));
+                    event.target.closest('.card').classList.add('selected');
+                }
+            },
+
+            async fetchSchemas() {
+                const fetchBtn = document.getElementById('fetchBtn');
+                const schemaContent = document.getElementById('schemaContent');
+                fetchBtn.disabled = true;
+                fetchBtn.textContent = 'Fetching...';
+
+                if (this.apiConnected && this.selectedSource) {
+                    try {
+                        const response = await fetch(`http://localhost:4000/api/connectors/${this.selectedSource}/schema`);
+                        this.schemas = await response.json();
+                    } catch (e) {
+                        this.schemas = this.getMockSchemas();
+                    }
+                } else {
+                    this.schemas = this.getMockSchemas();
+                }
+
+                this.renderSchemas(schemaContent);
+                fetchBtn.style.display = 'none';
+                document.getElementById('nextBtn3').style.display = 'block';
+            },
+
+            getMockSchemas() {
+                return {
+                    source: {
+                        connector: 'Jack Henry SilverLake',
+                        entities: [
+                            {
+                                name: 'CIF',
+                                label: 'Customer Information File',
+                                fieldCount: 20,
+                                complianceTag: ['FFIEC_AUDIT', 'GLBA_NPI']
+                            },
+                            {
+                                name: 'DDA',
+                                label: 'Demand Deposit Account',
+                                fieldCount: 14,
+                                complianceTag: ['SOX_FINANCIAL']
+                            },
+                            {
+                                name: 'LoanAccount',
+                                label: 'Loan Account',
+                                fieldCount: 15,
+                                complianceTag: ['SOX_FINANCIAL']
+                            }
+                        ]
+                    },
+                    target: {
+                        connector: 'Salesforce CRM',
+                        entities: [
+                            { name: 'Account', label: 'Account', fieldCount: 25, complianceTag: ['GLBA_NPI'] },
+                            { name: 'Contact', label: 'Contact', fieldCount: 20, complianceTag: ['GLBA_NPI'] },
+                            { name: 'Opportunity', label: 'Opportunity', fieldCount: 15, complianceTag: ['SOX_FINANCIAL'] }
+                        ]
+                    }
+                };
+            },
+
+            renderSchemas(container) {
+                const { source, target } = this.schemas;
+                let html = `<h3 style="margin-bottom: 12px; color: #1e293b;">Source: ${source.connector}</h3>`;
+                source.entities.forEach(entity => {
+                    html += `
+                        <div class="entity-card">
+                            <div class="entity-name">${entity.name} — ${entity.label}</div>
+                            <div class="entity-fields">${entity.fieldCount} fields</div>
+                            ${entity.complianceTag.map(tag => `<span class="badge badge-${tag.toLowerCase()}">${tag}</span>`).join('')}
+                        </div>
+                    `;
+                });
+                html += `<h3 style="margin: 20px 0 12px; color: #1e293b;">Target: ${target.connector}</h3>`;
+                target.entities.forEach(entity => {
+                    html += `
+                        <div class="entity-card">
+                            <div class="entity-name">${entity.name} — ${entity.label}</div>
+                            <div class="entity-fields">${entity.fieldCount} fields</div>
+                            ${entity.complianceTag.map(tag => `<span class="badge badge-${tag.toLowerCase()}">${tag}</span>`).join('')}
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            },
+
+            renderMappings() {
+                this.mappings = [
+                    { sourceEntity: 'CIF', sourceField: 'LegalName', targetEntity: 'Account', targetField: 'Name', confidence: 0.92, status: 'confirmed' },
+                    { sourceEntity: 'CIF', sourceField: 'PrimaryEmail', targetEntity: 'Contact', targetField: 'Email', confidence: 0.88, status: 'confirmed' },
+                    { sourceEntity: 'CIF', sourceField: 'PrimaryPhone', targetEntity: 'Contact', targetField: 'Phone', confidence: 0.85, status: 'confirmed' },
+                    { sourceEntity: 'DDA', sourceField: 'CurrentBalance', targetEntity: 'Opportunity', targetField: 'Amount', confidence: 0.61, status: 'suggested' },
+                    { sourceEntity: 'CIF', sourceField: 'TaxID', targetEntity: 'Account', targetField: 'TaxIdNumber__c', confidence: 0.78, status: 'suggested' }
+                ];
+
+                const tbody = document.getElementById('mappingsTableBody');
+                tbody.innerHTML = this.mappings.map(mapping => {
+                    const confClass = mapping.confidence >= 0.8 ? 'high' : mapping.confidence >= 0.6 ? 'medium' : 'low';
+                    return `
+                        <tr>
+                            <td>${mapping.sourceEntity}</td>
+                            <td>${mapping.sourceField}</td>
+                            <td>${mapping.targetEntity}</td>
+                            <td>${mapping.targetField}</td>
+                            <td>
+                                <div class="confidence-bar">
+                                    <div class="confidence-fill ${confClass}" style="width: ${mapping.confidence * 100}%"></div>
+                                </div>
+                                ${(mapping.confidence * 100).toFixed(0)}%
+                            </td>
+                            <td><span class="status-badge status-${mapping.status}">${mapping.status}</span></td>
+                        </tr>
+                    `;
+                }).join('');
+            },
+
+            renderAgentRefinement() {
+                const steps = [
+                    '<span class="agent-label">SchemaDiscoveryAgent:</span> Analysing 49 fields across 3 entities...',
+                    '<span class="agent-label">ComplianceAgent:</span> Found 8 GLBA_NPI fields, 2 SOX_FINANCIAL fields, 1 BSA_AML field',
+                    '<span class="agent-label">BankingDomainAgent:</span> Applied Jack Henry SilverLake domain rules — ISO 20022 annotations detected',
+                    '<span class="agent-label">CRMDomainAgent:</span> Salesforce Account/Contact standard field mapping applied',
+                    '<span class="agent-label">MappingProposalAgent:</span> Rescored 2 low-confidence mappings using domain heuristics (+0.14 avg)',
+                    '<span class="agent-label">ValidationAgent:</span> 5/5 mappings valid. 1 compliance warning: TaxID requires encryption at rest in Salesforce'
+                ];
+                const agentLog = document.getElementById('agentLog');
+                agentLog.innerHTML = '';
+                steps.forEach((step, idx) => {
+                    const line = document.createElement('div');
+                    line.className = `agent-log-line agent-${idx + 1}`;
+                    line.innerHTML = step;
+                    agentLog.appendChild(line);
+                });
+                setTimeout(() => {
+                    document.getElementById('refinementCounter').textContent = 'Mappings Improved: 2';
+                }, 4800);
+            },
+
+            renderExport() {
+                const exportData = {
+                    project: { name: 'JH SilverLake → Salesforce', exportedAt: new Date().toISOString() },
+                    mappingSpec: this.mappings,
+                    validation: { totalMappings: 5, confirmed: 2, suggested: 3, warnings: 1 }
+                };
+                window.exportData = exportData;
+                const code = document.getElementById('exportCode');
+                code.textContent = JSON.stringify(exportData, null, 2);
+            },
+
+            copyExport() {
+                const btn = document.getElementById('copyBtn');
+                navigator.clipboard.writeText(JSON.stringify(window.exportData, null, 2));
+                btn.textContent = '✓ Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = '📋 Copy to Clipboard';
+                    btn.classList.remove('copied');
+                }, 2000);
+            },
+
+            setupStepperListeners() {
+                document.querySelectorAll('.stepper-item').forEach((item, idx) => {
+                    item.addEventListener('click', () => this.goToStep(idx));
+                });
+            },
+
+            goToStep(stepIndex) {
+                const steps = ['select-source', 'select-target', 'load-schemas', 'mappings', 'refinement', 'export'];
+                const items = document.querySelectorAll('.stepper-item');
+
+                document.querySelectorAll('.step-panel').forEach(panel => panel.classList.remove('active'));
+                document.getElementById(steps[stepIndex]).classList.add('active');
+
+                items.forEach((item, idx) => {
+                    item.classList.remove('active', 'completed', 'pending');
+                    if (idx < stepIndex) item.classList.add('completed');
+                    else if (idx === stepIndex) item.classList.add('active');
+                    else item.classList.add('pending');
+                });
+
+                this.currentStep = stepIndex;
+
+                if (stepIndex === 3) this.renderMappings();
+                if (stepIndex === 4) this.renderAgentRefinement();
+                if (stepIndex === 5) this.renderExport();
+            },
+
+            nextStep() {
+                if (this.currentStep < 5) {
+                    if (this.currentStep === 0 && !this.selectedSource) {
+                        alert('Please select a source system');
+                        return;
+                    }
+                    if (this.currentStep === 1 && !this.selectedTarget) {
+                        alert('Please select a target system');
+                        return;
+                    }
+                    if (this.currentStep === 2 && !this.schemas) {
+                        alert('Please fetch the schema first');
+                        return;
+                    }
+                    this.goToStep(this.currentStep + 1);
+                }
+            },
+
+            previousStep() {
+                if (this.currentStep > 0) {
+                    this.goToStep(this.currentStep - 1);
+                }
+            }
+        };
+
+        window.addEventListener('load', () => app.init());
+    </script>
+</body>
+</html>
