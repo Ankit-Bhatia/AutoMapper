@@ -590,3 +590,35 @@ Validation:
 - `backend/prisma migrate dev --name add_record_types` passed
 - `npm test` passed: backend `164/164`, frontend `32/32`
 - `npm run build` passed
+
+---
+
+## 2026-03-14 02:07 IST — KAN-84 MappingProposalAgent upsert-key + record-type context
+
+Implemented by Codex.
+
+Scope completed:
+- Extended `AgentContext` with persisted `recordTypes` input and derived `targetRecordTypes` map.
+- Populated Salesforce target record type context inside `OrchestratorAgent` from persisted schema record types.
+- Passed persisted record types from the orchestration SSE route into the agent pipeline.
+- Added `externalIdScore` logic in `MappingProposalAgent` so source key fields prefer Salesforce upsert keys and external IDs.
+- Added rationale enrichment for upsert-key targeting and Salesforce record type variants.
+- Added summary metadata counts for `upsertKeyMappings` and `recordTypeAnnotations`.
+- Added regression tests covering key-to-upsert boost, record type annotation, and orchestrator propagation.
+
+Files changed:
+- `backend/src/agents/MappingProposalAgent.ts`
+- `backend/src/agents/OrchestratorAgent.ts`
+- `backend/src/agents/types.ts`
+- `backend/src/routes/agentRoutes.ts`
+- `backend/src/__tests__/agents.test.ts`
+- `docs/PROJECT-STATUS.md`
+
+Validation:
+- `npx tsc --noEmit` passed
+- `npm --prefix backend run test -- --run src/__tests__/agents.test.ts src/__tests__/orchestration.test.ts` passed
+- `npm test` passed: backend `167/167`, frontend `32/32`
+- `npm run build` passed
+
+PR note:
+- This ticket is intentionally stacked on top of KAN-83 because KAN-84 depends on `isUpsertKey` and persisted Salesforce record types introduced there.

@@ -143,6 +143,7 @@ export function setupAgentRoutes(app: Express, store: DbStore): void {
           sourceEntities,
           targetEntities,
           fields: state.fields,
+          recordTypes: state.recordTypes ?? [],
           entityMappings,
           fieldMappings,
           onStep: (step) => {

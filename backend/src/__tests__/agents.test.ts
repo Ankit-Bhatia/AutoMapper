@@ -21,7 +21,7 @@ import { activeProvider } from '../agents/llm/LLMGateway.js';
 import * as LLMGateway from '../agents/llm/LLMGateway.js';
 
 import type { AgentContext } from '../agents/types.js';
-import type { Entity, Field, EntityMapping, FieldMapping } from '../types.js';
+import type { Entity, Field, EntityMapping, FieldMapping, RecordType } from '../types.js';
 import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 
 // ─── Test fixtures ─────────────────────────────────────────────────────────────
@@ -473,6 +473,170 @@ describe('MappingProposalAgent', () => {
     if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
     if (original.google) process.env.GOOGLE_API_KEY = original.google;
   });
+
+  it('boosts source keys toward Salesforce upsert keys over equivalent non-upsert fields', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+
+    const buildScenario = async (isUpsertKey: boolean) => {
+      const agent = new MappingProposalAgent();
+      const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+      const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' });
+      const sourceField = makeField({
+        id: 'src-key',
+        entityId: 'src-ent',
+        name: 'ExternalCustomerKey',
+        dataType: 'string',
+        isKey: true,
+      });
+      const wrongTarget = makeField({
+        id: 'tgt-name',
+        entityId: 'tgt-ent',
+        name: 'Name',
+        dataType: 'string',
+      });
+      const candidateTarget = makeField({
+        id: isUpsertKey ? 'tgt-upsert' : 'tgt-plain',
+        entityId: 'tgt-ent',
+        name: 'ExternalCustomerKey',
+        dataType: 'string',
+        isExternalId: isUpsertKey,
+        isUpsertKey,
+      });
+      const em: EntityMapping = {
+        id: 'em-upsert',
+        projectId: 'proj-1',
+        sourceEntityId: 'src-ent',
+        targetEntityId: 'tgt-ent',
+        confidence: 0.8,
+        rationale: 'test',
+      };
+      const fm: FieldMapping = {
+        id: 'fm-upsert',
+        entityMappingId: 'em-upsert',
+        sourceFieldId: 'src-key',
+        targetFieldId: 'tgt-name',
+        confidence: 0.30,
+        status: 'suggested',
+        transform: { type: 'direct', config: {} },
+        rationale: 'initial',
+      };
+
+      const result = await agent.run({
+        ...makeContext(),
+        sourceEntities: [srcEnt],
+        targetEntities: [tgtEnt],
+        fields: [sourceField, wrongTarget, candidateTarget],
+        entityMappings: [em],
+        fieldMappings: [fm],
+      });
+
+      return result.updatedFieldMappings[0];
+    };
+
+    const upsertResult = await buildScenario(true);
+    const plainResult = await buildScenario(false);
+
+    expect(upsertResult?.targetFieldId).toBe('tgt-upsert');
+    expect(plainResult?.targetFieldId).toBeDefined();
+    expect((upsertResult?.confidence ?? 0) - (plainResult?.confidence ?? 0)).toBeGreaterThanOrEqual(0.10);
+    expect(upsertResult?.rationale).toContain('upsert key');
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
+
+  it('annotates mappings with record type variants and reports summary counts', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+
+    const agent = new MappingProposalAgent();
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' });
+    const sourceField = makeField({
+      id: 'src-key',
+      entityId: 'src-ent',
+      name: 'ExternalCustomerKey',
+      dataType: 'string',
+      isKey: true,
+    });
+    const targetField = makeField({
+      id: 'tgt-upsert',
+      entityId: 'tgt-ent',
+      name: 'ExternalCustomerKey',
+      dataType: 'string',
+      isExternalId: true,
+      isUpsertKey: true,
+    });
+    const em: EntityMapping = {
+      id: 'em-annotated',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-annotated',
+      entityMappingId: 'em-annotated',
+      sourceFieldId: 'src-key',
+      targetFieldId: 'tgt-upsert',
+      confidence: 0.74,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [sourceField, targetField],
+      entityMappings: [em],
+      fieldMappings: [fm],
+      targetRecordTypes: {
+        'tgt-ent': [
+          { name: 'Business', label: 'Business Account', isDefault: true },
+          { name: 'PersonAccount', label: 'Person Account', isDefault: false },
+        ],
+      },
+    });
+
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('check record type');
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('Business Account');
+    const summary = result.steps.find((step) => step.action === 'mapping_proposal_complete');
+    expect(summary?.metadata?.upsertKeyMappings).toBe(1);
+    expect(summary?.metadata?.recordTypeAnnotations).toBe(1);
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
 });
 
 // ─── MappingRationaleAgent ───────────────────────────────────────────────────
@@ -726,5 +890,98 @@ describe('OrchestratorAgent', () => {
     const agentNames = new Set(result.allSteps.map((s) => s.agentName));
     expect(agentNames.has('SchemaDiscoveryAgent')).toBe(true);
     expect(agentNames.has('ComplianceAgent')).toBe(true);
+  });
+
+  it('derives targetRecordTypes from persisted record types for Salesforce targets', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+
+    const orchestrator = new OrchestratorAgent();
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' });
+    const srcField = makeField({
+      id: 'src-key',
+      entityId: 'src-ent',
+      name: 'ExternalCustomerKey',
+      dataType: 'string',
+      isKey: true,
+    });
+    const tgtField = makeField({
+      id: 'tgt-upsert',
+      entityId: 'tgt-ent',
+      name: 'ExternalCustomerKey',
+      dataType: 'string',
+      isExternalId: true,
+      isUpsertKey: true,
+    });
+    const em: EntityMapping = {
+      id: 'em-orchestrator',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-orchestrator',
+      entityMappingId: 'em-orchestrator',
+      sourceFieldId: 'src-key',
+      targetFieldId: 'tgt-upsert',
+      confidence: 0.74,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+    const recordTypes: RecordType[] = [
+      {
+        id: 'rt-1',
+        entityId: 'tgt-ent',
+        sfRecordTypeId: '012BUSINESS',
+        name: 'Business',
+        label: 'Business Account',
+        isDefault: true,
+        isActive: true,
+      },
+      {
+        id: 'rt-2',
+        entityId: 'tgt-ent',
+        sfRecordTypeId: '012PERSON',
+        name: 'PersonAccount',
+        label: 'Person Account',
+        isDefault: false,
+        isActive: true,
+      },
+    ];
+
+    const result = await orchestrator.orchestrate({
+      ...makeContext(),
+      sourceSystemType: 'jackhenry',
+      targetSystemType: 'salesforce',
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [srcField, tgtField],
+      entityMappings: [em],
+      fieldMappings: [fm],
+      recordTypes,
+    });
+
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('check record type');
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('Person Account');
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
   });
 });
