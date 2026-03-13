@@ -6,6 +6,7 @@ import type {
   Field,
   FieldMapping,
   MappingProject,
+  RecordType,
   Relationship,
   System,
   TransformType,
@@ -30,6 +31,7 @@ function toField(f: {
   entityId: string;
   name: string;
   label: string | null;
+  description: string | null;
   dataType: string;
   length: number | null;
   precision: number | null;
@@ -37,6 +39,7 @@ function toField(f: {
   required: boolean;
   isKey: boolean;
   isExternalId: boolean;
+  isUpsertKey: boolean;
   picklistValues: string[];
   jxchangeXPath: string | null;
   jxchangeXtendElemKey: string | null;
@@ -49,6 +52,7 @@ function toField(f: {
     entityId: f.entityId,
     name: f.name,
     label: f.label ?? undefined,
+    description: f.description ?? undefined,
     dataType: f.dataType as Field['dataType'],
     length: f.length ?? undefined,
     precision: f.precision ?? undefined,
@@ -56,12 +60,33 @@ function toField(f: {
     required: f.required,
     isKey: f.isKey,
     isExternalId: f.isExternalId,
+    isUpsertKey: f.isUpsertKey,
     picklistValues: f.picklistValues,
     jxchangeXPath: f.jxchangeXPath ?? undefined,
     jxchangeXtendElemKey: f.jxchangeXtendElemKey ?? undefined,
     iso20022Name: f.iso20022Name ?? undefined,
     complianceTags: f.complianceTags.length ? f.complianceTags : undefined,
     complianceNote: f.complianceNote ?? undefined,
+  };
+}
+
+function toRecordType(recordType: {
+  id: string;
+  entityId: string;
+  sfRecordTypeId: string;
+  name: string;
+  label: string;
+  isDefault: boolean;
+  isActive: boolean;
+}): RecordType {
+  return {
+    id: recordType.id,
+    entityId: recordType.entityId,
+    sfRecordTypeId: recordType.sfRecordTypeId,
+    name: recordType.name,
+    label: recordType.label,
+    isDefault: recordType.isDefault,
+    isActive: recordType.isActive,
   };
 }
 
@@ -112,11 +137,12 @@ export class DbStore {
   constructor(private readonly prisma: PrismaClient) {}
 
   async getState(): Promise<AppState> {
-    const [systems, entities, fields, relationships, projects, entityMappings, fieldMappings] =
+    const [systems, entities, fields, recordTypes, relationships, projects, entityMappings, fieldMappings] =
       await Promise.all([
         this.prisma.system.findMany(),
         this.prisma.entity.findMany(),
         this.prisma.field.findMany(),
+        this.prisma.recordType.findMany(),
         this.prisma.relationship.findMany(),
         this.prisma.mappingProject.findMany(),
         this.prisma.entityMapping.findMany(),
@@ -127,6 +153,7 @@ export class DbStore {
       systems: systems.map(toSystem),
       entities: entities.map(toEntity),
       fields: fields.map(toField),
+      recordTypes: recordTypes.map(toRecordType),
       relationships: relationships.map(toRelationship),
       projects: projects.map((p) => ({
         id: p.id,
@@ -217,6 +244,7 @@ export class DbStore {
     entities: Entity[],
     fields: Field[],
     relationships: Relationship[],
+    recordTypes: RecordType[] = [],
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       // Delete existing entities (cascades to fields via FK)
@@ -246,6 +274,7 @@ export class DbStore {
             entityId: f.entityId,
             name: f.name,
             label: f.label ?? null,
+            description: f.description ?? null,
             dataType: f.dataType,
             length: f.length ?? null,
             precision: f.precision ?? null,
@@ -253,12 +282,27 @@ export class DbStore {
             required: f.required ?? false,
             isKey: f.isKey ?? false,
             isExternalId: f.isExternalId ?? false,
+            isUpsertKey: f.isUpsertKey ?? false,
             picklistValues: f.picklistValues ?? [],
             jxchangeXPath: f.jxchangeXPath ?? null,
             jxchangeXtendElemKey: f.jxchangeXtendElemKey ?? null,
             iso20022Name: f.iso20022Name ?? null,
             complianceTags: f.complianceTags ?? [],
             complianceNote: f.complianceNote ?? null,
+          })),
+        });
+      }
+
+      if (recordTypes.length > 0) {
+        await tx.recordType.createMany({
+          data: recordTypes.map((recordType) => ({
+            id: recordType.id,
+            entityId: recordType.entityId,
+            sfRecordTypeId: recordType.sfRecordTypeId,
+            name: recordType.name,
+            label: recordType.label,
+            isDefault: recordType.isDefault ?? false,
+            isActive: recordType.isActive ?? true,
           })),
         });
       }

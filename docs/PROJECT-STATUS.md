@@ -552,3 +552,41 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
   - `local-archive/untracked-quarantine-20260315/backend/prisma/migrations/20260311013000_add_llm_settings_usage/migration.sql`
   - `local-archive/untracked-quarantine-20260315/backend/src/__tests__/demoAuthProject.test.ts`
   - `local-archive/untracked-quarantine-20260315/backend/src/__tests__/project-delete.test.ts`
+---
+
+## 2026-03-14 01:49 IST — KAN-83 SalesforceConnector record types + upsert keys
+
+Implemented by Codex.
+
+Scope completed:
+- Added `RecordType` persistence to Prisma with `Entity.recordTypes` relation.
+- Added `Field.description` and `Field.isUpsertKey` persistence so external ID intent survives schema ingestion.
+- Extended Salesforce connector live describe flow to capture record types and derive `upsertKeys`.
+- Added FSC mock catalog coverage for `FinServ__FinancialAccount__c`, `FinServ__IndividualApplication__c`, and related record types.
+- Refactored legacy `packages/connectors/salesforce.ts` to delegate to `SalesforceConnector`, removing duplicate schema logic.
+- Exposed `recordTypes` and `upsertKeys` through schema ingestion responses and project state reads.
+- Added connector regression tests for mock FSC objects, live record type enrichment, and legacy helper parity.
+- Synced checked-in runtime JS files for connector execution paths used by the backend.
+
+Files changed:
+- `backend/prisma/schema.prisma`
+- `backend/prisma/migrations/20260313201700_add_record_types/migration.sql`
+- `backend/src/db/dbStore.ts`
+- `backend/src/index.ts`
+- `backend/src/routes/connectorRoutes.ts`
+- `backend/src/types.ts`
+- `backend/src/utils/fsStore.ts`
+- `packages/connectors/IConnector.ts`
+- `packages/connectors/SalesforceConnector.ts`
+- `packages/connectors/SalesforceConnector.js`
+- `packages/connectors/salesforce.ts`
+- `packages/connectors/salesforce.js`
+- `packages/connectors/salesforceMockCatalog.ts`
+- `packages/connectors/salesforceMockCatalog.js`
+- `packages/connectors/types.ts`
+- `packages/connectors/__tests__/connectors.test.ts`
+
+Validation:
+- `backend/prisma migrate dev --name add_record_types` passed
+- `npm test` passed: backend `164/164`, frontend `32/32`
+- `npm run build` passed

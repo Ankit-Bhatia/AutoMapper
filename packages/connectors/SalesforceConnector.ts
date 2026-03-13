@@ -18,10 +18,11 @@ import type {
   ConnectorSystemInfo,
   SampleRow,
 } from './IConnector.js';
-import type { Entity, Relationship } from './types.js';
+import type { Entity, RecordType, Relationship } from './types.js';
 import { normalizeSalesforceType } from './utils/typeUtils.js';
 import {
   getSalesforceMockObjectTemplatesForConnector,
+  getSalesforceMockRecordTypeTemplates,
   listSalesforceMockObjectNames,
 } from './salesforceMockCatalog.js';
 
@@ -33,6 +34,91 @@ interface SalesforceCredentials {
   password?: string;
   securityToken?: string;
   loginUrl?: string;
+}
+
+const EXTERNAL_ID_DESCRIPTION = 'External ID — use as upsert key for deduplication during migration.';
+
+type DescribeField = {
+  name: string;
+  label?: string;
+  type: string;
+  length?: number;
+  precision?: number;
+  scale?: number;
+  nillable?: boolean;
+  defaultedOnCreate?: boolean;
+  externalId?: boolean;
+  picklistValues?: Array<{ value?: string | null }>;
+  referenceTo?: string[];
+};
+
+type DescribeRecordTypeInfo = {
+  recordTypeId?: string;
+  name?: string;
+  developerName?: string;
+  active?: boolean;
+  available?: boolean;
+  defaultRecordTypeMapping?: boolean;
+};
+
+function escapeSoqlLiteral(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function buildConnectorField(entityId: string, field: DescribeField): ConnectorField {
+  const isExternalId = Boolean(field.externalId);
+  const isKey = field.type === 'id' || field.name === 'Id';
+  const picklistValues = Array.isArray(field.picklistValues)
+    ? field.picklistValues
+      .map((picklistValue) => picklistValue.value)
+      .filter((value): value is string => Boolean(value))
+    : undefined;
+
+  return {
+    id: uuidv4(),
+    entityId,
+    name: field.name,
+    label: field.label,
+    description: isExternalId ? EXTERNAL_ID_DESCRIPTION : undefined,
+    dataType: normalizeSalesforceType(field.type),
+    length: field.length,
+    precision: field.precision,
+    scale: field.scale,
+    required: !field.nillable && !field.defaultedOnCreate,
+    isKey,
+    isExternalId,
+    isUpsertKey: isExternalId && !isKey,
+    picklistValues,
+  };
+}
+
+function buildUpsertKeys(entities: Entity[], fields: ConnectorField[]): Record<string, string[]> {
+  const entityNameById = new Map(entities.map((entity) => [entity.id, entity.name]));
+  return fields.reduce<Record<string, string[]>>((acc, field) => {
+    if (!field.isUpsertKey) return acc;
+    const entityName = entityNameById.get(field.entityId);
+    if (!entityName) return acc;
+    const existing = acc[entityName] ?? [];
+    if (!existing.includes(field.name)) {
+      existing.push(field.name);
+    }
+    acc[entityName] = existing;
+    return acc;
+  }, {});
+}
+
+function fallbackDescribeRecordTypes(entityId: string, infos: DescribeRecordTypeInfo[] = []): RecordType[] {
+  return infos
+    .filter((info) => (info.active ?? info.available ?? true))
+    .map((info, index) => ({
+      id: uuidv4(),
+      entityId,
+      sfRecordTypeId: info.recordTypeId ?? `mock-record-type-${index + 1}`,
+      name: info.developerName ?? info.name ?? `RecordType${index + 1}`,
+      label: info.name ?? info.developerName ?? `Record Type ${index + 1}`,
+      isDefault: Boolean(info.defaultRecordTypeMapping),
+      isActive: info.active ?? info.available ?? true,
+    }));
 }
 
 export class SalesforceConnector implements IConnector {
@@ -140,12 +226,20 @@ export class SalesforceConnector implements IConnector {
 
     const entities: Entity[] = [];
     const fields: ConnectorField[] = [];
+    const recordTypes: RecordType[] = [];
     const pendingRelationships: Array<{ fromEntityId: string; referenceTo: string; viaField: string }> = [];
+    const describeRecordTypesByObject = new Map<string, DescribeRecordTypeInfo[]>();
 
     if (this.mode === 'live' && this.conn) {
       try {
         for (const objectName of objects) {
-          const desc = await this.conn.sobject(objectName).describe();
+          const desc = await this.conn.sobject(objectName).describe() as {
+            name: string;
+            label?: string;
+            labelPlural?: string;
+            fields: DescribeField[];
+            recordTypeInfos?: DescribeRecordTypeInfo[];
+          };
           const entityId = uuidv4();
           entities.push({
             id: entityId,
@@ -154,28 +248,10 @@ export class SalesforceConnector implements IConnector {
             label: desc.label,
             description: desc.labelPlural,
           });
+          describeRecordTypesByObject.set(desc.name, desc.recordTypeInfos ?? []);
 
           for (const f of desc.fields) {
-            const picklistValues = Array.isArray(f.picklistValues)
-              ? f.picklistValues
-                .map((p: { value?: string | null }) => p.value)
-                .filter((value): value is string => Boolean(value))
-              : undefined;
-
-            fields.push({
-              id: uuidv4(),
-              entityId,
-              name: f.name,
-              label: f.label,
-              dataType: normalizeSalesforceType(f.type),
-              length: f.length,
-              precision: f.precision,
-              scale: f.scale,
-              required: !f.nillable && !f.defaultedOnCreate,
-              isKey: f.type === 'id',
-              isExternalId: !!f.externalId,
-              picklistValues,
-            });
+            fields.push(buildConnectorField(entityId, f));
 
             if (f.referenceTo?.length) {
               pendingRelationships.push({
@@ -183,6 +259,66 @@ export class SalesforceConnector implements IConnector {
                 referenceTo: String(f.referenceTo[0]),
                 viaField: f.name,
               });
+            }
+          }
+        }
+
+        const entityIdByName = new Map(entities.map((entity) => [entity.name, entity.id]));
+        const objectNamesForQuery = entities.map((entity) => entity.name);
+        if (objectNamesForQuery.length > 0) {
+          try {
+            const recordTypeQuery = [
+              'SELECT Id, DeveloperName, Name, IsActive, SobjectType',
+              'FROM RecordType',
+              `WHERE SobjectType IN (${objectNamesForQuery.map((name) => `'${escapeSoqlLiteral(name)}'`).join(', ')})`,
+              'AND IsActive = true',
+            ].join(' ');
+            const queried = await this.conn.query<{
+              Id: string;
+              DeveloperName?: string;
+              Name: string;
+              IsActive?: boolean;
+              SobjectType: string;
+            }>(recordTypeQuery);
+
+            for (const record of queried.records) {
+              const entityId = entityIdByName.get(record.SobjectType);
+              if (!entityId) continue;
+              const defaults = new Set(
+                (describeRecordTypesByObject.get(record.SobjectType) ?? [])
+                  .filter((info) => info.defaultRecordTypeMapping)
+                  .map((info) => info.recordTypeId)
+                  .filter((value): value is string => Boolean(value)),
+              );
+              recordTypes.push({
+                id: uuidv4(),
+                entityId,
+                sfRecordTypeId: record.Id,
+                name: record.DeveloperName ?? record.Name,
+                label: record.Name,
+                isDefault: defaults.has(record.Id),
+                isActive: record.IsActive ?? true,
+              });
+            }
+
+            const entitiesWithRecordTypes = new Set(recordTypes.map((recordType) => recordType.entityId));
+            for (const entity of entities) {
+              if (entitiesWithRecordTypes.has(entity.id)) continue;
+              recordTypes.push(
+                ...fallbackDescribeRecordTypes(
+                  entity.id,
+                  describeRecordTypesByObject.get(entity.name) ?? [],
+                ),
+              );
+            }
+          } catch {
+            for (const entity of entities) {
+              recordTypes.push(
+                ...fallbackDescribeRecordTypes(
+                  entity.id,
+                  describeRecordTypesByObject.get(entity.name) ?? [],
+                ),
+              );
             }
           }
         }
@@ -196,7 +332,14 @@ export class SalesforceConnector implements IConnector {
           viaField: pr.viaField,
         }));
 
-        return { entities, fields, relationships, mode: 'live' };
+        return {
+          entities,
+          fields,
+          recordTypes,
+          relationships,
+          upsertKeys: buildUpsertKeys(entities, fields),
+          mode: 'live',
+        };
       } catch {
         // Fall through to mock
       }
@@ -320,6 +463,15 @@ function buildMockSalesforceSchema(objectNames: string[]): ConnectorSchema {
       { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
       { name: 'Name', label: 'Financial Account Name', dataType: 'string', length: 255, required: true },
       { name: 'FinancialAccountNumber', label: 'Financial Account Number', dataType: 'string', length: 34, required: true },
+      {
+        name: 'ExternalAccountId__c',
+        label: 'External Account ID',
+        dataType: 'string',
+        length: 80,
+        isExternalId: true,
+        isUpsertKey: true,
+        description: EXTERNAL_ID_DESCRIPTION,
+      },
       { name: 'CurrentBalance', label: 'Current Balance', dataType: 'decimal', precision: 18, scale: 2 },
       { name: 'AvailableBalance', label: 'Available Balance', dataType: 'decimal', precision: 18, scale: 2 },
       { name: 'OpenDate', label: 'Open Date', dataType: 'date' },
@@ -337,7 +489,15 @@ function buildMockSalesforceSchema(objectNames: string[]): ConnectorSchema {
     ],
     PartyProfile: [
       { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
-      { name: 'CIFNumber', label: 'CIF Number', dataType: 'string', length: 20, isExternalId: true },
+      {
+        name: 'CIFNumber',
+        label: 'CIF Number',
+        dataType: 'string',
+        length: 20,
+        isExternalId: true,
+        isUpsertKey: true,
+        description: EXTERNAL_ID_DESCRIPTION,
+      },
       { name: 'LegalName', label: 'Legal Name', dataType: 'string', length: 255, required: true },
       { name: 'TaxId', label: 'Tax ID', dataType: 'string', length: 20 },
       { name: 'BirthDate', label: 'Birth Date', dataType: 'date' },
@@ -351,7 +511,16 @@ function buildMockSalesforceSchema(objectNames: string[]): ConnectorSchema {
     ],
     IndividualApplication: [
       { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
-      { name: 'ApplicationNumber', label: 'Application Number', dataType: 'string', length: 30, required: true },
+      {
+        name: 'ApplicationNumber',
+        label: 'Application Number',
+        dataType: 'string',
+        length: 30,
+        required: true,
+        isExternalId: true,
+        isUpsertKey: true,
+        description: EXTERNAL_ID_DESCRIPTION,
+      },
       { name: 'Status', label: 'Application Status', dataType: 'picklist', picklistValues: ['Draft', 'Submitted', 'Under Review', 'Approved', 'Declined'] },
       { name: 'ApplicantPartyProfileId', label: 'Applicant Party Profile ID', dataType: 'reference' },
       { name: 'RequestedAmount', label: 'Requested Amount', dataType: 'decimal', precision: 18, scale: 2 },
@@ -371,19 +540,41 @@ function buildMockSalesforceSchema(objectNames: string[]): ConnectorSchema {
     ...seededTemplates,
     ...getSalesforceMockObjectTemplatesForConnector(objectNames),
   };
+  const recordTypeTemplates = getSalesforceMockRecordTypeTemplates(objectNames);
 
   const entities: Entity[] = [];
   const fields: ConnectorField[] = [];
+  const recordTypes: RecordType[] = [];
 
   for (const objectName of objectNames) {
     const entityId = uuidv4();
     entities.push({ id: entityId, systemId: '', name: objectName, label: objectName });
     for (const template of templates[objectName] ?? []) {
-      fields.push({ id: uuidv4(), entityId, ...template });
+      fields.push({
+        id: uuidv4(),
+        entityId,
+        ...template,
+        description: template.description ?? (template.isExternalId ? EXTERNAL_ID_DESCRIPTION : undefined),
+        isUpsertKey: template.isUpsertKey ?? Boolean(template.isExternalId && !template.isKey),
+      });
+    }
+    for (const template of recordTypeTemplates[objectName] ?? []) {
+      recordTypes.push({
+        id: uuidv4(),
+        entityId,
+        ...template,
+      });
     }
   }
 
-  return { entities, fields, relationships: [], mode: 'mock' };
+  return {
+    entities,
+    fields,
+    recordTypes,
+    relationships: [],
+    upsertKeys: buildUpsertKeys(entities, fields),
+    mode: 'mock',
+  };
 }
 
 function buildMockSalesforceData(objectName: string, limit: number): SampleRow[] {

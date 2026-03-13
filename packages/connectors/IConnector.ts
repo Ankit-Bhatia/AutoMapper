@@ -1,4 +1,4 @@
-import type { Entity, Field, Relationship, SystemType } from './types.js';
+import type { Entity, Field, RecordType, Relationship, SystemType } from './types.js';
 
 /**
  * Compliance tag applied to fields that require regulatory protection.
@@ -16,6 +16,8 @@ export type ComplianceTag =
  * and domain-specific hints used by the mapping agents.
  */
 export interface ConnectorField extends Field {
+  /** Use this field as an upsert key during target deduplication. */
+  isUpsertKey?: boolean;
   complianceTags?: ComplianceTag[];
   /** Human-readable note about the field's regulatory significance */
   complianceNote?: string;
@@ -64,7 +66,9 @@ export interface ConnectorSystemInfo {
 export interface ConnectorSchema {
   entities: Entity[];
   fields: ConnectorField[];
+  recordTypes?: RecordType[];
   relationships: Relationship[];
+  upsertKeys?: Record<string, string[]>;
   mode: 'live' | 'mock';
 }
 

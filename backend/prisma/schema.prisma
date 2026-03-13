@@ -42,6 +42,7 @@ model Entity {
   description          String?
   createdAt            DateTime        @default(now())
   fields               Field[]
+  recordTypes          RecordType[]
   sourceEntityMappings EntityMapping[] @relation("SourceEntity")
   targetEntityMappings EntityMapping[] @relation("TargetEntity")
 
@@ -54,6 +55,7 @@ model Field {
   entity               Entity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
   name                 String
   label                String?
+  description          String?
   dataType             String
   length               Int?
   precision            Int?
@@ -61,6 +63,7 @@ model Field {
   required             Boolean        @default(false)
   isKey                Boolean        @default(false)
   isExternalId         Boolean        @default(false)
+  isUpsertKey          Boolean        @default(false)
   picklistValues       String[]       @default([])
   // Connector metadata — persisted from jack henry / sap / salesforce connector fields
   jxchangeXPath        String?        // e.g. "CIFInq.Rs.CIFRec.CIFInfo.TaxId"
@@ -74,6 +77,21 @@ model Field {
   targetFieldMappings  FieldMapping[] @relation("TargetField")
 
   @@index([entityId])
+}
+
+model RecordType {
+  id             String   @id @default(uuid())
+  entityId       String
+  entity         Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  sfRecordTypeId String
+  name           String
+  label          String
+  isDefault      Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  @@index([entityId])
+  @@unique([entityId, sfRecordTypeId])
 }
 
 model Relationship {

@@ -124,11 +124,12 @@ function getProjectScopedState(state: AppState, project: MappingProject) {
   const entityMappings = state.entityMappings.filter((mapping) => mapping.projectId === project.id);
   const entityMappingIds = new Set(entityMappings.map((mapping) => mapping.id));
   const fieldMappings = state.fieldMappings.filter((mapping) => entityMappingIds.has(mapping.entityMappingId));
-  const scopedFieldIds = new Set([
+  const scopedEntityIds = new Set([
     ...sourceEntities.map((entity) => entity.id),
     ...targetEntities.map((entity) => entity.id),
   ]);
-  const scopedFields = state.fields.filter((field) => scopedFieldIds.has(field.entityId));
+  const scopedFields = state.fields.filter((field) => scopedEntityIds.has(field.entityId));
+  const scopedRecordTypes = (state.recordTypes ?? []).filter((recordType) => scopedEntityIds.has(recordType.entityId));
 
   return {
     sourceEntities,
@@ -136,6 +137,7 @@ function getProjectScopedState(state: AppState, project: MappingProject) {
     entityMappings,
     fieldMappings,
     scopedFields,
+    scopedRecordTypes,
   };
 }
 
@@ -331,6 +333,7 @@ app.get('/api/projects/:id', async (req, res) => {
     sourceEntities: scoped.sourceEntities,
     targetEntities: scoped.targetEntities,
     fields: scoped.scopedFields,
+    recordTypes: scoped.scopedRecordTypes,
     relationships: state.relationships,
     entityMappings: scoped.entityMappings,
     fieldMappings: scoped.fieldMappings,
@@ -351,12 +354,14 @@ app.post('/api/projects/:id/source-schema', upload.single('file'), async (req, r
   try {
     const content = req.file.buffer.toString('utf8');
     const parsed = parseSapSchema(content, req.file.originalname, project.sourceSystemId);
-    await store.replaceSystemSchema(project.sourceSystemId, parsed.entities, parsed.fields, parsed.relationships);
+    await store.replaceSystemSchema(project.sourceSystemId, parsed.entities, parsed.fields, parsed.relationships, []);
     await store.updateProjectTimestamp(project.id);
     res.json({
       entities: parsed.entities,
       fields: parsed.fields,
+      recordTypes: [],
       relationships: parsed.relationships,
+      upsertKeys: {},
       message: 'SAP schema ingested',
     });
   } catch (error: unknown) {
@@ -387,13 +392,21 @@ app.post('/api/projects/:id/target-schema/salesforce', async (req, res) => {
     credentials: schemaInput.data.credentials,
   });
 
-  await store.replaceSystemSchema(project.targetSystemId, schema.entities, schema.fields, schema.relationships);
+  await store.replaceSystemSchema(
+    project.targetSystemId,
+    schema.entities,
+    schema.fields,
+    schema.relationships,
+    schema.recordTypes ?? [],
+  );
   await store.updateProjectTimestamp(project.id);
 
   res.json({
     entities: schema.entities,
     fields: schema.fields,
+    recordTypes: schema.recordTypes ?? [],
     relationships: schema.relationships,
+    upsertKeys: schema.upsertKeys ?? {},
     mode: schema.mode,
   });
 });

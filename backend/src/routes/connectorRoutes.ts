@@ -237,7 +237,13 @@ function toCustomDataType(value: string): DataType {
 function buildCustomSchema(
   systemId: string,
   entities: CustomConnectorEntityInput[],
-): { entities: Array<{ id: string; systemId: string; name: string; label: string }>; fields: Array<{ id: string; entityId: string; name: string; label: string; dataType: DataType; required: boolean }>; relationships: [] } {
+): {
+  entities: Array<{ id: string; systemId: string; name: string; label: string }>;
+  fields: Array<{ id: string; entityId: string; name: string; label: string; dataType: DataType; required: boolean }>;
+  recordTypes: [];
+  relationships: [];
+  upsertKeys: Record<string, string[]>;
+} {
   const schemaEntities = entities.map((entity) => ({
     id: randomUUID(),
     systemId,
@@ -260,7 +266,9 @@ function buildCustomSchema(
   return {
     entities: schemaEntities,
     fields: schemaFields,
+    recordTypes: [],
     relationships: [],
+    upsertKeys: {},
   };
 }
 
@@ -751,13 +759,15 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
     try {
       const content = req.file.buffer.toString('utf8');
       const parsed = parseUploadedSchema(content, req.file.originalname, systemId);
-      await store.replaceSystemSchema(systemId, parsed.entities, parsed.fields, parsed.relationships);
+      await store.replaceSystemSchema(systemId, parsed.entities, parsed.fields, parsed.relationships, []);
       await store.updateProjectTimestamp(projectId);
 
       res.json({
         entities: parsed.entities,
         fields: parsed.fields,
+        recordTypes: [],
         relationships: parsed.relationships,
+        upsertKeys: {},
         mode: 'uploaded',
         side,
         systemId,
@@ -809,13 +819,21 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       if (customConnector) {
         try {
           const schema = buildCustomSchema(systemId, customConnector.entities);
-          await store.replaceSystemSchema(systemId, schema.entities, schema.fields, schema.relationships);
+          await store.replaceSystemSchema(
+            systemId,
+            schema.entities,
+            schema.fields,
+            schema.relationships,
+            schema.recordTypes,
+          );
           await store.updateProjectTimestamp(projectId);
 
           res.json({
             entities: schema.entities,
             fields: schema.fields,
+            recordTypes: schema.recordTypes,
             relationships: schema.relationships,
+            upsertKeys: schema.upsertKeys,
             mode: 'uploaded',
             side,
             systemId,
@@ -860,13 +878,21 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
           systemId,
         }));
 
-        await store.replaceSystemSchema(systemId, normalizedEntities, schema.fields, schema.relationships);
+        await store.replaceSystemSchema(
+          systemId,
+          normalizedEntities,
+          schema.fields,
+          schema.relationships,
+          schema.recordTypes ?? [],
+        );
         await store.updateProjectTimestamp(projectId);
 
         res.json({
           entities: normalizedEntities,
           fields: schema.fields,
+          recordTypes: schema.recordTypes ?? [],
           relationships: schema.relationships,
+          upsertKeys: schema.upsertKeys ?? {},
           mode: schema.mode,
           side,
           systemId,
