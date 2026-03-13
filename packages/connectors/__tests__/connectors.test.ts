@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SilverLakeConnector } from '../jackhenry/SilverLakeConnector.js';
 import { CoreDirectorConnector } from '../jackhenry/CoreDirectorConnector.js';
 import { SymitarConnector } from '../jackhenry/SymitarConnector.js';
+import { SalesforceConnector } from '../SalesforceConnector.js';
 import { ConnectorRegistry } from '../ConnectorRegistry.js';
 import type { ConnectorField } from '../IConnector.js';
+import { fetchSalesforceSchema } from '../salesforce.js';
 
 // ─── SilverLakeConnector (mock mode) ─────────────────────────────────────────
 
@@ -248,6 +250,132 @@ describe('SymitarConnector — mock schema validation', () => {
     const memberSsn = fieldsByEntityName('Member').find((field) => field.name === 'SSN');
     expect(memberSsn?.complianceTags).toContain('GLBA_NPI');
     expect(memberSsn?.complianceTags).toContain('BSA_AML');
+  });
+});
+
+// ─── SalesforceConnector (mock/live shim validation) ─────────────────────────
+
+describe('SalesforceConnector — schema enrichment', () => {
+  let connector: SalesforceConnector;
+
+  beforeEach(async () => {
+    connector = new SalesforceConnector();
+    await connector.connect();
+  });
+
+  it('listObjects includes FSC mock catalog entries', async () => {
+    const objects = await connector.listObjects();
+    expect(objects).toContain('FinServ__FinancialAccount__c');
+    expect(objects).toContain('FinServ__IndividualApplication__c');
+  });
+
+  it('mock fetchSchema returns record types and upsert keys for FSC objects', async () => {
+    const schema = await connector.fetchSchema(['FinServ__FinancialAccount__c']);
+    const entity = schema.entities.find((candidate) => candidate.name === 'FinServ__FinancialAccount__c');
+    const externalIdField = schema.fields.find((field) =>
+      field.entityId === entity?.id && field.name === 'ExternalAccountId__c');
+
+    expect(entity).toBeDefined();
+    expect(externalIdField?.isExternalId).toBe(true);
+    expect(externalIdField?.isUpsertKey).toBe(true);
+    expect(externalIdField?.description).toContain('upsert key');
+    expect(schema.upsertKeys?.FinServ__FinancialAccount__c).toContain('ExternalAccountId__c');
+
+    const recordTypes = schema.recordTypes?.filter((recordType) => recordType.entityId === entity?.id) ?? [];
+    expect(recordTypes.length).toBeGreaterThan(0);
+    expect(recordTypes.some((recordType) => recordType.isDefault)).toBe(true);
+  });
+
+  it('live fetchSchema marks external IDs as upsert keys and returns record types', async () => {
+    const liveConnector = connector as unknown as {
+      mode: 'live';
+      conn: {
+        sobject: (objectName: string) => { describe: () => Promise<unknown> };
+        query: <T>(query: string) => Promise<{ records: T[] }>;
+      };
+    };
+
+    liveConnector.mode = 'live';
+    liveConnector.conn = {
+      sobject: (objectName: string) => ({
+        describe: async () => ({
+          name: objectName,
+          label: 'Account',
+          labelPlural: 'Accounts',
+          fields: [
+            {
+              name: 'Id',
+              label: 'ID',
+              type: 'id',
+              nillable: false,
+              defaultedOnCreate: false,
+            },
+            {
+              name: 'ExternalAccountId__c',
+              label: 'External Account ID',
+              type: 'string',
+              nillable: true,
+              defaultedOnCreate: false,
+              externalId: true,
+            },
+          ],
+          recordTypeInfos: [
+            {
+              recordTypeId: '012ACCOUNTBUSINESS',
+              name: 'Business Account',
+              developerName: 'Business',
+              active: true,
+              defaultRecordTypeMapping: true,
+            },
+          ],
+        }),
+      }),
+      query: async <T>() => ({
+        records: [
+          {
+            Id: '012ACCOUNTBUSINESS',
+            DeveloperName: 'Business',
+            Name: 'Business Account',
+            IsActive: true,
+            SobjectType: 'Account',
+          },
+        ] as T[],
+      }),
+    };
+
+    const schema = await connector.fetchSchema(['Account']);
+    const entity = schema.entities.find((candidate) => candidate.name === 'Account');
+    const externalIdField = schema.fields.find((field) =>
+      field.entityId === entity?.id && field.name === 'ExternalAccountId__c');
+
+    expect(externalIdField?.isExternalId).toBe(true);
+    expect(externalIdField?.isUpsertKey).toBe(true);
+    expect(schema.upsertKeys?.Account).toContain('ExternalAccountId__c');
+
+    const recordTypes = schema.recordTypes?.filter((recordType) => recordType.entityId === entity?.id) ?? [];
+    expect(recordTypes).toEqual([
+      expect.objectContaining({
+        sfRecordTypeId: '012ACCOUNTBUSINESS',
+        name: 'Business',
+        label: 'Business Account',
+        isDefault: true,
+      }),
+    ]);
+  });
+
+  it('legacy fetchSalesforceSchema wraps connector output with systemId', async () => {
+    const schema = await fetchSalesforceSchema('target-system', {
+      objects: ['FinServ__FinancialAccount__c'],
+    });
+
+    expect(schema.entities).toEqual([
+      expect.objectContaining({
+        systemId: 'target-system',
+        name: 'FinServ__FinancialAccount__c',
+      }),
+    ]);
+    expect(schema.recordTypes?.length).toBeGreaterThan(0);
+    expect(schema.upsertKeys?.FinServ__FinancialAccount__c).toContain('ExternalAccountId__c');
   });
 });
 

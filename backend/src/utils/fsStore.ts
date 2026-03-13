@@ -7,6 +7,7 @@ import type {
   Field,
   FieldMapping,
   MappingProject,
+  RecordType,
   Relationship,
   System,
 } from '../types.js';
@@ -15,6 +16,7 @@ const EMPTY_STATE: AppState = {
   systems: [],
   entities: [],
   fields: [],
+  recordTypes: [],
   relationships: [],
   projects: [],
   entityMappings: [],
@@ -38,7 +40,12 @@ export class FsStore {
       fs.writeFileSync(this.dbPath, JSON.stringify(EMPTY_STATE, null, 2), 'utf8');
       return structuredClone(EMPTY_STATE);
     }
-    return JSON.parse(fs.readFileSync(this.dbPath, 'utf8')) as AppState;
+    const parsed = JSON.parse(fs.readFileSync(this.dbPath, 'utf8')) as AppState;
+    return {
+      ...EMPTY_STATE,
+      ...parsed,
+      recordTypes: Array.isArray(parsed.recordTypes) ? parsed.recordTypes : [],
+    };
   }
 
   private persist() {
@@ -98,10 +105,14 @@ export class FsStore {
     entities: Entity[],
     fields: Field[],
     relationships: Relationship[],
+    recordTypes: RecordType[] = [],
   ) {
     const entityIds = new Set(this.state.entities.filter((e) => e.systemId === systemId).map((e) => e.id));
     this.state.entities = this.state.entities.filter((e) => e.systemId !== systemId).concat(entities);
     this.state.fields = this.state.fields.filter((f) => !entityIds.has(f.entityId)).concat(fields);
+    this.state.recordTypes = (this.state.recordTypes ?? [])
+      .filter((recordType) => !entityIds.has(recordType.entityId))
+      .concat(recordTypes);
     this.state.relationships = this.state.relationships
       .filter((r) => !entityIds.has(r.fromEntityId) && !entityIds.has(r.toEntityId))
       .concat(relationships);

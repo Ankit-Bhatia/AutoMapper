@@ -45,6 +45,7 @@ export interface Field {
   entityId: string;
   name: string;
   label?: string;
+  description?: string;
   dataType: DataType;
   length?: number;
   precision?: number;
@@ -52,6 +53,7 @@ export interface Field {
   required?: boolean;
   isKey?: boolean;
   isExternalId?: boolean;
+  isUpsertKey?: boolean;
   picklistValues?: string[];
   // Connector metadata — populated by Jack Henry / SAP / Salesforce connectors
   jxchangeXPath?: string;        // e.g. "CIFInq.Rs.CIFRec.CIFInfo.TaxId"
@@ -59,6 +61,16 @@ export interface Field {
   iso20022Name?: string;         // ISO 20022 canonical name e.g. "TaxIdentification"
   complianceTags?: string[];     // e.g. ["GLBA_NPI", "BSA_AML"]
   complianceNote?: string;       // human-readable compliance caveat
+}
+
+export interface RecordType {
+  id: string;
+  entityId: string;
+  sfRecordTypeId: string;
+  name: string;
+  label: string;
+  isDefault?: boolean;
+  isActive?: boolean;
 }
 
 export interface Relationship {
@@ -132,6 +144,7 @@ export interface AppState {
   systems: System[];
   entities: Entity[];
   fields: Field[];
+  recordTypes?: RecordType[];
   relationships: Relationship[];
   projects: MappingProject[];
   entityMappings: EntityMapping[];
