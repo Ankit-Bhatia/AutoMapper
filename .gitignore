@@ -106,3 +106,10 @@ backend/vitest.config.ts.timestamp-*.mjs
 
 # Vite/apps build artifacts
 apps/web/vite.config.ts.timestamp-*.mjs
+
+# Env file variants — never commit any .env file except .env.example
+backend/.env.save
+backend/.env.local
+backend/.env.production
+backend/.env.staging
+*.env.save
