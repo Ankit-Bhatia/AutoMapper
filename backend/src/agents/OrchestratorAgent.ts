@@ -2,25 +2,29 @@
  * OrchestratorAgent — coordinates the full multi-agent mapping pipeline.
  *
  * Execution order:
- *   1. SchemaDiscoveryAgent     (enriches schema — sequential, always)
- *   2. ComplianceAgent          (flags compliance issues — sequential, always)
- *   3. Domain agents            (sequential — only applicable ones run)
- *      ├─ BankingDomainAgent    (if sourceSystemType === 'jackhenry')
- *      ├─ CRMDomainAgent        (if targetSystemType === 'salesforce')
- *      └─ ERPDomainAgent        (if sourceSystemType === 'sap')
- *   4. MappingProposalAgent     (LLM — if provider available)
- *   5. MappingRationaleAgent    (always — generates human-readable mapping intent)
- *   6. ValidationAgent          (always — final pass)
+ *   1. SchemaDiscoveryAgent       (enriches schema — sequential, always)
+ *   2. SchemaIntelligenceAgent    (FSC pattern corpus + one-to-many flags — when target === 'salesforce')
+ *   3. ComplianceAgent            (flags compliance issues — sequential, always)
+ *   4. Domain agents              (sequential — only applicable ones run)
+ *      ├─ BankingDomainAgent      (if sourceSystemType === 'jackhenry')
+ *      ├─ CRMDomainAgent          (if targetSystemType === 'salesforce')
+ *      ├─ ERPDomainAgent          (if sourceSystemType === 'sap')
+ *      └─ RiskClamDomainAgent     (if sourceSystemType === 'riskclam')
+ *   5. MappingProposalAgent       (LLM — if provider available)
+ *   6. MappingRationaleAgent      (always — generates human-readable mapping intent)
+ *   7. ValidationAgent            (always — final pass)
  *
  * Each step's field mappings feed into the next agent (pipeline pattern).
  * All onStep events are forwarded to the caller for SSE streaming.
  */
 import { AgentBase } from './AgentBase.js';
 import { SchemaDiscoveryAgent } from './SchemaDiscoveryAgent.js';
+import { SchemaIntelligenceAgent } from './SchemaIntelligenceAgent.js';
 import { ComplianceAgent } from './ComplianceAgent.js';
 import { BankingDomainAgent } from './BankingDomainAgent.js';
 import { CRMDomainAgent } from './CRMDomainAgent.js';
 import { ERPDomainAgent } from './ERPDomainAgent.js';
+import { RiskClamDomainAgent } from './RiskClamDomainAgent.js';
 import { MappingProposalAgent } from './MappingProposalAgent.js';
 import { MappingRationaleAgent } from './MappingRationaleAgent.js';
 import { ValidationAgent } from './ValidationAgent.js';
@@ -40,10 +44,12 @@ export class OrchestratorAgent extends AgentBase {
   readonly name = 'OrchestratorAgent';
 
   private schemaAgent = new SchemaDiscoveryAgent();
+  private schemaIntelligenceAgent = new SchemaIntelligenceAgent();
   private complianceAgent = new ComplianceAgent();
   private bankingAgent = new BankingDomainAgent();
   private crmAgent = new CRMDomainAgent();
   private erpAgent = new ERPDomainAgent();
+  private riskClamAgent = new RiskClamDomainAgent();
   private mappingAgent = new MappingProposalAgent();
   private rationaleAgent = new MappingRationaleAgent();
   private validationAgent = new ValidationAgent();
@@ -77,16 +83,29 @@ export class OrchestratorAgent extends AgentBase {
     currentMappings = schemaResult.updatedFieldMappings;
     agentsRun.push(this.schemaAgent.name);
 
-    // ── 2. Compliance ────────────────────────────────────────────────────────
+    // ── 2. Schema Intelligence ────────────────────────────────────────────────
+    // Applies the 212-pattern BOSL→FSC confirmed corpus, detects one-to-many
+    // fields, flags formula field targets, and annotates with Caribbean domain
+    // context. Runs before ComplianceAgent so enriched rationales are available.
+    const schemaIntelResult = await this.schemaIntelligenceAgent.run({
+      ...wrappedContext,
+      fieldMappings: currentMappings,
+    });
+    currentMappings = schemaIntelResult.updatedFieldMappings;
+    totalImproved += schemaIntelResult.totalImproved;
+    agentsRun.push(this.schemaIntelligenceAgent.name);
+
+    // ── 3. Compliance ────────────────────────────────────────────────────────
     const complianceResult = await this.complianceAgent.run({ ...wrappedContext, fieldMappings: currentMappings });
     currentMappings = complianceResult.updatedFieldMappings;
     agentsRun.push(this.complianceAgent.name);
 
-    // ── 3. Domain agents (sequential) ────────────────────────────────────────
+    // ── 4. Domain agents (sequential) ────────────────────────────────────────
     const domainAgents: AgentBase[] = [];
     if (context.sourceSystemType === 'jackhenry') domainAgents.push(this.bankingAgent);
     if (context.targetSystemType === 'salesforce') domainAgents.push(this.crmAgent);
     if (context.sourceSystemType === 'sap') domainAgents.push(this.erpAgent);
+    if (context.sourceSystemType === 'riskclam') domainAgents.push(this.riskClamAgent);
 
     for (const agent of domainAgents) {
       const domainResult = await agent.run({ ...wrappedContext, fieldMappings: currentMappings });
@@ -109,20 +128,20 @@ export class OrchestratorAgent extends AgentBase {
       agentsRun.push(agent.name);
     }
 
-    // ── 4. LLM Mapping Proposal ──────────────────────────────────────────────
+    // ── 5. LLM Mapping Proposal ──────────────────────────────────────────────
     const proposalResult = await this.mappingAgent.run({ ...wrappedContext, fieldMappings: currentMappings });
     totalImproved += proposalResult.totalImproved;
     currentMappings = proposalResult.updatedFieldMappings;
     agentsRun.push(this.mappingAgent.name);
 
-    // ── 5. Mapping Rationale ─────────────────────────────────────────────────
+    // ── 6. Mapping Rationale ─────────────────────────────────────────────────
     // Generates human-readable intent explanations for each field mapping.
     // Runs after LLM proposal so it can capture AI-refined confidence scores.
     const rationaleResult = await this.rationaleAgent.run({ ...wrappedContext, fieldMappings: currentMappings });
     currentMappings = rationaleResult.updatedFieldMappings;
     agentsRun.push(this.rationaleAgent.name);
 
-    // ── 6. Validation ────────────────────────────────────────────────────────
+    // ── 7. Validation ────────────────────────────────────────────────────────
     const validationResult = await this.validationAgent.run({ ...wrappedContext, fieldMappings: currentMappings });
     currentMappings = validationResult.updatedFieldMappings;
     agentsRun.push(this.validationAgent.name);
