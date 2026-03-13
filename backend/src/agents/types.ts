@@ -11,10 +11,16 @@
  *     ├─ MappingProposalAgent   (LLM-assisted mapping generation)
  *     └─ ValidationAgent        (type-compatibility + coverage checks)
  */
-import type { SystemType, Entity, Field, EntityMapping, FieldMapping } from '../types.js';
+import type { SystemType, Entity, Field, EntityMapping, FieldMapping, RecordType } from '../types.js';
 import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
 
 // ─── Context ──────────────────────────────────────────────────────────────────
+
+export interface RecordTypeInfo {
+  name: string;
+  label: string;
+  isDefault: boolean;
+}
 
 /**
  * Context passed to every agent.run() call.
@@ -30,6 +36,10 @@ export interface AgentContext {
   targetEntities: Entity[];
   /** All fields (source + target). Use field.entityId to identify ownership. */
   fields: (Field | ConnectorField)[];
+  /** Persisted connector record types available for orchestration-time enrichment. */
+  recordTypes?: RecordType[];
+  /** Target entity id -> Salesforce record type variants. */
+  targetRecordTypes?: Record<string, RecordTypeInfo[]>;
   entityMappings: EntityMapping[];
   fieldMappings: FieldMapping[];
   /** Called by agents to emit progress events (used for SSE streaming) */

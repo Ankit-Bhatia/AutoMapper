@@ -28,8 +28,8 @@ import { RiskClamDomainAgent } from './RiskClamDomainAgent.js';
 import { MappingProposalAgent } from './MappingProposalAgent.js';
 import { MappingRationaleAgent } from './MappingRationaleAgent.js';
 import { ValidationAgent } from './ValidationAgent.js';
-import type { AgentContext, AgentResult, AgentStep, ComplianceReport } from './types.js';
-import type { FieldMapping } from '../types.js';
+import type { AgentContext, AgentResult, AgentStep, ComplianceReport, RecordTypeInfo } from './types.js';
+import type { FieldMapping, RecordType } from '../types.js';
 
 export interface OrchestratorResult {
   updatedFieldMappings: FieldMapping[];
@@ -65,8 +65,13 @@ export class OrchestratorAgent extends AgentBase {
     let totalImproved = 0;
 
     // Wrap onStep to collect all steps
+    const targetRecordTypes = context.targetRecordTypes
+      ?? (context.targetSystemType === 'salesforce'
+        ? buildTargetRecordTypeMap(context.targetEntities, context.recordTypes ?? [])
+        : {});
     const wrappedContext: AgentContext = {
       ...context,
+      targetRecordTypes,
       onStep: (step) => {
         allSteps.push(step);
         context.onStep?.(step);
@@ -180,4 +185,22 @@ export class OrchestratorAgent extends AgentBase {
       },
     };
   }
+}
+
+function buildTargetRecordTypeMap(
+  targetEntities: AgentContext['targetEntities'],
+  recordTypes: RecordType[],
+): Record<string, RecordTypeInfo[]> {
+  const targetEntityIds = new Set(targetEntities.map((entity) => entity.id));
+  return recordTypes.reduce<Record<string, RecordTypeInfo[]>>((acc, recordType) => {
+    if (!targetEntityIds.has(recordType.entityId)) return acc;
+    const existing = acc[recordType.entityId] ?? [];
+    existing.push({
+      name: recordType.name,
+      label: recordType.label,
+      isDefault: Boolean(recordType.isDefault),
+    });
+    acc[recordType.entityId] = existing;
+    return acc;
+  }, {});
 }

@@ -58,6 +58,11 @@ function appendRationale(existing: string, detail: string): string {
   return existing ? `${existing} | ${detail}` : detail;
 }
 
+function appendRationaleOnce(existing: string, detail: string | null): string {
+  if (!detail) return existing;
+  return existing.includes(detail) ? existing : appendRationale(existing, detail);
+}
+
 function fieldById(id: string, fields: (Field | ConnectorField)[]): Field | ConnectorField | undefined {
   return fields.find((field) => field.id === id);
 }
@@ -112,13 +117,22 @@ function scoreTargetCandidate(
   const compliancePenalty =
     (sourceGlba && !targetGlba ? 0.16 : 0) +
     (sourcePci && !targetPci ? 0.22 : 0);
+  const sourceIsKey = Boolean(sourceField.isKey || sourceField.isExternalId);
+  const targetIsUpsertKey = Boolean((targetField as ConnectorField).isUpsertKey);
+  const externalIdScore = (() => {
+    if (sourceIsKey && targetIsUpsertKey) return 0.25;
+    if (sourceIsKey && targetField.isExternalId) return 0.15;
+    if (!sourceIsKey && targetIsUpsertKey) return -0.10;
+    return 0;
+  })();
 
   let score =
     (0.30 * semanticScore) +
     (0.22 * nameScore) +
     (typeWeight * typeScore) +
     (0.16 * canonicalScore) +
-    (0.12 * complianceScore) -
+    (0.12 * complianceScore) +
+    externalIdScore -
     compliancePenalty;
 
   if (canonicalScore === 1 && typeScore >= 0.75 && semanticScore >= 0.6) {
@@ -137,6 +151,9 @@ function scoreTargetCandidate(
   if (typeScore >= 0.75) reasons.push(`type ${typeScore.toFixed(2)}`);
   if (canonicalScore === 1) reasons.push('iso20022 match');
   if (complianceScore >= 0.8) reasons.push('compliance aligned');
+  if (sourceIsKey && targetIsUpsertKey) reasons.push('maps to SF upsert key — preferred for deduplication');
+  else if (sourceIsKey && targetField.isExternalId) reasons.push('maps to SF external ID field');
+  else if (!sourceIsKey && targetIsUpsertKey) reasons.push('penalty: non-key source to SF upsert key');
   if (compliancePenalty > 0) reasons.push('compliance mismatch penalty');
   if (incompatible) reasons.push('hard incompatibility gate');
 
@@ -178,6 +195,30 @@ function buildEntityMappingIndex(entityMappings: EntityMapping[]): Map<string, E
   return new Map(entityMappings.map((mapping) => [mapping.id, mapping]));
 }
 
+function buildRecordTypeAnnotation(
+  entityId: string,
+  targetRecordTypes: AgentContext['targetRecordTypes'],
+): string | null {
+  const recordTypes = targetRecordTypes?.[entityId] ?? [];
+  if (recordTypes.length === 0) return null;
+  if (recordTypes.length === 1) {
+    return `applicable to ${recordTypes[0]?.label ?? recordTypes[0]?.name} record type`;
+  }
+  const labels = recordTypes.map((recordType) => recordType.label).join(', ');
+  return `check record type — entity has ${recordTypes.length} variants: ${labels}`;
+}
+
+function buildUpsertKeyRationale(
+  sourceField: Field | ConnectorField,
+  targetField: Field | ConnectorField,
+): string | null {
+  const sourceIsKey = Boolean(sourceField.isKey || sourceField.isExternalId);
+  const targetIsUpsertKey = Boolean((targetField as ConnectorField).isUpsertKey);
+  if (sourceIsKey && targetIsUpsertKey) return 'maps to SF upsert key — preferred for deduplication';
+  if (sourceIsKey && targetField.isExternalId) return 'maps to SF external ID field';
+  return null;
+}
+
 export class MappingProposalAgent extends AgentBase {
   readonly name = 'MappingProposalAgent';
 
@@ -195,6 +236,11 @@ export class MappingProposalAgent extends AgentBase {
     );
 
     const entityMappingById = buildEntityMappingIndex(entityMappings);
+    const buildAnnotationForMapping = (mapping: FieldMapping): string | null => {
+      const entityMapping = entityMappingById.get(mapping.entityMappingId);
+      if (!entityMapping) return null;
+      return buildRecordTypeAnnotation(entityMapping.targetEntityId, context.targetRecordTypes);
+    };
 
     const targetFieldsByEntityId = new Map<string, (Field | ConnectorField)[]>();
     for (const targetEntity of targetEntities) {
@@ -320,7 +366,10 @@ export class MappingProposalAgent extends AgentBase {
           ...existing,
           targetFieldId: best.targetField.id,
           confidence: Math.max(existing.confidence, best.score),
-          rationale: appendRationale(existing.rationale, `context-ranker(${best.reasons.join(', ') || 'schema signal'})`),
+          rationale: appendRationaleOnce(
+            appendRationale(existing.rationale, `context-ranker(${best.reasons.join(', ') || 'schema signal'})`),
+            buildAnnotationForMapping({ ...existing, targetFieldId: best.targetField.id }),
+          ),
         };
 
         improved += 1;
@@ -345,7 +394,10 @@ export class MappingProposalAgent extends AgentBase {
         updatedMappings[index] = {
           ...existing,
           confidence: currentScore,
-          rationale: appendRationale(existing.rationale, `context-ranker(${(current?.reasons ?? []).join(', ') || 'schema signal'})`),
+          rationale: appendRationaleOnce(
+            appendRationale(existing.rationale, `context-ranker(${(current?.reasons ?? []).join(', ') || 'schema signal'})`),
+            buildAnnotationForMapping(existing),
+          ),
         };
 
         improved += 1;
@@ -401,15 +453,46 @@ export class MappingProposalAgent extends AgentBase {
           ...existing,
           targetFieldId: targetField.id,
           confidence: Math.max(existing.confidence, mergedConfidence),
-          rationale: appendRationale(
-            existing.rationale,
-            proposal.reasoning ? `llm-gated(${proposal.reasoning})` : 'llm-gated suggestion',
+          rationale: appendRationaleOnce(
+            appendRationaleOnce(
+              appendRationale(
+                existing.rationale,
+                proposal.reasoning ? `llm-gated(${proposal.reasoning})` : 'llm-gated suggestion',
+              ),
+              buildUpsertKeyRationale(sourceField, targetField),
+            ),
+            buildAnnotationForMapping({ ...existing, targetFieldId: targetField.id }),
           ),
         };
 
         improved += 1;
       }
     }
+
+    let upsertKeyMappings = 0;
+    let recordTypeAnnotations = 0;
+    const finalizedMappings = updatedMappings.map((mapping) => {
+      const sourceField = fieldById(mapping.sourceFieldId, fields);
+      const targetField = fieldById(mapping.targetFieldId, fields);
+      const recordTypeAnnotation = buildAnnotationForMapping(mapping);
+      let rationale = mapping.rationale;
+
+      if (sourceField && targetField) {
+        rationale = appendRationaleOnce(rationale, buildUpsertKeyRationale(sourceField, targetField));
+        if ((targetField as ConnectorField).isUpsertKey) {
+          upsertKeyMappings += 1;
+        }
+      }
+
+      if (recordTypeAnnotation) {
+        rationale = appendRationaleOnce(rationale, recordTypeAnnotation);
+        recordTypeAnnotations += 1;
+      }
+
+      return rationale === mapping.rationale
+        ? mapping
+        : { ...mapping, rationale };
+    });
 
     const summary: Omit<AgentStep, 'agentName'> = {
       action: 'mapping_proposal_complete',
@@ -420,6 +503,8 @@ export class MappingProposalAgent extends AgentBase {
         improved,
         provider,
         rankedMappings: rankingByMappingId.size,
+        upsertKeyMappings,
+        recordTypeAnnotations,
       },
     };
     this.emit(context, summary);
@@ -427,7 +512,7 @@ export class MappingProposalAgent extends AgentBase {
 
     return {
       agentName: this.name,
-      updatedFieldMappings: updatedMappings,
+      updatedFieldMappings: finalizedMappings,
       steps,
       totalImproved: improved,
     };
