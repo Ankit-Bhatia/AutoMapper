@@ -8,6 +8,8 @@
  *   GET    /api/oauth/salesforce/authorize     Initiate Salesforce OAuth flow
  *   GET    /api/oauth/salesforce/callback      Handle OAuth callback (exchanges code for token)
  *   DELETE /api/oauth/salesforce/disconnect    Clear stored Salesforce credentials
+ *   POST   /api/oauth/sap/connect              SAP OAuth Client Credentials exchange
+ *   POST   /api/oauth/sap/disconnect           Clear stored SAP OAuth credentials
  *   GET    /api/oauth/status                   Get connection status for user's systems
  */
 
@@ -165,6 +167,140 @@ export function setupOAuthRoutes(app: Express, sessionStore = defaultSessionStor
 
     sessionStore.clear(userId, 'salesforce');
     res.json({ message: 'Salesforce credentials cleared', disconnected: true });
+  });
+
+  // ─── POST /api/oauth/sap/connect ───────────────────────────────────────────────
+  // Requires authentication. Exchanges SAP Client Credentials for an access token.
+  app.post('/api/oauth/sap/connect', authMiddleware, async (req: Request, res: Response) => {
+    const userId = req.user?.userId;
+    if (!userId) {
+      sendError(req, res, 401, 'UNAUTHORIZED', 'User not authenticated');
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : '';
+    const clientSecret = typeof body.clientSecret === 'string' ? body.clientSecret : '';
+    const tokenUrl = typeof body.tokenUrl === 'string' ? body.tokenUrl.trim() : '';
+    const scope = typeof body.scope === 'string' ? body.scope.trim() : '';
+
+    if (!clientId || !clientSecret || !tokenUrl) {
+      sendError(
+        req,
+        res,
+        400,
+        'VALIDATION_ERROR',
+        'clientId, clientSecret, and tokenUrl are required for SAP OAuth connect',
+      );
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+      });
+      if (scope) params.set('scope', scope);
+
+      const tokenResp = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+
+      const rawBody = await tokenResp.text();
+      let parsedBody: unknown = null;
+      if (rawBody) {
+        try {
+          parsedBody = JSON.parse(rawBody);
+        } catch {
+          parsedBody = rawBody;
+        }
+      }
+
+      if (!tokenResp.ok) {
+        sendError(
+          req,
+          res,
+          400,
+          'SAP_TOKEN_EXCHANGE_FAILED',
+          'SAP token exchange failed',
+          {
+            status: tokenResp.status,
+            body: parsedBody,
+          },
+        );
+        return;
+      }
+
+      const tokenData = (parsedBody ?? {}) as Record<string, unknown>;
+      const accessToken = typeof tokenData.access_token === 'string' ? tokenData.access_token : '';
+      const tokenType = typeof tokenData.token_type === 'string' ? tokenData.token_type : 'Bearer';
+      const tokenScope = typeof tokenData.scope === 'string' ? tokenData.scope : scope;
+
+      let expiresIn: number | null = null;
+      if (typeof tokenData.expires_in === 'number' && Number.isFinite(tokenData.expires_in)) {
+        expiresIn = tokenData.expires_in;
+      } else if (typeof tokenData.expires_in === 'string') {
+        const parsedExpires = Number.parseInt(tokenData.expires_in, 10);
+        expiresIn = Number.isFinite(parsedExpires) ? parsedExpires : null;
+      }
+
+      if (!accessToken) {
+        sendError(
+          req,
+          res,
+          502,
+          'SAP_TOKEN_INVALID',
+          'SAP token endpoint did not return access_token',
+          { body: parsedBody },
+        );
+        return;
+      }
+
+      sessionStore.set(userId, 'sap', {
+        accessToken,
+        tokenType,
+        tokenUrl,
+        clientId,
+        scope: tokenScope || '',
+        expiresIn: expiresIn !== null ? String(expiresIn) : '',
+      });
+
+      res.json({
+        connected: true,
+        system: 'sap',
+        expiresIn,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'SAP OAuth connection failed';
+      captureException('oauth', error, {
+        code: 'SAP_OAUTH_CONNECT_ERROR',
+        context: {
+          requestId: res.locals.requestId as string | undefined,
+          path: req.originalUrl || req.url,
+          method: req.method,
+          userId,
+          tokenUrl,
+          clientId,
+        },
+      });
+      sendError(req, res, 502, 'SAP_TOKEN_EXCHANGE_FAILED', message);
+    }
+  });
+
+  // ─── POST /api/oauth/sap/disconnect ───────────────────────────────────────────
+  // Requires authentication. Clears stored SAP credentials for the user.
+  app.post('/api/oauth/sap/disconnect', authMiddleware, (req: Request, res: Response) => {
+    const userId = req.user?.userId;
+    if (!userId) {
+      sendError(req, res, 401, 'UNAUTHORIZED', 'User not authenticated');
+      return;
+    }
+
+    sessionStore.clear(userId, 'sap');
+    res.json({ message: 'SAP credentials cleared', disconnected: true });
   });
 
   // ─── GET /api/oauth/status ────────────────────────────────────────────────────

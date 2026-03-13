@@ -12,7 +12,7 @@
  *     └─ ValidationAgent        (type-compatibility + coverage checks)
  */
 import type { SystemType, Entity, Field, EntityMapping, FieldMapping } from '../types.js';
-import type { ConnectorField, ComplianceTag } from '../connectors/IConnector.js';
+import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
@@ -110,10 +110,10 @@ export interface LLMMessage {
 
 export interface LLMResponse {
   content: string;
-  /** Provider used (openai | anthropic | heuristic) */
+  /** Provider used (openai | anthropic | gemini | custom | heuristic) */
   provider: string;
   /** Approximate tokens used, if available */
   tokensUsed?: number;
 }
 
-export type LLMProvider = 'openai' | 'anthropic' | 'heuristic';
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'custom' | 'heuristic';

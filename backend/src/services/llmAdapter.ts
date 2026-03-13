@@ -1,4 +1,5 @@
 import type { Entity, Field } from '../types.js';
+import { activeProvider, llmComplete } from '../agents/llm/LLMGateway.js';
 
 export interface AiFieldSuggestion {
   sourceFieldName: string;
@@ -23,8 +24,7 @@ export async function getAiSuggestions(
   targetEntity: Entity,
   targetFields: Field[],
 ): Promise<AiEntitySuggestion | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+  if (activeProvider() === 'heuristic') return null;
 
   const prompt = {
     sourceEntity,
@@ -34,50 +34,66 @@ export async function getAiSuggestions(
     task: 'Suggest SAP-to-Salesforce field mappings with confidence and rationale as strict JSON.',
   };
 
-  const response = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Return valid JSON with shape {confidence:number,rationale:string,fields:[{sourceFieldName,targetFieldName,confidence,rationale,transformType,transformConfig}]}.',
-        },
-        { role: 'user', content: JSON.stringify(prompt) },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
+  let response: Awaited<ReturnType<typeof llmComplete>>;
+  try {
+    response = await llmComplete([
+      {
+        role: 'system',
+        content:
+          'Return valid JSON with shape {confidence:number,rationale:string,fields:[{sourceFieldName,targetFieldName,confidence,rationale,transformType,transformConfig}]}.',
+      },
+      { role: 'user', content: JSON.stringify(prompt) },
+    ]);
+  } catch {
     return null;
   }
+  if (!response?.content) return null;
 
-  const body = (await response.json()) as any;
-  const content = body?.choices?.[0]?.message?.content;
-  if (!content) return null;
+  const parsed = parseJsonPayload(response.content);
+  if (!parsed || typeof parsed !== 'object') return null;
 
-  const parsed = JSON.parse(content);
+  const fieldsRaw = parsed['fields'];
+  const parsedFields = Array.isArray(fieldsRaw) ? fieldsRaw : [];
   return {
     sourceEntityName: sourceEntity.name,
     targetEntityName: targetEntity.name,
-    confidence: Number(parsed.confidence ?? 0.5),
-    rationale: String(parsed.rationale ?? 'AI-assisted match'),
-    fields: Array.isArray(parsed.fields)
-      ? parsed.fields.map((f: any) => ({
-          sourceFieldName: String(f.sourceFieldName),
-          targetFieldName: String(f.targetFieldName),
-          confidence: Number(f.confidence ?? 0.5),
-          rationale: String(f.rationale ?? ''),
-          transformType: f.transformType,
-          transformConfig: f.transformConfig,
-        }))
-      : [],
+    confidence: Number(parsed['confidence'] ?? 0.5),
+    rationale: String(parsed['rationale'] ?? 'AI-assisted match'),
+    fields: parsedFields
+      .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === 'object')
+      .map((f) => ({
+          sourceFieldName: String(f['sourceFieldName'] ?? ''),
+          targetFieldName: String(f['targetFieldName'] ?? ''),
+          confidence: Number(f['confidence'] ?? 0.5),
+          rationale: String(f['rationale'] ?? ''),
+          transformType: typeof f['transformType'] === 'string' ? f['transformType'] : undefined,
+          transformConfig: isObject(f['transformConfig']) ? f['transformConfig'] : undefined,
+        })),
   };
+}
+
+function parseJsonPayload(content: string): Record<string, unknown> | null {
+  const trimmed = content.trim();
+  const normalized = trimmed.startsWith('```')
+    ? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+    : trimmed;
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    const start = normalized.indexOf('{');
+    const end = normalized.lastIndexOf('}');
+    if (start === -1 || end <= start) return null;
+    try {
+      const parsed = JSON.parse(normalized.slice(start, end + 1)) as unknown;
+      return isObject(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

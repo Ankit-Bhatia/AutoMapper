@@ -11,7 +11,11 @@
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
 import type { Field, FieldMapping } from '../types.js';
-import type { ConnectorField } from '../connectors/IConnector.js';
+import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
+import { buildFieldSemanticProfile, isHardIncompatible } from '../services/fieldSemantics.js';
+
+const VALIDATION_YIELD_INTERVAL = 200;
+const VALIDATION_PROGRESS_INTERVAL = 250;
 
 const TYPE_COMPAT: Record<string, string[]> = {
   string:  ['string', 'text', 'textarea', 'picklist', 'email', 'phone', 'url'],
@@ -57,86 +61,127 @@ export class ValidationAgent extends AgentBase {
     // Track duplicate target assignments
     const targetFieldUsage = new Map<string, string[]>(); // targetFieldId → [fieldMappingId]
 
-    for (const mapping of fieldMappings) {
+    for (let index = 0; index < fieldMappings.length; index += 1) {
+      const mapping = fieldMappings[index];
       if (!mapping.sourceFieldId || !mapping.targetFieldId) {
         updatedMappings.push(mapping);
-        continue;
-      }
+      } else {
+        const srcField = fieldById(mapping.sourceFieldId, fields);
+        const tgtField = fieldById(mapping.targetFieldId, fields);
 
-      const srcField = fieldById(mapping.sourceFieldId, fields);
-      const tgtField = fieldById(mapping.targetFieldId, fields);
+        if (!srcField || !tgtField) {
+          updatedMappings.push(mapping);
+        } else {
+          coveredTargetFields.add(tgtField.id);
 
-      if (!srcField || !tgtField) {
-        updatedMappings.push(mapping);
-        continue;
-      }
+          // Track usage for duplicate detection
+          const usages = targetFieldUsage.get(tgtField.id) ?? [];
+          usages.push(mapping.id);
+          targetFieldUsage.set(tgtField.id, usages);
 
-      coveredTargetFields.add(tgtField.id);
+          // Check: Type compatibility
+          let newStatus = mapping.status;
+          if (!isTypeCompatible(srcField.dataType, tgtField.dataType)) {
+            errorCount++;
+            const step: Omit<AgentStep, 'agentName'> = {
+              action: 'validation_type_error',
+              detail: `Type mismatch: ${srcField.name} (${srcField.dataType}) → ${tgtField.name} (${tgtField.dataType}) — incompatible types`,
+              fieldMappingId: mapping.id,
+              before: { status: mapping.status },
+              after: { status: 'rejected' },
+              durationMs: 0,
+              metadata: { srcType: srcField.dataType, tgtType: tgtField.dataType },
+            };
+            this.emit(context, step);
+            steps.push({ agentName: this.name, ...step });
+            newStatus = 'rejected';
+          }
 
-      // Track usage for duplicate detection
-      const usages = targetFieldUsage.get(tgtField.id) ?? [];
-      usages.push(mapping.id);
-      targetFieldUsage.set(tgtField.id, usages);
+          // Check: Picklist value alignment
+          const srcCF = srcField as ConnectorField;
+          const tgtCF = tgtField as ConnectorField;
+          if (
+            srcField.dataType === 'picklist' &&
+            tgtField.dataType === 'picklist' &&
+            srcCF.picklistValues?.length &&
+            tgtCF.picklistValues?.length
+          ) {
+            const srcVals = new Set(srcCF.picklistValues?.map((v) => v.toLowerCase()) ?? []);
+            const tgtVals = new Set(tgtCF.picklistValues?.map((v) => v.toLowerCase()) ?? []);
+            const missingInTarget = [...srcVals].filter((v) => !tgtVals.has(v));
 
-      // Check: Type compatibility
-      let newStatus = mapping.status;
-      if (!isTypeCompatible(srcField.dataType, tgtField.dataType)) {
-        errorCount++;
-        const step: Omit<AgentStep, 'agentName'> = {
-          action: 'validation_type_error',
-          detail: `Type mismatch: ${srcField.name} (${srcField.dataType}) → ${tgtField.name} (${tgtField.dataType}) — incompatible types`,
-          fieldMappingId: mapping.id,
-          before: { status: mapping.status },
-          after: { status: 'rejected' },
-          durationMs: 0,
-          metadata: { srcType: srcField.dataType, tgtType: tgtField.dataType },
-        };
-        this.emit(context, step);
-        steps.push({ agentName: this.name, ...step });
-        newStatus = 'rejected';
-      }
+            if (missingInTarget.length > 0) {
+              warningCount++;
+              const step: Omit<AgentStep, 'agentName'> = {
+                action: 'validation_picklist_gap',
+                detail: `Picklist gap: ${missingInTarget.length} values in "${srcField.name}" have no match in "${tgtField.name}": [${missingInTarget.slice(0, 3).join(', ')}${missingInTarget.length > 3 ? '...' : ''}]`,
+                fieldMappingId: mapping.id,
+                durationMs: 0,
+                metadata: { missingValues: missingInTarget },
+              };
+              this.emit(context, step);
+              steps.push({ agentName: this.name, ...step });
+            }
+          }
 
-      // Check: Picklist value alignment
-      const srcCF = srcField as ConnectorField;
-      const tgtCF = tgtField as ConnectorField;
-      if (
-        srcField.dataType === 'picklist' &&
-        tgtField.dataType === 'picklist' &&
-        srcCF.picklistValues?.length &&
-        tgtCF.picklistValues?.length
-      ) {
-        const srcVals = new Set(srcCF.picklistValues?.map((v) => v.toLowerCase()) ?? []);
-        const tgtVals = new Set(tgtCF.picklistValues?.map((v) => v.toLowerCase()) ?? []);
-        const missingInTarget = [...srcVals].filter((v) => !tgtVals.has(v));
+          // Check: Low confidence warning
+          if (mapping.confidence < 0.4 && mapping.status === 'suggested') {
+            warningCount++;
+            const step: Omit<AgentStep, 'agentName'> = {
+              action: 'validation_low_confidence',
+              detail: `Low confidence (${mapping.confidence.toFixed(2)}) for ${srcField.name} → ${tgtField.name} — manual review recommended`,
+              fieldMappingId: mapping.id,
+              durationMs: 0,
+            };
+            this.emit(context, step);
+            steps.push({ agentName: this.name, ...step });
+          }
 
-        if (missingInTarget.length > 0) {
-          warningCount++;
-          const step: Omit<AgentStep, 'agentName'> = {
-            action: 'validation_picklist_gap',
-            detail: `Picklist gap: ${missingInTarget.length} values in "${srcField.name}" have no match in "${tgtField.name}": [${missingInTarget.slice(0, 3).join(', ')}${missingInTarget.length > 3 ? '...' : ''}]`,
-            fieldMappingId: mapping.id,
-            durationMs: 0,
-            metadata: { missingValues: missingInTarget },
-          };
-          this.emit(context, step);
-          steps.push({ agentName: this.name, ...step });
+          // Check: Semantic compatibility guard (domain-intent mismatch)
+          const sourceProfile = buildFieldSemanticProfile(srcField);
+          const targetProfile = buildFieldSemanticProfile(tgtField);
+          if (isHardIncompatible(sourceProfile, targetProfile)) {
+            errorCount++;
+            const step: Omit<AgentStep, 'agentName'> = {
+              action: 'validation_semantic_mismatch',
+              detail: `Semantic mismatch: ${srcField.name} is incompatible with ${tgtField.name}`,
+              fieldMappingId: mapping.id,
+              before: { status: newStatus },
+              after: { status: 'rejected' },
+              durationMs: 0,
+              metadata: {
+                sourceInferredType: sourceProfile.inferredType,
+                targetType: tgtField.dataType,
+              },
+            };
+            this.emit(context, step);
+            steps.push({ agentName: this.name, ...step });
+            newStatus = 'rejected';
+          }
+
+          updatedMappings.push({ ...mapping, status: newStatus });
         }
       }
 
-      // Check: Low confidence warning
-      if (mapping.confidence < 0.4 && mapping.status === 'suggested') {
-        warningCount++;
-        const step: Omit<AgentStep, 'agentName'> = {
-          action: 'validation_low_confidence',
-          detail: `Low confidence (${mapping.confidence.toFixed(2)}) for ${srcField.name} → ${tgtField.name} — manual review recommended`,
-          fieldMappingId: mapping.id,
+      const processed = index + 1;
+      if (processed % VALIDATION_PROGRESS_INTERVAL === 0) {
+        const progressStep: Omit<AgentStep, 'agentName'> = {
+          action: 'validation_progress',
+          detail: `Validated ${processed}/${fieldMappings.length} mappings`,
           durationMs: 0,
+          metadata: {
+            processed,
+            total: fieldMappings.length,
+            errors: errorCount,
+            warnings: warningCount,
+          },
         };
-        this.emit(context, step);
-        steps.push({ agentName: this.name, ...step });
+        this.emit(context, progressStep);
+        steps.push({ agentName: this.name, ...progressStep });
       }
-
-      updatedMappings.push({ ...mapping, status: newStatus });
+      if (processed % VALIDATION_YIELD_INTERVAL === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
 
     // Check: Required target fields that are not covered

@@ -89,6 +89,7 @@ function toFieldMapping(fm: {
   confidence: number;
   rationale: string;
   status: string;
+  seedSource: string | null;
 }): FieldMapping {
   const transform = (fm.transform ?? { type: 'direct', config: {} }) as {
     type: TransformType;
@@ -103,6 +104,7 @@ function toFieldMapping(fm: {
     confidence: fm.confidence,
     rationale: fm.rationale,
     status: fm.status as FieldMapping['status'],
+    seedSource: (fm.seedSource ?? undefined) as FieldMapping['seedSource'],
   };
 }
 
@@ -161,11 +163,17 @@ export class DbStore {
       const tgt = await tx.system.create({
         data: { id: uuidv4(), name: targetSystemName, type: inferSystemType(targetSystemName) },
       });
+      const owner = await tx.user.findUnique({
+        where: { id: userId },
+        select: { organisationId: true },
+      });
+
       const proj = await tx.mappingProject.create({
         data: {
           id: uuidv4(),
           name,
           userId,
+          organisationId: owner?.organisationId ?? null,
           sourceSystemId: src.id,
           targetSystemId: tgt.id,
         },
@@ -336,6 +344,24 @@ export class DbStore {
       return undefined;
     }
   }
+
+  async patchField(
+    fieldId: string,
+    patch: Partial<Pick<Field, 'required' | 'complianceTags'>>,
+  ): Promise<Field | undefined> {
+    try {
+      const updated = await this.prisma.field.update({
+        where: { id: fieldId },
+        data: {
+          ...(patch.required !== undefined && { required: patch.required }),
+          ...(patch.complianceTags !== undefined && { complianceTags: patch.complianceTags }),
+        },
+      });
+      return toField(updated);
+    } catch {
+      return undefined;
+    }
+  }
 }
 
 function inferSystemType(name: string): System['type'] {
@@ -344,6 +370,9 @@ function inferSystemType(name: string): System['type'] {
   if (n.includes('sap')) return 'sap';
   if (n.includes('jackhenry') || n.includes('silverlake') || n.includes('coredirector') || n.includes('symitar')) {
     return 'jackhenry';
+  }
+  if (n.includes('riskclam') || n.includes('risk clam') || n.includes('bosl')) {
+    return 'riskclam';
   }
   return 'generic';
 }

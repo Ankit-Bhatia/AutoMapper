@@ -2,9 +2,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { runAgentRefinement } from '../services/agentRefiner.js';
 import type { Entity, EntityMapping, Field, FieldMapping, MappingProject } from '../types.js';
 
-// Force heuristic path by clearing the API key
+// Force heuristic path by clearing all LLM provider keys
 beforeEach(() => {
-  process.env.OPENAI_API_KEY = '';
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_KEY;
+  delete process.env.GOOGLE_API_KEY;
+  delete process.env.LLM_PROVIDER;
   vi.clearAllMocks();
 });
 

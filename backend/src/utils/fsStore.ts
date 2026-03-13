@@ -134,6 +134,22 @@ export class FsStore {
     this.persist();
     return mapping;
   }
+
+  patchField(
+    fieldId: string,
+    patch: Partial<Pick<Field, 'required' | 'complianceTags'>>,
+  ): Field | undefined {
+    const field = this.state.fields.find((candidate) => candidate.id === fieldId);
+    if (!field) return undefined;
+    if (patch.required !== undefined) {
+      field.required = patch.required;
+    }
+    if (patch.complianceTags !== undefined) {
+      field.complianceTags = [...patch.complianceTags];
+    }
+    this.persist();
+    return field;
+  }
 }
 
 function inferSystemType(name: string): System['type'] {

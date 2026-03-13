@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@contracts": ["../../packages/contracts/index.ts"],
+      "@contracts/*": ["../../packages/contracts/*"],
+      "@core": ["../../packages/core/index.ts"],
+      "@core/*": ["../../packages/core/*"],
+      "@connectors": ["../../packages/connectors/index.ts"],
+      "@connectors/*": ["../../packages/connectors/*"]
+    },
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
+    "noEmit": true
+  },
+  "include": ["src"]
+}

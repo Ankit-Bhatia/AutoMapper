@@ -9,6 +9,8 @@ generator client {
 
 model User {
   id           String           @id @default(uuid())
+  organisationId String?
+  organisation Organisation?    @relation(fields: [organisationId], references: [id])
   email        String           @unique
   name         String
   passwordHash String
@@ -16,6 +18,9 @@ model User {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   projects     MappingProject[]
+  mappingEvents MappingEvent[]
+
+  @@index([organisationId])
 }
 
 model System {
@@ -64,6 +69,7 @@ model Field {
   complianceTags       String[]       @default([]) // e.g. ["GLBA_NPI","BSA_AML"]
   complianceNote       String?        // human-readable compliance caveat
   createdAt            DateTime       @default(now())
+  canonicalMappings    FieldCanonicalMap[]
   sourceFieldMappings  FieldMapping[] @relation("SourceField")
   targetFieldMappings  FieldMapping[] @relation("TargetField")
 
@@ -83,6 +89,8 @@ model Relationship {
 
 model MappingProject {
   id             String          @id @default(uuid())
+  organisationId String?
+  organisation   Organisation?   @relation(fields: [organisationId], references: [id])
   name           String
   userId         String
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -93,8 +101,29 @@ model MappingProject {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   entityMappings EntityMapping[]
+  mappingEvents  MappingEvent[]
+  auditEntries   AuditEntry[]
 
+  @@index([organisationId])
   @@index([userId])
+}
+
+model AuditEntry {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     MappingProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actorUserId String
+  actorEmail  String
+  actorRole   String
+  action      String
+  targetType  String
+  targetId    String
+  diffBefore  Json?
+  diffAfter   Json?
+  timestamp   DateTime @default(now())
+
+  @@index([projectId, timestamp])
+  @@index([actorUserId])
 }
 
 model EntityMapping {
@@ -125,8 +154,130 @@ model FieldMapping {
   confidence      Float
   rationale       String
   status          String        @default("suggested")
+  seedSource      String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+  mappingEvents   MappingEvent[]
 
   @@index([entityMappingId])
+}
+
+model Organisation {
+  id             String          @id @default(uuid())
+  slug           String          @unique
+  name           String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  users          User[]
+  projects       MappingProject[]
+  derivedMappings DerivedMapping[]
+  mappingEvents  MappingEvent[]
+}
+
+model CanonicalDomain {
+  id            String           @id @default(uuid())
+  name          String           @unique
+  description   String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  canonicalFields CanonicalField[]
+}
+
+model CanonicalField {
+  id             String           @id @default(uuid())
+  domainId       String
+  domain         CanonicalDomain  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  conceptName    String
+  displayLabel   String
+  dataType       String
+  complianceTags String[]         @default([])
+  isDeprecated   Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  fieldMappings  FieldCanonicalMap[]
+  derivedMappings DerivedMapping[]
+
+  @@unique([domainId, conceptName])
+  @@index([domainId])
+}
+
+model FieldCanonicalMap {
+  id               String         @id @default(uuid())
+  fieldId          String
+  field            Field          @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  canonicalFieldId String
+  canonicalField   CanonicalField @relation(fields: [canonicalFieldId], references: [id], onDelete: Cascade)
+  confidence       Float          @default(1.0)
+  mappedBy         String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([fieldId, canonicalFieldId])
+  @@index([canonicalFieldId])
+}
+
+model DerivedMapping {
+  id               String          @id @default(uuid())
+  organisationId   String
+  organisation     Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  sourceSystemId   String
+  sourceEntityName String
+  sourceFieldName  String
+  targetSystemId   String
+  targetEntityName String
+  targetFieldName  String
+  canonicalFieldId String?
+  canonicalField   CanonicalField? @relation(fields: [canonicalFieldId], references: [id], onDelete: SetNull)
+  preferredTransform String?
+  confidence       Float           @default(0)
+  acceptCount      Int             @default(0)
+  rejectCount      Int             @default(0)
+  lastAcceptedAt   DateTime?
+  lastRejectedAt   DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([organisationId, sourceSystemId, sourceEntityName, sourceFieldName, targetSystemId, targetEntityName, targetFieldName])
+  @@index([organisationId, confidence])
+}
+
+model MappingEvent {
+  id               String          @id @default(uuid())
+  organisationId   String
+  organisation     Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  projectId        String?
+  project          MappingProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  fieldMappingId   String?
+  fieldMapping     FieldMapping?   @relation(fields: [fieldMappingId], references: [id], onDelete: SetNull)
+  userId           String?
+  user             User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action           String
+  sourceSystemId   String
+  sourceEntityName String
+  sourceFieldName  String
+  targetSystemId   String
+  targetEntityName String
+  targetFieldName  String
+  transformType    String?
+  createdAt        DateTime        @default(now())
+
+  @@index([organisationId, createdAt])
+  @@index([projectId, createdAt])
+}
+
+model CustomConnector {
+  id               String   @id
+  name             String
+  vendor           String
+  category         String
+  description      String
+  entityNames      String[] @default([])
+  entities         Json
+  connectionConfig Json
+  createdByUserId  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([createdByUserId])
 }

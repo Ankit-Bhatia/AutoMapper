@@ -11,6 +11,7 @@ import type {
 import { validateMappings } from './validator.js';
 import { typeCompatibilityScore } from '../utils/typeUtils.js';
 import { jaccard } from '../utils/stringSim.js';
+import { activeProvider, llmComplete } from '../agents/llm/LLMGateway.js';
 
 export interface RefinementStep {
   iteration: number;
@@ -63,7 +64,7 @@ export async function runAgentRefinement(input: {
   fields: Field[];
   onStep: (step: RefinementStep) => void;
 }): Promise<RefinementResult> {
-  const hasAi = Boolean(process.env.OPENAI_API_KEY);
+  const hasAi = activeProvider() !== 'heuristic';
   const steps: RefinementStep[] = [];
   const updatedFieldMappings = input.fieldMappings.map((fm) => ({ ...fm, transform: { ...fm.transform } }));
   const fieldById = new Map(input.fields.map((f) => [f.id, f]));
@@ -87,7 +88,7 @@ export async function runAgentRefinement(input: {
     improved: step1Improved,
     message: hasAi
       ? `Processed low-confidence mappings with few-shot examples (${step1Improved} improved)`
-      : `OPENAI_API_KEY missing. Applied heuristic confidence rescoring (${step1Improved} improved)`,
+      : `No AI provider configured. Applied heuristic confidence rescoring (${step1Improved} improved)`,
   };
   steps.push(step1);
   input.onStep(step1);
@@ -106,7 +107,7 @@ export async function runAgentRefinement(input: {
     improved: step2Improved,
     message: hasAi
       ? `Resolved conflicting target assignments (${step2Improved} conflicts handled)`
-      : `OPENAI_API_KEY missing. Resolved conflicts by confidence ranking (${step2Improved} conflicts handled)`,
+      : `No AI provider configured. Resolved conflicts by confidence ranking (${step2Improved} conflicts handled)`,
   };
   steps.push(step2);
   input.onStep(step2);
@@ -129,7 +130,7 @@ export async function runAgentRefinement(input: {
     improved: step3Improved,
     message: hasAi
       ? `Proposed mappings for unmapped required target fields (${step3Improved} created)`
-      : `OPENAI_API_KEY missing. Added heuristic required-field mappings (${step3Improved} created)`,
+      : `No AI provider configured. Added heuristic required-field mappings (${step3Improved} created)`,
   };
   steps.push(step3);
   input.onStep(step3);
@@ -201,7 +202,7 @@ async function runFewShotRefinementAi(input: {
       };
     });
 
-    const response = await callOpenAiJson<ImprovementResponse>({
+    const response = await callAiJson<ImprovementResponse>({
       systemPrompt:
         'You are a SAP-to-Salesforce mapping expert. Use the provided accepted/rejected examples to improve low-confidence field mappings. Return strict JSON.',
       prompt: {
@@ -303,7 +304,7 @@ async function runConflictResolutionAi(input: {
       task: 'Pick a single winner mapping for this target field and provide alternative target suggestions for demoted mappings.',
     };
 
-    const response = await callOpenAiJson<ConflictResponse>({
+    const response = await callAiJson<ConflictResponse>({
       systemPrompt: 'You resolve SAP-to-Salesforce mapping conflicts. Return strict JSON.',
       prompt: payload,
     });
@@ -383,7 +384,7 @@ async function runRequiredFieldPassAi(input: {
     const remainingSource = sourceFields.filter((f) => !mappedSourceIds.has(f.id));
     if (!remainingSource.length) continue;
 
-    const response = await callOpenAiJson<RequiredResponse>({
+    const response = await callAiJson<RequiredResponse>({
       systemPrompt: 'You are a SAP-to-Salesforce field mapping expert. Fill required target fields with best-effort suggestions. Return strict JSON.',
       prompt: {
         sourceEntityId: entityMapping.sourceEntityId,
@@ -521,40 +522,48 @@ function parseTransformType(value: string | undefined, fallback: TransformType):
   return transforms.includes(value as TransformType) ? (value as TransformType) : fallback;
 }
 
-async function callOpenAiJson<T>(input: { systemPrompt: string; prompt: unknown }): Promise<T | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+async function callAiJson<T>(input: { systemPrompt: string; prompt: unknown }): Promise<T | null> {
+  if (activeProvider() === 'heuristic') return null;
 
-  const response = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: input.systemPrompt },
-        { role: 'user', content: JSON.stringify(input.prompt) },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const body = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content) return null;
-
+  let response: Awaited<ReturnType<typeof llmComplete>>;
   try {
-    return JSON.parse(content) as T;
+    response = await llmComplete([
+      { role: 'system', content: `${input.systemPrompt} Return strict JSON only.` },
+      { role: 'user', content: JSON.stringify(input.prompt) },
+    ]);
   } catch {
     return null;
   }
+  if (!response?.content) return null;
+
+  const parsed = parseJsonPayload(response.content);
+  return parsed ? (parsed as T) : null;
+}
+
+function parseJsonPayload(content: string): Record<string, unknown> | null {
+  const trimmed = content.trim();
+  const normalized = trimmed.startsWith('```')
+    ? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+    : trimmed;
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    const start = normalized.indexOf('{');
+    const end = normalized.lastIndexOf('}');
+    if (start === -1 || end <= start) return null;
+    try {
+      const parsed = JSON.parse(normalized.slice(start, end + 1)) as unknown;
+      return isObject(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function normalize(value: string): string {

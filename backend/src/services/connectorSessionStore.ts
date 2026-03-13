@@ -6,7 +6,7 @@
  * Track connection timestamps for status reporting.
  */
 
-import type { ConnectorCredentials } from '../connectors/IConnector.js';
+import type { ConnectorCredentials } from '../../../packages/connectors/IConnector.js';
 
 interface StoredCredentials {
   credentials: ConnectorCredentials;

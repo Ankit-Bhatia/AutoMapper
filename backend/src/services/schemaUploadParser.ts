@@ -89,12 +89,23 @@ function parseUploadedXml(content: string, filename: string, systemId: string): 
     return inferSchemaFromNamedCollections(collections, systemId);
   }
 
-  const entry = Object.entries(root)[0];
+  const entry = pickPrimaryXmlRootEntry(root);
   if (!entry || typeof entry[1] !== 'object' || entry[1] == null) {
     throw new Error('XML does not contain inferable object nodes');
   }
 
-  return inferSchemaFromRecords(sanitizeName(entry[0]), [entry[1] as JsonRecord], systemId);
+  const rootName = sanitizeName(entry[0]);
+  try {
+    return inferSchemaFromXmlHierarchy(rootName, entry[1], systemId);
+  } catch {
+    return inferSchemaFromRecords(rootName, [entry[1] as JsonRecord], systemId);
+  }
+}
+
+function pickPrimaryXmlRootEntry(root: JsonRecord): [string, unknown] | undefined {
+  const entries = Object.entries(root);
+  const primary = entries.find(([key]) => !key.startsWith('?') && !key.startsWith('#'));
+  return primary ?? entries[0];
 }
 
 function tryParseWithSap(content: string, filename: string, systemId: string): ParsedSchema | null {
@@ -118,7 +129,11 @@ function inferSchemaFromNamedCollections(
     if (records.length === 0) continue;
     const entity = createEntity(sanitizeName(name), systemId);
     entities.push(entity);
-    fields.push(...inferFieldsForEntity(records, entity.id));
+    fields.push(
+      ...inferFieldsForEntity(records, entity.id, {
+        preferLosNameInference: shouldPreferLosNameInference(records),
+      }),
+    );
   }
 
   if (entities.length === 0 || fields.length === 0) {
@@ -135,11 +150,17 @@ function inferSchemaFromRecords(entityName: string, records: unknown[], systemId
   }
 
   const entity = createEntity(entityName, systemId);
-  const fields = inferFieldsForEntity(objectRecords, entity.id);
+  const fields = inferFieldsForEntity(objectRecords, entity.id, {
+    preferLosNameInference: shouldPreferLosNameInference(objectRecords),
+  });
   return { entities: [entity], fields, relationships: [] };
 }
 
-function inferFieldsForEntity(records: JsonRecord[], entityId: string): Field[] {
+function inferFieldsForEntity(
+  records: JsonRecord[],
+  entityId: string,
+  options: { preferLosNameInference?: boolean } = {},
+): Field[] {
   const valueByField = new Map<string, unknown[]>();
 
   for (const record of records) {
@@ -160,12 +181,19 @@ function inferFieldsForEntity(records: JsonRecord[], entityId: string): Field[] 
 
   const inferred: Field[] = [];
   for (const [name, values] of valueByField.entries()) {
+    const inferredByValues = inferDataType(values);
+    const inferredByLosName = inferDataTypeFromLosName(name);
+    const shouldUseLosType =
+      options.preferLosNameInference &&
+      Boolean(inferredByLosName) &&
+      (values.length === 0 || inferredByValues === 'string' || inferredByValues === 'unknown');
+
     inferred.push({
       id: uuidv4(),
       entityId,
       name,
       label: name,
-      dataType: inferDataType(values),
+      dataType: shouldUseLosType ? (inferredByLosName as DataType) : inferredByValues,
       required: values.length === records.length,
       isKey: name.toLowerCase() === 'id' || name.toLowerCase().endsWith('id'),
     });
@@ -195,6 +223,35 @@ function inferDataType(values: unknown[]): DataType {
   const unique = new Set(normalized);
   if (unique.size > 0 && unique.size <= 8 && normalized.length >= 8) return 'picklist';
   return 'string';
+}
+
+function inferDataTypeFromLosName(fieldName: string): DataType | null {
+  const upper = fieldName.trim().toUpperCase();
+  if (!upper) return null;
+
+  if (/^(AMT|PERC|PCT)_/.test(upper)) return 'decimal';
+  if (/^NBR_/.test(upper)) return 'integer';
+  if (/^(DT|DATE)_/.test(upper)) return 'date';
+  if (/^(IND|YN|Y)_/.test(upper)) return 'boolean';
+  if (/^(CD|TYP|CODE)_/.test(upper)) return 'picklist';
+  if (/^EMAIL_/.test(upper)) return 'email';
+  if (/^PHONE_/.test(upper)) return 'phone';
+  if (/^(NAME|ADDR|DESC)_/.test(upper) || /^SSN$/.test(upper)) return 'string';
+  return null;
+}
+
+function shouldPreferLosNameInference(records: JsonRecord[]): boolean {
+  if (!records.length) return false;
+  const keys = new Set<string>();
+  for (const record of records) {
+    for (const rawKey of Object.keys(record)) {
+      if (rawKey && rawKey.trim()) keys.add(rawKey.trim());
+    }
+  }
+  if (!keys.size) return false;
+
+  const losPrefixMatch = [...keys].filter((key) => /^(AMT|NBR|DT|DATE|TYP|IND|CD|PCT|PERC|YN|NAME|ADDR|PHONE|EMAIL)_/i.test(key)).length;
+  return losPrefixMatch / keys.size >= 0.2;
 }
 
 function createEntity(name: string, systemId: string): Entity {
@@ -286,3 +343,130 @@ function findArrayCollections(root: JsonRecord): Array<[string, unknown]> {
   });
 }
 
+interface XmlEntityCandidate {
+  name: string;
+  path: string;
+  parentPath?: string;
+  records: JsonRecord[];
+}
+
+function inferSchemaFromXmlHierarchy(rootName: string, rootNode: unknown, systemId: string): ParsedSchema {
+  const normalizedRoot = rootName || 'UploadedEntity';
+  const candidates: XmlEntityCandidate[] = [];
+  collectXmlEntityCandidates(normalizedRoot, rootNode, 0, 2, normalizedRoot, undefined, candidates);
+
+  const entities: Entity[] = [];
+  const fields: Field[] = [];
+  const relationships: Relationship[] = [];
+  const entityIdByPath = new Map<string, string>();
+
+  for (const candidate of candidates) {
+    const entity = createEntity(candidate.name, systemId);
+    let inferredFields: Field[];
+    try {
+      inferredFields = inferFieldsForEntity(candidate.records, entity.id, { preferLosNameInference: true });
+    } catch {
+      continue;
+    }
+
+    if (inferredFields.length === 0) continue;
+    entities.push(entity);
+    fields.push(...inferredFields);
+    entityIdByPath.set(candidate.path, entity.id);
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate.parentPath) continue;
+    const fromEntityId = entityIdByPath.get(candidate.parentPath);
+    const toEntityId = entityIdByPath.get(candidate.path);
+    if (!fromEntityId || !toEntityId) continue;
+    relationships.push({
+      fromEntityId,
+      toEntityId,
+      type: 'parentchild',
+    });
+  }
+
+  if (entities.length === 0 || fields.length === 0) {
+    throw new Error('Unable to infer entities/fields from XML hierarchy');
+  }
+
+  return { entities, fields, relationships };
+}
+
+function collectXmlEntityCandidates(
+  name: string,
+  node: unknown,
+  depth: number,
+  maxDepth: number,
+  path: string,
+  parentPath: string | undefined,
+  out: XmlEntityCandidate[],
+): void {
+  const records = toObjectRecords(node);
+  if (records.length === 0) return;
+
+  const scalarRecords: JsonRecord[] = [];
+  const childBuckets = new Map<string, JsonRecord[]>();
+
+  for (const record of records) {
+    const scalarRecord: JsonRecord = {};
+
+    for (const [rawKey, rawValue] of Object.entries(record)) {
+      const key = sanitizeName(rawKey);
+      if (!key) continue;
+
+      if (depth < maxDepth) {
+        const childRecords = toObjectRecords(rawValue).filter(hasStructuralKeys);
+        if (childRecords.length > 0) {
+          const bucket = childBuckets.get(key) ?? [];
+          bucket.push(...childRecords);
+          childBuckets.set(key, bucket);
+          continue;
+        }
+      }
+
+      if (Array.isArray(rawValue)) {
+        const scalarValues = rawValue.filter((item) => !isJsonRecord(item));
+        if (scalarValues.length > 0) {
+          scalarRecord[key] = scalarValues[0];
+        } else if (rawValue.length === 0) {
+          scalarRecord[key] = '';
+        }
+        continue;
+      }
+
+      scalarRecord[key] = rawValue;
+    }
+
+    scalarRecords.push(scalarRecord);
+  }
+
+  out.push({
+    name: sanitizeName(name) || 'Entity',
+    path,
+    parentPath,
+    records: scalarRecords,
+  });
+
+  if (depth >= maxDepth) return;
+
+  for (const [childName, childRecords] of childBuckets.entries()) {
+    const childPath = `${path}.${childName}`;
+    collectXmlEntityCandidates(childName, childRecords, depth + 1, maxDepth, childPath, path, out);
+  }
+}
+
+function toObjectRecords(node: unknown): JsonRecord[] {
+  if (Array.isArray(node)) return node.filter(isJsonRecord);
+  if (isJsonRecord(node)) return [node];
+  return [];
+}
+
+function isJsonRecord(node: unknown): node is JsonRecord {
+  return Boolean(node && typeof node === 'object' && !Array.isArray(node));
+}
+
+function hasStructuralKeys(record: JsonRecord): boolean {
+  return Object.keys(record).some((k) => k !== '#text');
+}

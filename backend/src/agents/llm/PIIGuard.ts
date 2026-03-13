@@ -10,7 +10,7 @@
  * non-public personal information never leaves the institution without consent.
  */
 import type { Field } from '../../types.js';
-import type { ConnectorField, ComplianceTag } from '../../connectors/IConnector.js';
+import type { ConnectorField, ComplianceTag } from '../../../../packages/connectors/IConnector.js';
 
 /** Tags that MUST be redacted before any LLM call */
 const BLOCKED_TAGS: ComplianceTag[] = ['GLBA_NPI', 'PCI_CARD'];

@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    include: ['src/**/*.test.ts', '../packages/connectors/**/__tests__/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/services/**/*.ts'],

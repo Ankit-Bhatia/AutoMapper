@@ -13,14 +13,16 @@ import { BankingDomainAgent } from '../agents/BankingDomainAgent.js';
 import { CRMDomainAgent } from '../agents/CRMDomainAgent.js';
 import { ERPDomainAgent } from '../agents/ERPDomainAgent.js';
 import { MappingProposalAgent } from '../agents/MappingProposalAgent.js';
+import { MappingRationaleAgent } from '../agents/MappingRationaleAgent.js';
 import { ValidationAgent } from '../agents/ValidationAgent.js';
 import { OrchestratorAgent } from '../agents/OrchestratorAgent.js';
 import { sanitizeFields, countRedactedFields, buildSafeSchemaDescription } from '../agents/llm/PIIGuard.js';
 import { activeProvider } from '../agents/llm/LLMGateway.js';
+import * as LLMGateway from '../agents/llm/LLMGateway.js';
 
 import type { AgentContext } from '../agents/types.js';
 import type { Entity, Field, EntityMapping, FieldMapping } from '../types.js';
-import type { ConnectorField } from '../connectors/IConnector.js';
+import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 
 // ─── Test fixtures ─────────────────────────────────────────────────────────────
 
@@ -135,19 +137,56 @@ describe('LLMGateway', () => {
     // Ensure keys are not set in test environment
     const originalOpenAI = process.env.OPENAI_API_KEY;
     const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+    const originalGemini = process.env.GEMINI_API_KEY;
+    const originalGeminiLegacy = process.env.GEMINI_KEY;
+    const originalGoogle = process.env.GOOGLE_API_KEY;
+    const originalProvider = process.env.LLM_PROVIDER;
     delete process.env.OPENAI_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    delete process.env.LLM_PROVIDER;
     expect(activeProvider()).toBe('heuristic');
     if (originalOpenAI) process.env.OPENAI_API_KEY = originalOpenAI;
     if (originalAnthropic) process.env.ANTHROPIC_API_KEY = originalAnthropic;
+    if (originalGemini) process.env.GEMINI_API_KEY = originalGemini;
+    if (originalGeminiLegacy) process.env.GEMINI_KEY = originalGeminiLegacy;
+    if (originalGoogle) process.env.GOOGLE_API_KEY = originalGoogle;
+    if (originalProvider) process.env.LLM_PROVIDER = originalProvider;
   });
 
   it('activeProvider returns anthropic when ANTHROPIC_API_KEY is set', () => {
-    const original = process.env.ANTHROPIC_API_KEY;
+    const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+    const originalGemini = process.env.GEMINI_API_KEY;
+    const originalProvider = process.env.LLM_PROVIDER;
+    delete process.env.LLM_PROVIDER;
+    delete process.env.GEMINI_API_KEY;
     process.env.ANTHROPIC_API_KEY = 'test-key';
     expect(activeProvider()).toBe('anthropic');
-    if (original) process.env.ANTHROPIC_API_KEY = original;
+    if (originalAnthropic) process.env.ANTHROPIC_API_KEY = originalAnthropic;
     else delete process.env.ANTHROPIC_API_KEY;
+    if (originalGemini) process.env.GEMINI_API_KEY = originalGemini;
+    if (originalProvider) process.env.LLM_PROVIDER = originalProvider;
+  });
+
+  it('activeProvider returns gemini when GEMINI_API_KEY is set and anthropic is absent', () => {
+    const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+    const originalGemini = process.env.GEMINI_API_KEY;
+    const originalOpenAI = process.env.OPENAI_API_KEY;
+    const originalProvider = process.env.LLM_PROVIDER;
+    delete process.env.LLM_PROVIDER;
+    delete process.env.ANTHROPIC_API_KEY;
+    process.env.GEMINI_API_KEY = 'test-gemini-key';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    expect(activeProvider()).toBe('gemini');
+    if (originalAnthropic) process.env.ANTHROPIC_API_KEY = originalAnthropic;
+    else delete process.env.ANTHROPIC_API_KEY;
+    if (originalGemini) process.env.GEMINI_API_KEY = originalGemini;
+    else delete process.env.GEMINI_API_KEY;
+    if (originalOpenAI) process.env.OPENAI_API_KEY = originalOpenAI;
+    else delete process.env.OPENAI_API_KEY;
+    if (originalProvider) process.env.LLM_PROVIDER = originalProvider;
   });
 });
 
@@ -346,20 +385,234 @@ describe('ERPDomainAgent', () => {
 // ─── MappingProposalAgent ─────────────────────────────────────────────────────
 
 describe('MappingProposalAgent', () => {
-  it('returns no-op when no LLM provider configured', async () => {
-    const original = { openai: process.env.OPENAI_API_KEY, anthropic: process.env.ANTHROPIC_API_KEY };
+  it('runs deterministic context ranker when no LLM provider configured', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
     delete process.env.OPENAI_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
 
     const agent = new MappingProposalAgent();
     const ctx = makeContext();
-    const result = await agent.run(ctx);
+    const steps: unknown[] = [];
+    const result = await agent.run({ ...ctx, onStep: (step) => steps.push(step) });
 
-    expect(result.totalImproved).toBe(0);
-    expect(result.updatedFieldMappings).toEqual(ctx.fieldMappings);
+    expect(result.updatedFieldMappings.length).toBe(ctx.fieldMappings.length);
+    expect((steps as { action: string }[]).some((step) => step.action === 'context_mode')).toBe(true);
+    expect((steps as { action: string }[]).some((step) => step.action === 'mapping_proposal_complete')).toBe(true);
 
     if (original.openai) process.env.OPENAI_API_KEY = original.openai;
     if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
+
+  it('retargets low-confidence mappings using context ranking in heuristic mode', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+
+    const agent = new MappingProposalAgent();
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'PartyProfile' });
+    const srcField = makeField({ id: 'src-tax-id', entityId: 'src-ent', name: 'TaxID', dataType: 'string', complianceTags: ['GLBA_NPI'] });
+    const wrongTgt = makeField({ id: 'tgt-name', entityId: 'tgt-ent', name: 'Name', dataType: 'string', complianceTags: [] });
+    const bestTgt = makeField({ id: 'tgt-tax-id', entityId: 'tgt-ent', name: 'TaxID', dataType: 'string', complianceTags: ['GLBA_NPI'] });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-1',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-tax-id',
+      targetFieldId: 'tgt-name',
+      confidence: 0.42,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [srcField, wrongTgt, bestTgt],
+      entityMappings: [em],
+      fieldMappings: [fm],
+    });
+
+    expect(result.totalImproved).toBeGreaterThan(0);
+    expect(result.updatedFieldMappings[0]?.targetFieldId).toBe('tgt-tax-id');
+    expect(result.updatedFieldMappings[0]?.confidence).toBeGreaterThan(0.42);
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
+});
+
+// ─── MappingRationaleAgent ───────────────────────────────────────────────────
+
+describe('MappingRationaleAgent', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses LLM only for ambiguity-band mappings and forwards low maxOutputTokens', async () => {
+    const agent = new MappingRationaleAgent();
+    const activeProviderSpy = vi.spyOn(LLMGateway, 'activeProvider').mockReturnValue('gemini');
+    const llmCompleteSpy = vi.spyOn(LLMGateway, 'llmComplete').mockResolvedValue({
+      content: 'Both fields represent the same account identity concept.',
+      provider: 'gemini',
+      tokensUsed: 22,
+    });
+
+    const env = {
+      min: process.env.RATIONALE_LLM_MIN_CONFIDENCE,
+      max: process.env.RATIONALE_LLM_MAX_CONFIDENCE,
+      maxCalls: process.env.RATIONALE_MAX_LLM_CALLS,
+      maxTokens: process.env.RATIONALE_LLM_MAX_OUTPUT_TOKENS,
+    };
+    process.env.RATIONALE_LLM_MIN_CONFIDENCE = '0.45';
+    process.env.RATIONALE_LLM_MAX_CONFIDENCE = '0.82';
+    process.env.RATIONALE_MAX_LLM_CALLS = '5';
+    process.env.RATIONALE_LLM_MAX_OUTPUT_TOKENS = '64';
+
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'PartyProfile' });
+    const src1 = makeField({ id: 'src-1', entityId: 'src-ent', name: 'LegalName', dataType: 'string' });
+    const tgt1 = makeField({ id: 'tgt-1', entityId: 'tgt-ent', name: 'Name', dataType: 'string' });
+    const src2 = makeField({ id: 'src-2', entityId: 'src-ent', name: 'TaxId', dataType: 'string' });
+    const tgt2 = makeField({ id: 'tgt-2', entityId: 'tgt-ent', name: 'TaxId', dataType: 'string' });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      status: 'suggested',
+      notes: null,
+    };
+    const fmAmbiguous: FieldMapping = {
+      id: 'fm-ambiguous',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-1',
+      targetFieldId: 'tgt-1',
+      confidence: 0.7,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'semantic 0.62',
+    };
+    const fmHighConfidence: FieldMapping = {
+      id: 'fm-high',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-2',
+      targetFieldId: 'tgt-2',
+      confidence: 0.94,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'semantic 0.98',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [src1, tgt1, src2, tgt2],
+      entityMappings: [em],
+      fieldMappings: [fmAmbiguous, fmHighConfidence],
+    });
+
+    expect(activeProviderSpy).toHaveBeenCalled();
+    expect(llmCompleteSpy).toHaveBeenCalledTimes(1);
+    expect(llmCompleteSpy.mock.calls[0]?.[1]).toMatchObject({ maxOutputTokens: 64 });
+    expect(result.updatedFieldMappings[0]?.rationale ?? '').toContain('LLM insight');
+    expect(result.updatedFieldMappings[1]?.rationale ?? '').not.toContain('LLM insight');
+
+    process.env.RATIONALE_LLM_MIN_CONFIDENCE = env.min;
+    process.env.RATIONALE_LLM_MAX_CONFIDENCE = env.max;
+    process.env.RATIONALE_MAX_LLM_CALLS = env.maxCalls;
+    process.env.RATIONALE_LLM_MAX_OUTPUT_TOKENS = env.maxTokens;
+  });
+
+  it('still uses LLM for semantic-incompatible mappings even above confidence band', async () => {
+    const agent = new MappingRationaleAgent();
+    vi.spyOn(LLMGateway, 'activeProvider').mockReturnValue('gemini');
+    const llmCompleteSpy = vi.spyOn(LLMGateway, 'llmComplete').mockResolvedValue({
+      content: 'Mapping requires business rule review because semantic intent differs.',
+      provider: 'gemini',
+      tokensUsed: 18,
+    });
+
+    const env = {
+      min: process.env.RATIONALE_LLM_MIN_CONFIDENCE,
+      max: process.env.RATIONALE_LLM_MAX_CONFIDENCE,
+    };
+    process.env.RATIONALE_LLM_MIN_CONFIDENCE = '0.45';
+    process.env.RATIONALE_LLM_MAX_CONFIDENCE = '0.82';
+
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Loan' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Contact' });
+    const src = makeField({ id: 'src-amount', entityId: 'src-ent', name: 'AMT_LOAN', dataType: 'decimal' });
+    const tgt = makeField({ id: 'tgt-email', entityId: 'tgt-ent', name: 'Email', dataType: 'email' });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      status: 'suggested',
+      notes: null,
+    };
+    const fm: FieldMapping = {
+      id: 'fm-incompatible',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-amount',
+      targetFieldId: 'tgt-email',
+      confidence: 0.93,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'semantic 0.22',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [src, tgt],
+      entityMappings: [em],
+      fieldMappings: [fm],
+    });
+
+    expect(llmCompleteSpy).toHaveBeenCalledTimes(1);
+    expect(result.updatedFieldMappings[0]?.rationale ?? '').toContain('LLM insight');
+
+    process.env.RATIONALE_LLM_MIN_CONFIDENCE = env.min;
+    process.env.RATIONALE_LLM_MAX_CONFIDENCE = env.max;
   });
 });
 

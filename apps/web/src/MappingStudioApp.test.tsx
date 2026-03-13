@@ -1,0 +1,242 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { MappingStudioApp } from './MappingStudioApp';
+
+const apiMock = vi.fn();
+
+const project = {
+  id: 'project-1',
+  name: 'Test Project',
+  sourceSystemId: 'source-system-1',
+  targetSystemId: 'target-system-1',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+const sourceEntity = {
+  id: 'source-entity-1',
+  systemId: project.sourceSystemId,
+  name: 'LOAN',
+};
+
+const targetEntity = {
+  id: 'target-entity-1',
+  systemId: project.targetSystemId,
+  name: 'FinancialAccount',
+};
+
+const sourceField = {
+  id: 'source-field-1',
+  entityId: sourceEntity.id,
+  name: 'AMT_APPROVED_LOAN',
+  dataType: 'decimal',
+};
+
+const targetRequiredField = {
+  id: 'target-field-1',
+  entityId: targetEntity.id,
+  name: 'LoanAmount__c',
+  dataType: 'decimal',
+  required: true,
+};
+
+const entityMapping = {
+  id: 'entity-map-1',
+  projectId: project.id,
+  sourceEntityId: sourceEntity.id,
+  targetEntityId: targetEntity.id,
+  confidence: 0.91,
+  rationale: 'test',
+};
+
+const fieldMapping = {
+  id: 'field-map-1',
+  entityMappingId: entityMapping.id,
+  sourceFieldId: sourceField.id,
+  targetFieldId: targetRequiredField.id,
+  transform: { type: 'direct' as const, config: {} },
+  confidence: 0.88,
+  rationale: 'test',
+  status: 'accepted' as const,
+};
+
+vi.mock('@core/api-client', () => ({
+  api: (...args: unknown[]) => apiMock(...args),
+  isDemoUiMode: () => false,
+  resetMockState: vi.fn(),
+}));
+
+vi.mock('./telemetry/errorReporting', () => ({
+  reportFrontendError: vi.fn(async () => ({})),
+  setErrorReportingContext: vi.fn(),
+}));
+
+vi.mock('./components/LandingPage', () => ({
+  LandingPage: ({ onEnterStudio }: { onEnterStudio: () => void }) => (
+    <button onClick={onEnterStudio}>Enter Studio</button>
+  ),
+}));
+
+vi.mock('./components/Sidebar', () => ({
+  Sidebar: ({ currentStep }: { currentStep: string }) => <div data-testid="sidebar-step">{currentStep}</div>,
+}));
+
+vi.mock('./components/ConnectorGrid', () => ({
+  ConnectorGrid: ({ onProceed }: { onProceed: (src: string, tgt: string) => void }) => (
+    <button onClick={() => onProceed('jackhenry-silverlake', 'salesforce')}>Connect Systems</button>
+  ),
+}));
+
+vi.mock('./components/AgentPipeline', () => ({
+  AgentPipeline: ({
+    onComplete,
+    onReviewReady,
+  }: {
+    onComplete: (result: {
+      entityMappings: typeof entityMapping[];
+      fieldMappings: typeof fieldMapping[];
+      validation: {
+        warnings: unknown[];
+        summary: {
+          totalWarnings: number;
+          typeMismatch: number;
+          missingRequired: number;
+          picklistCoverage: number;
+        };
+      };
+      totalMappings: number;
+      complianceFlags: number;
+      processingMs: number;
+    }) => void;
+    onReviewReady?: () => void;
+  }) => (
+    <button
+      onClick={() => {
+        onComplete({
+          entityMappings: [entityMapping],
+          fieldMappings: [fieldMapping],
+          validation: {
+            warnings: [],
+            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+          },
+          totalMappings: 1,
+          complianceFlags: 0,
+          processingMs: 2000,
+        });
+        onReviewReady?.();
+      }}
+    >
+      Finish Pipeline
+    </button>
+  ),
+}));
+
+vi.mock('./components/MappingTable', () => ({
+  MappingTable: ({ onProceedToExport }: { onProceedToExport?: () => void }) => (
+    <button onClick={onProceedToExport}>Proceed To Export</button>
+  ),
+}));
+
+vi.mock('./components/ExportPanel', () => ({
+  ExportPanel: () => <div>Export Panel Visible</div>,
+}));
+
+vi.mock('./components/ConflictDrawer', () => ({
+  ConflictDrawer: () => null,
+}));
+
+vi.mock('./components/SeedSummaryCard', () => ({
+  SeedSummaryCard: () => null,
+}));
+
+describe('MappingStudioApp export gating', () => {
+  beforeEach(() => {
+    apiMock.mockReset();
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      const method = (init?.method ?? 'GET').toUpperCase();
+
+      if (path === '/api/projects' && method === 'POST') {
+        return { project };
+      }
+
+      if (path === `/api/projects/${project.id}/schema/jackhenry-silverlake` && method === 'POST') {
+        return { mode: 'mock' };
+      }
+
+      if (path === `/api/projects/${project.id}/schema/salesforce` && method === 'POST') {
+        return { mode: 'mock' };
+      }
+
+      if (path === `/api/projects/${project.id}/suggest-mappings` && method === 'POST') {
+        return {
+          entityMappings: [entityMapping],
+          fieldMappings: [fieldMapping],
+          validation: {
+            warnings: [],
+            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+          },
+        };
+      }
+
+      if (path === `/api/projects/${project.id}` && method === 'GET') {
+        return {
+          project,
+          sourceEntities: [sourceEntity],
+          targetEntities: [targetEntity],
+          fields: [sourceField, targetRequiredField],
+          entityMappings: [entityMapping],
+          fieldMappings: [fieldMapping],
+        };
+      }
+
+      if (path === `/api/projects/${project.id}/seed` && method === 'POST') {
+        return { summary: { fromDerived: 0, fromCanonical: 0, fromAgent: 0, total: 0 } };
+      }
+
+      if (path === `/api/projects/${project.id}/conflicts` && method === 'GET') {
+        return { conflicts: [] };
+      }
+
+      if (path === `/api/projects/${project.id}/preflight` && method === 'GET') {
+        return {
+          projectId: project.id,
+          mappedTargetCount: 0,
+          targetFieldCount: 1,
+          acceptedMappingsCount: 0,
+          suggestedMappingsCount: 1,
+          rejectedMappingsCount: 0,
+          unmappedRequiredFields: [{ id: targetRequiredField.id, name: targetRequiredField.name }],
+          unresolvedConflicts: 0,
+          canExport: false,
+        };
+      }
+
+      return {};
+    });
+  });
+
+  it('allows navigation to Export from Review even when required target fields are still unmapped', async () => {
+    const user = userEvent.setup();
+    render(<MappingStudioApp />);
+
+    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
+    await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Finish Pipeline' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Finish Pipeline' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Proceed To Export' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Proceed To Export' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Export Panel Visible')).toBeInTheDocument();
+    });
+  });
+});

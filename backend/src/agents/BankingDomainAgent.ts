@@ -17,7 +17,7 @@
  */
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
-import type { ConnectorField } from '../connectors/IConnector.js';
+import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 import type { Field, FieldMapping } from '../types.js';
 
 /** Banking field synonyms: source field name → semantically equivalent target field names */

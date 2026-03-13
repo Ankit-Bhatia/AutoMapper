@@ -93,3 +93,16 @@ npm-debug.log*
 dist
 .DS_Store
 backend/src/data/db.json
+
+# Runtime data — never commit
+backend/data/db.json
+backend/data/custom-connectors.json
+backend/data/error-reports.json
+backend/data/llm-configs.json
+backend/data/llm-usage.json
+
+# Vitest build artifacts
+backend/vitest.config.ts.timestamp-*.mjs
+
+# Vite/apps build artifacts
+apps/web/vite.config.ts.timestamp-*.mjs

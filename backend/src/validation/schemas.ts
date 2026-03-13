@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+const TransformTypeSchema = z.enum([
+  'direct',
+  'concat',
+  'formatDate',
+  'lookup',
+  'static',
+  'regex',
+  'split',
+  'trim',
+]);
+
 export const CreateProjectSchema = z.object({
   name: z.string().min(1).max(255),
   sourceSystemName: z.string().min(1).max(100).optional(),
@@ -30,11 +41,26 @@ export const PatchFieldMappingSchema = z.object({
   targetFieldId: z.string().uuid().optional(),
   transform: z
     .object({
-      type: z.string(),
+      type: TransformTypeSchema,
       config: z.record(z.unknown()),
     })
     .optional(),
 });
+
+export const ConflictResolutionRequestSchema = z
+  .object({
+    action: z.enum(['pick', 'reject-all']),
+    winnerMappingId: z.string().uuid().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === 'pick' && !value.winnerMappingId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['winnerMappingId'],
+        message: 'winnerMappingId is required when action is pick',
+      });
+    }
+  });
 
 export const RegisterSchema = z.object({
   email: z.string().email(),
@@ -50,5 +76,6 @@ export const LoginSchema = z.object({
 export type CreateProjectInput = z.infer<typeof CreateProjectSchema>;
 export type SalesforceSchemaInput = z.infer<typeof SalesforceSchemaSchema>;
 export type PatchFieldMappingInput = z.infer<typeof PatchFieldMappingSchema>;
+export type ConflictResolutionRequestInput = z.infer<typeof ConflictResolutionRequestSchema>;
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type LoginInput = z.infer<typeof LoginSchema>;

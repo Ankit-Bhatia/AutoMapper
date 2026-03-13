@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AutoMapper — UI Preview</title>
+<style>
+:root {
+  --bg: #F8FAFC; --surface: #FFFFFF; --surface-raised: #F1F5F9; --border: #E2E8F0; --border-light: #F1F5F9;
+  --primary: #2563EB; --primary-dark: #1D4ED8; --primary-light: #EFF6FF; --primary-muted: #BFDBFE;
+  --text: #0F172A; --text-secondary: #475569; --text-tertiary: #64748B; --text-muted: #94A3B8;
+  --success: #16A34A; --success-light: #F0FDF4; --success-border: #BBF7D0;
+  --warning: #D97706; --warning-light: #FFFBEB; --warning-border: #FDE68A;
+  --danger: #DC2626; --danger-light: #FEF2F2; --danger-border: #FECACA;
+  --amber: #B45309; --amber-light: #FFF7ED; --amber-border: #FED7AA;
+  --purple: #7C3AED; --purple-light: #F5F3FF; --purple-border: #DDD6FE;
+  --sky: #0EA5E9; --sky-light: #F0F9FF; --sky-border: #BAE6FD;
+  --sidebar-width: 240px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'SF Mono', 'Fira Code', Consolas, monospace;
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 10px; --radius-xl: 14px; --radius-full: 9999px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; font-family: var(--font); font-size: 14px; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
+
+/* Shell */
+.app-shell { display: grid; grid-template-columns: var(--sidebar-width) 1fr; height: 100vh; overflow: hidden; }
+.main-content { overflow-y: auto; background: var(--bg); }
+
+/* Sidebar */
+.sidebar { display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--border); height: 100vh; }
+.sidebar-logo { display: flex; align-items: center; gap: 10px; padding: 18px 20px; border-bottom: 1px solid var(--border-light); }
+.sidebar-logo-mark { width: 30px; height: 30px; background: var(--primary); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-size: 13px; font-weight: 800; }
+.sidebar-logo-text { font-size: 14px; font-weight: 700; color: var(--text); }
+.sidebar-nav { padding: 8px; flex: 1; }
+.sidebar-nav-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: var(--text-secondary); margin-bottom: 2px; width: 100%; border: none; background: none; cursor: pointer; text-align: left; }
+.sidebar-nav-item.active { background: var(--primary-light); color: var(--primary); }
+.sidebar-nav-item.done { color: var(--text-secondary); }
+.sidebar-nav-item.disabled { opacity: 0.4; }
+.nav-step-number { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; background: var(--surface-raised); color: var(--text-muted); border: 1.5px solid var(--border); flex-shrink: 0; margin-top: 1px; }
+.sidebar-nav-item.active .nav-step-number { background: var(--primary); color: white; border-color: var(--primary); }
+.sidebar-nav-item.done .nav-step-number { background: var(--success); color: white; border-color: var(--success); }
+.nav-step-text { display: flex; flex-direction: column; gap: 2px; }
+.nav-step-label { font-size: 13px; font-weight: 500; }
+.sidebar-nav-item.active .nav-step-label { font-weight: 600; }
+.nav-step-desc { font-size: 10.5px; color: var(--text-muted); }
+.sidebar-nav-item.active .nav-step-desc { color: var(--primary); opacity: 0.75; }
+.sidebar-footer { padding: 12px 14px; border-top: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; }
+.sidebar-footer-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
+.sidebar-footer-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+.sidebar-footer-version { font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
+
+/* Page header */
+.page-header { padding: 28px 36px 20px; border-bottom: 1px solid var(--border-light); background: var(--surface); display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.page-title { font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -0.4px; margin-bottom: 4px; }
+.page-subtitle { font-size: 13.5px; color: var(--text-secondary); line-height: 1.55; }
+
+/* Legend */
+.connector-legend { display: flex; align-items: center; gap: 10px; padding: 14px 36px; background: var(--surface-raised); border-bottom: 1px solid var(--border-light); }
+.legend-pill { display: flex; align-items: center; gap: 7px; padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); font-size: 12.5px; color: var(--text-muted); font-weight: 500; }
+.legend-pill.source-set { border-color: var(--primary-muted); background: var(--primary-light); color: var(--primary); }
+.legend-pill.target-set { border-color: var(--success-border); background: var(--success-light); color: var(--success); }
+.legend-dot { width: 7px; height: 7px; border-radius: 50%; }
+.legend-dot.s { background: var(--primary); }
+.legend-dot.t { background: var(--success); }
+
+/* Connector grid */
+.connector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; padding: 28px 36px; }
+.connector-card { display: flex; flex-direction: column; padding: 16px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--surface); position: relative; transition: all 0.15s ease; }
+.connector-card.sel-source { border-color: var(--primary); background: var(--primary-light); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+.connector-card.sel-target { border-color: var(--success); background: var(--success-light); box-shadow: 0 0 0 3px rgba(22,163,74,.1); }
+.connector-role-badge { position: absolute; top: 10px; right: 10px; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.4px; }
+.badge-source { background: var(--primary); color: white; }
+.badge-target { background: var(--success); color: white; }
+.connector-logo { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: white; margin-bottom: 12px; }
+.logo-jh-sl  { background: linear-gradient(135deg,#003087,#0052CC); }
+.logo-jh-cd  { background: linear-gradient(135deg,#004C97,#0070D1); }
+.logo-jh-sym { background: linear-gradient(135deg,#00468B,#0065C1); }
+.logo-sf     { background: linear-gradient(135deg,#00A1E0,#009EDB); }
+.logo-sap    { background: linear-gradient(135deg,#1B75BC,#0F5FA8); }
+.connector-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.connector-name { font-size: 14px; font-weight: 700; color: var(--text); }
+.sel-source .connector-name { color: var(--primary); }
+.sel-target .connector-name { color: var(--success); }
+.connector-vendor { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.connector-description { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+.connector-entities { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.connector-entity-tag { font-size: 10.5px; font-weight: 500; padding: 2px 7px; background: var(--surface-raised); color: var(--text-tertiary); border-radius: 4px; border: 1px solid var(--border); }
+
+/* Badge */
+.badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.badge-gray { background: var(--surface-raised); color: var(--text-secondary); border: 1px solid var(--border); }
+
+/* Proceed bar */
+.connector-proceed-bar { padding: 20px 36px 24px; border-top: 1px solid var(--border-light); background: var(--surface); }
+.connector-proceed-inner { display: flex; align-items: flex-end; gap: 16px; }
+.connector-proceed-left { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.form-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.form-input { font-family: var(--font); font-size: 13.5px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; width: 100%; max-width: 380px; outline: none; }
+.connector-proceed-note { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+
+/* Btn */
+.btn { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font); font-size: 13.5px; font-weight: 500; padding: 7px 14px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; white-space: nowrap; }
+.btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
+.btn-lg { font-size: 15px; padding: 10px 22px; border-radius: 10px; }
+
+/* Tab nav at bottom for switching screens */
+.preview-tabs { position: fixed; bottom: 0; left: var(--sidebar-width); right: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; background: rgba(248,250,252,0.95); backdrop-filter: blur(8px); border-top: 1px solid var(--border); z-index: 100; }
+.preview-tab { padding: 6px 18px; border-radius: 999px; font-size: 12.5px; font-weight: 500; border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); cursor: pointer; transition: all 0.15s; }
+.preview-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+.preview-tab:hover:not(.active) { background: var(--surface-raised); }
+
+/* Screen panels */
+.screen { display: none; }
+.screen.active { display: flex; flex-direction: column; }
+
+/* Pipeline screen */
+.pipeline-steps { padding: 24px 36px; display: flex; flex-direction: column; }
+.agent-step { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border-light); }
+.agent-step:last-child { border-bottom: none; }
+.agent-step-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px; font-weight: 700; background: var(--surface-raised); border: 2px solid var(--border); color: var(--text-muted); }
+.step-done .agent-step-icon { background: var(--success-light); border-color: var(--success-border); color: var(--success); }
+.step-running .agent-step-icon { background: var(--primary-light); border-color: var(--primary-muted); color: var(--primary); }
+.step-pending .agent-step-icon { opacity: 0.35; }
+.agent-step-body { flex: 1; }
+.agent-step-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.agent-step-name { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.step-pending .agent-step-name { color: var(--text-muted); font-weight: 500; }
+.step-running .agent-step-name { color: var(--primary); }
+.agent-step-description { font-size: 12.5px; color: var(--text-secondary); }
+.step-pending .agent-step-description { color: var(--text-muted); }
+.agent-step-output { margin-top: 8px; padding: 8px 12px; background: var(--surface-raised); border-radius: 6px; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--success-border); }
+.pipeline-progress-track { height: 3px; background: var(--border); }
+.pipeline-progress-bar { height: 100%; width: 71%; background: linear-gradient(90deg,var(--primary),#60A5FA); }
+.badge-amber { background: var(--warning-light); color: var(--warning); border: 1px solid var(--warning-border); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.badge-green { background: var(--success-light); color: var(--success); border: 1px solid var(--success-border); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+
+/* Mapping table */
+.entity-tabs { display: flex; gap: 4px; padding: 16px 36px 0; border-bottom: 1px solid var(--border-light); background: var(--surface); }
+.entity-tab { display: flex; align-items: center; gap: 6px; padding: 6px 16px; font-size: 12.5px; font-weight: 500; color: var(--text-secondary); background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; margin-bottom: -1px; }
+.entity-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.entity-tab-count { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--surface-raised); color: var(--text-muted); border: 1px solid var(--border); }
+.entity-tab.active .entity-tab-count { background: var(--primary-light); color: var(--primary); border-color: var(--primary-muted); }
+.mapping-filter-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 36px; background: var(--surface); border-bottom: 1px solid var(--border-light); }
+.mapping-filter-pills { display: flex; gap: 4px; }
+.filter-pill { padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--text-secondary); background: transparent; border: 1px solid var(--border); cursor: pointer; }
+.filter-pill.active { background: var(--primary); color: white; border-color: var(--primary); }
+.mapping-table-wrap { background: var(--surface); }
+.mapping-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mapping-table thead tr { border-bottom: 1px solid var(--border); background: var(--surface-raised); }
+.mapping-table th { padding: 9px 14px; text-align: left; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); white-space: nowrap; }
+.mapping-table tbody tr { border-bottom: 1px solid var(--border-light); }
+.mapping-table td { padding: 10px 14px; vertical-align: middle; }
+.field-cell { display: flex; align-items: center; gap: 7px; }
+.field-name { font-weight: 600; color: var(--text); }
+.field-type-badge { font-size: 10px; font-weight: 600; padding: 1px 6px; background: var(--surface-raised); color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; font-family: monospace; }
+.conf-cell { display: flex; align-items: center; gap: 8px; }
+.conf-bar { height: 4px; background: var(--border); border-radius: 999px; overflow: hidden; width: 64px; }
+.conf-bar-fill { height: 100%; border-radius: 999px; }
+.conf-bar-fill.hi { background: var(--success); }
+.conf-bar-fill.md { background: var(--warning); }
+.conf-bar-fill.lo { background: var(--danger); }
+.conf-pct { font-size: 11.5px; font-weight: 700; color: var(--text-secondary); }
+.status-suggested { background: var(--surface-raised); color: var(--text-secondary); border: 1px solid var(--border); font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; display: inline-flex; }
+.status-accepted  { background: var(--success-light);  color: var(--success);  border: 1px solid var(--success-border); font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; display: inline-flex; }
+.transform-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; background: var(--surface-raised); color: var(--text-secondary); border-radius: 4px; border: 1px solid var(--border); font-family: monospace; }
+.btn-xs { font-size: 11px; padding: 3px 8px; border-radius: 4px; }
+.btn-success-xs { background: var(--success-light); color: var(--success); border: 1px solid var(--success-border); font-size: 11px; padding: 3px 8px; border-radius: 4px; cursor: pointer; }
+.btn-danger-xs  { background: var(--danger-light);  color: var(--danger);  border: 1px solid var(--danger-border);  font-size: 11px; padding: 3px 8px; border-radius: 4px; cursor: pointer; }
+.btn-ghost-xs   { background: transparent; color: var(--text-muted); border: 1px solid var(--border); font-size: 11px; padding: 3px 8px; border-radius: 4px; cursor: pointer; }
+.compliance-tags { display: flex; flex-wrap: wrap; gap: 3px; }
+.tag-amber { background: var(--amber-light); color: var(--amber); border: 1px solid var(--amber-border); font-size: 9.5px; font-weight: 600; padding: 1px 5px; border-radius: 999px; }
+.tag-red   { background: var(--danger-light); color: var(--danger); border: 1px solid var(--danger-border); font-size: 9.5px; font-weight: 600; padding: 1px 5px; border-radius: 999px; }
+.mapping-global-stats { display: flex; align-items: center; gap: 20px; }
+.mapping-global-stat { display: flex; flex-direction: column; align-items: flex-end; }
+.mapping-global-value { font-size: 22px; font-weight: 800; color: var(--text); letter-spacing: -0.5px; }
+.mapping-global-label { font-size: 11px; color: var(--text-muted); }
+
+/* Export */
+.export-summary-card { display: flex; align-items: center; margin: 24px 36px; padding: 20px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+.export-summary-stat { display: flex; flex-direction: column; align-items: center; flex: 1; }
+.export-summary-value { font-size: 28px; font-weight: 800; color: var(--text); letter-spacing: -0.5px; }
+.export-summary-label { font-size: 11px; color: var(--text-muted); }
+.export-summary-divider { width: 1px; height: 40px; background: var(--border); }
+.export-section { padding: 0 36px 24px; }
+.export-section-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.export-section-desc { font-size: 12.5px; color: var(--text-secondary); margin-bottom: 16px; }
+.export-cards { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+.export-card { display: flex; flex-direction: column; padding: 18px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--surface); }
+.export-card.ipaas { border-color: var(--sky-border); background: linear-gradient(135deg,white 60%,var(--sky-light)); }
+.export-card-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; margin-bottom: 12px; }
+.export-card-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.export-card-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.55; margin-top: 4px; flex: 1; }
+.export-footer-note { display: flex; align-items: flex-start; gap: 10px; margin: 0 36px 36px; padding: 14px 18px; background: var(--amber-light); border: 1px solid var(--amber-border); border-radius: 10px; font-size: 12.5px; color: #92400E; line-height: 1.6; }
+
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+</style>
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">AM</div>
+      <span class="sidebar-logo-text">AutoMapper</span>
+    </div>
+
+    <div class="sidebar-nav">
+      <button class="sidebar-nav-item active" onclick="showScreen('connect')">
+        <span class="nav-step-number">1</span>
+        <span class="nav-step-text">
+          <span class="nav-step-label">Connect</span>
+          <span class="nav-step-desc">Choose source &amp; target</span>
+        </span>
+      </button>
+      <button class="sidebar-nav-item disabled" onclick="showScreen('orchestrate')">
+        <span class="nav-step-number">2</span>
+        <span class="nav-step-text">
+          <span class="nav-step-label">Orchestrate</span>
+          <span class="nav-step-desc">Run AI mapping pipeline</span>
+        </span>
+      </button>
+      <button class="sidebar-nav-item disabled" onclick="showScreen('review')">
+        <span class="nav-step-number">3</span>
+        <span class="nav-step-text">
+          <span class="nav-step-label">Review</span>
+          <span class="nav-step-desc">Inspect &amp; refine mappings</span>
+        </span>
+      </button>
+      <button class="sidebar-nav-item disabled" onclick="showScreen('export')">
+        <span class="nav-step-number">4</span>
+        <span class="nav-step-text">
+          <span class="nav-step-label">Export</span>
+          <span class="nav-step-desc">Download integration spec</span>
+        </span>
+      </button>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-item">
+        <span class="sidebar-footer-dot" style="animation:pulse 2s infinite"></span>
+        Demo mode
+      </div>
+      <span style="font-size:11px;color:#94A3B8;font-family:monospace">v2.0</span>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main-content">
+
+<!-- SCREEN 1: Connect -->
+    <div id="screen-connect" class="screen active">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Connect Systems</div>
+          <div class="page-subtitle">Select a <strong>source</strong> system, then a <strong>target</strong> system. AutoMapper will discover their schemas and build a mapping spec.</div>
+        </div>
+      </div>
+
+      <div class="connector-legend">
+        <div class="legend-pill source-set">
+          <span class="legend-dot s"></span>
+          Core Director
+        </div>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="#94A3B8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="legend-pill">
+          <span class="legend-dot" style="background:#E2E8F0"></span>
+          Select target (click second)
+        </div>
+      </div>
+
+      <div class="connector-grid">
+        <!-- Card 1: SilverLake -->
+        <div class="connector-card">
+          <div class="connector-logo logo-jh-sl">JH</div>
+          <div class="connector-card-header">
+            <span class="connector-name">SilverLake</span>
+            <span class="badge badge-gray">Core Banking</span>
+          </div>
+          <div class="connector-vendor">Jack Henry</div>
+          <div class="connector-description">Commercial banking core — CIF, DDA, Loans with full jXchange XPath and ISO 20022 support.</div>
+          <div class="connector-entities">
+            <span class="connector-entity-tag">CIF</span>
+            <span class="connector-entity-tag">DDA</span>
+            <span class="connector-entity-tag">LoanAccount</span>
+            <span class="connector-entity-tag">GLAccount</span>
+          </div>
+        </div>
+
+        <!-- Card 2: Core Director (selected as source) -->
+        <div class="connector-card sel-source">
+          <span class="connector-role-badge badge-source">Source</span>
+          <div class="connector-logo logo-jh-cd">JH</div>
+          <div class="connector-card-header">
+            <span class="connector-name">Core Director</span>
+            <span class="badge badge-gray">Core Banking</span>
+          </div>
+          <div class="connector-vendor">Jack Henry</div>
+          <div class="connector-description">Community banking core — numeric AcctType codes, Indv/Bus CustomerType short codes.</div>
+          <div class="connector-entities">
+            <span class="connector-entity-tag">CIF</span>
+            <span class="connector-entity-tag">DDA</span>
+            <span class="connector-entity-tag">LoanAccount</span>
+            <span class="connector-entity-tag">GLAccount</span>
+          </div>
+        </div>
+
+        <!-- Card 3: Symitar -->
+        <div class="connector-card">
+          <div class="connector-logo logo-jh-sym">JH</div>
+          <div class="connector-card-header">
+            <span class="connector-name">Symitar / Episys</span>
+            <span class="badge badge-gray">Credit Union</span>
+          </div>
+          <div class="connector-vendor">Jack Henry</div>
+          <div class="connector-description">Credit union core — Member, Share, Loan, Card with PCI-DSS compliance tags.</div>
+          <div class="connector-entities">
+            <span class="connector-entity-tag">Member</span>
+            <span class="connector-entity-tag">Share</span>
+            <span class="connector-entity-tag">Loan</span>
+            <span class="connector-entity-tag">Card</span>
+          </div>
+        </div>
+
+        <!-- Card 4: Salesforce (selected as target) -->
+        <div class="connector-card sel-target">
+          <span class="connector-role-badge badge-target">Target</span>
+          <div class="connector-logo logo-sf">SF</div>
+          <div class="connector-card-header">
+            <span class="connector-name">Salesforce CRM</span>
+            <span class="badge badge-gray">CRM</span>
+          </div>
+          <div class="connector-vendor">Salesforce</div>
+          <div class="connector-description">Account, Contact, Opportunity objects via Salesforce Metadata API.</div>
+          <div class="connector-entities">
+            <span class="connector-entity-tag">Account</span>
+            <span class="connector-entity-tag">Contact</span>
+            <span class="connector-entity-tag">Opportunity</span>
+          </div>
+        </div>
+
+        <!-- Card 5: SAP -->
+        <div class="connector-card">
+          <div class="connector-logo logo-sap">SAP</div>
+          <div class="connector-card-header">
+            <span class="connector-name">SAP S/4HANA</span>
+            <span class="badge badge-gray">ERP</span>
+          </div>
+          <div class="connector-vendor">SAP</div>
+          <div class="connector-description">BusinessPartner and GLAccount entities via OData Metadata and IDOC parsing.</div>
+          <div class="connector-entities">
+            <span class="connector-entity-tag">BusinessPartner</span>
+            <span class="connector-entity-tag">GLAccount</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="connector-proceed-bar">
+        <div class="connector-proceed-inner">
+          <div class="connector-proceed-left">
+            <label class="form-label">Project name <span style="color:#94A3B8;font-weight:400">(optional)</span></label>
+            <input class="form-input" type="text" placeholder="Core Director → Salesforce CRM" style="max-width:380px" />
+          </div>
+          <button class="btn btn-primary btn-lg">
+            Discover schemas
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="connector-proceed-note">AutoMapper will ingest both schemas and prepare them for the 7-agent orchestration pipeline.</div>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: Orchestrate -->
+    <div id="screen-orchestrate" class="screen">
+      <div class="page-header">
+        <div>
+          <div class="page-title">AI Orchestration Pipeline</div>
+          <div class="page-subtitle">Seven specialized agents analyse both schemas, detect compliance requirements, propose field mappings, and validate the result — all in under 60 seconds.</div>
+        </div>
+      </div>
+
+      <div class="pipeline-progress-track">
+        <div class="pipeline-progress-bar"></div>
+      </div>
+
+      <div class="pipeline-steps">
+        <div class="agent-step step-done">
+          <div class="agent-step-icon">✓</div>
+          <div class="agent-step-body">
+            <div class="agent-step-header">
+              <span class="agent-step-name">Schema Discovery</span>
+              <span class="badge-green">Done</span>
+            </div>
+            <div class="agent-step-description">Validates ingested schemas and computes entity-level statistics.</div>
+            <div class="agent-step-output">Discovered 4 source entities (CIF, DDA, LoanAccount, GLAccount) with 84 fields total across Core Director schema.</div>
+          </div>
+        </div>
+
+        <div class="agent-step step-done">
+          <div class="agent-step-icon">✓</div>
+          <div class="agent-step-body">
+            <div class="agent-step-header">
+              <span class="agent-step-name">Compliance Scan</span>
+              <span class="badge-green">Done</span>
+            </div>
+            <div class="agent-step-description">Tags fields with GLBA, BSA/AML, PCI-DSS, SOX, FFIEC markers.</div>
+            <div class="agent-step-output">Tagged 18 fields with compliance markers: 8 GLBA_NPI, 4 BSA_AML, 2 SOX_FINANCIAL, 4 FFIEC_AUDIT.</div>
+          </div>
+        </div>
+
+        <div class="agent-step step-done">
+          <div class="agent-step-icon">✓</div>
+          <div class="agent-step-body">
+            <div class="agent-step-header">
+              <span class="agent-step-name">Banking Domain</span>
+              <span class="badge-green">Done</span>
+            </div>
+            <div class="agent-step-description">Detects numeric code fields and short-code enumerations.</div>
+            <div class="agent-step-output">Detected Core Director numeric AcctType codes (10=DDA, 40=Loan, 50=CDs, 60=GL). AcctType is a high-risk field requiring explicit picklist mapping.</div>
+          </div>
+        </div>
+
+        <div class="agent-step step-done">
+          <div class="agent-step-icon">✓</div>
+          <div class="agent-step-body">
+            <div class="agent-step-header">
+              <span class="agent-step-name">CRM Domain</span>
+              <span class="badge-green">Done</span>
+            </div>
+            <div class="agent-step-description">Analyses CRM object relationships and picklist coverage.</div>
+            <div class="agent-step-output">Salesforce has 3 objects: Account (47 fields), Contact (31 fields), Opportunity (22 fields). Picklist coverage: 94%.</div>
+          </div>
+        </div>
+
+        <div class="agent-step step-done">
+          <div class="agent-step-icon">✓</div>
+          <div class="agent-step-body">
+            <div class="agent-step-header">
+              <span class="agent-step-name">Mapping Proposal</span>
+              <span class="badge-green">Done</span>
+            </div>
+            <div class="agent-step-description">Scores field pairs semantically; flags type conflicts.</div>
+            <div class="agent-step-output">Generated 47 field mappings across 3 entity pairs. 31 high-confidence (≥0.75), 11 medium, 5 low. 3 type-conflict warnings.</div>
+          </div>
+        </div>
+
+        <div class="agent-step step-running">
+          <div class="agent-step-icon" style="animation:pulse 1.2s infinite">◈</div>
+          <div class="agent-step-body">
+            <div class="agent-step-header">
+              <span class="agent-step-name">Mapping Rationale</span>
+              <span class="badge-amber">Running</span>
+            </div>
+            <div class="agent-step-description">Generates natural-language intent summaries for each mapping.</div>
+          </div>
+        </div>
+
+        <div class="agent-step step-pending">
+          <div class="agent-step-icon">7</div>
+          <div class="agent-step-body">
+            <div class="agent-step-header">
+              <span class="agent-step-name">Validation</span>
+            </div>
+            <div class="agent-step-description">Checks type compatibility, required coverage, picklist gaps.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: Review -->
+    <div id="screen-review" class="screen">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Review Mappings</div>
+          <div class="page-subtitle">Inspect every field mapping, adjust transforms, and accept or reject suggestions.</div>
+        </div>
+        <div class="mapping-global-stats">
+          <div class="mapping-global-stat">
+            <span class="mapping-global-value">47</span>
+            <span class="mapping-global-label">Total</span>
+          </div>
+          <div class="mapping-global-stat">
+            <span class="mapping-global-value" style="color:var(--success)">12</span>
+            <span class="mapping-global-label">Accepted</span>
+          </div>
+          <div class="mapping-global-stat">
+            <span class="mapping-global-value" style="color:var(--danger)">2</span>
+            <span class="mapping-global-label">Rejected</span>
+          </div>
+          <div class="mapping-global-stat">
+            <span class="mapping-global-value" style="color:var(--warning)">3</span>
+            <span class="mapping-global-label">Warnings</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="entity-tabs">
+        <button class="entity-tab active">
+          <span>CIF → Account</span>
+          <span class="entity-tab-count">8/18</span>
+        </button>
+        <button class="entity-tab">
+          <span>DDA → Account</span>
+          <span class="entity-tab-count">4/14</span>
+        </button>
+        <button class="entity-tab">
+          <span>LoanAccount → Opportunity</span>
+          <span class="entity-tab-count">0/15</span>
+        </button>
+      </div>
+
+      <div class="mapping-filter-bar">
+        <div class="mapping-filter-pills">
+          <button class="filter-pill active">All (18)</button>
+          <button class="filter-pill">Suggested (8)</button>
+          <button class="filter-pill">Accepted (8)</button>
+          <button class="filter-pill">Rejected (2)</button>
+          <button class="filter-pill">Modified (0)</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted)">Confidence: <strong>87%</strong></div>
+      </div>
+
+      <div class="mapping-table-wrap">
+        <table class="mapping-table">
+          <thead>
+            <tr>
+              <th>Source field</th>
+              <th>Target field</th>
+              <th>Transform</th>
+              <th>Confidence</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div class="field-cell"><span class="field-name">TaxId</span><span class="field-type-badge">string</span></div></td>
+              <td><div class="field-cell"><span class="field-name">TaxId__c</span><span class="field-type-badge">string</span></div></td>
+              <td><span class="transform-badge">direct</span></td>
+              <td><div class="conf-cell"><div class="conf-bar"><div class="conf-bar-fill hi" style="width:95%"></div></div><span class="conf-pct">95%</span></div></td>
+              <td>
+                <span class="status-accepted">accepted</span>
+                <div class="compliance-tags" style="margin-top:4px"><span class="tag-amber">GLBA_NPI</span><span class="tag-red">BSA_AML</span></div>
+              </td>
+              <td><button class="btn-danger-xs">✕</button> <button class="btn-ghost-xs">⚙</button></td>
+            </tr>
+            <tr>
+              <td><div class="field-cell"><span class="field-name">CustomerType</span><span class="field-type-badge">string</span></div></td>
+              <td><div class="field-cell"><span class="field-name">Type</span><span class="field-type-badge">picklist</span></div></td>
+              <td><span class="transform-badge">lookup</span></td>
+              <td><div class="conf-cell"><div class="conf-bar"><div class="conf-bar-fill md" style="width:68%"></div></div><span class="conf-pct">68%</span></div></td>
+              <td>
+                <span class="status-suggested">suggested</span>
+                <div class="compliance-tags" style="margin-top:4px"><span class="tag-amber">GLBA_NPI</span></div>
+              </td>
+              <td><button class="btn-success-xs">✓</button> <button class="btn-danger-xs">✕</button> <button class="btn-ghost-xs">⚙</button></td>
+            </tr>
+            <tr>
+              <td><div class="field-cell"><span class="field-name">AcctType</span><span class="field-type-badge">picklist</span></div></td>
+              <td><div class="field-cell"><span class="field-name">AccountType</span><span class="field-type-badge">string</span></div></td>
+              <td><span class="transform-badge">lookup</span></td>
+              <td><div class="conf-cell"><div class="conf-bar"><div class="conf-bar-fill lo" style="width:42%"></div></div><span class="conf-pct">42%</span></div></td>
+              <td>
+                <span class="status-suggested">suggested</span>
+              </td>
+              <td><button class="btn-success-xs">✓</button> <button class="btn-danger-xs">✕</button> <button class="btn-ghost-xs">⚙</button></td>
+            </tr>
+            <tr>
+              <td><div class="field-cell"><span class="field-name">ShortName</span><span class="field-type-badge">string</span></div></td>
+              <td><div class="field-cell"><span class="field-name">Name</span><span class="field-type-badge">string</span></div></td>
+              <td><span class="transform-badge">direct</span></td>
+              <td><div class="conf-cell"><div class="conf-bar"><div class="conf-bar-fill hi" style="width:91%"></div></div><span class="conf-pct">91%</span></div></td>
+              <td><span class="status-accepted">accepted</span></td>
+              <td><button class="btn-danger-xs">✕</button> <button class="btn-ghost-xs">⚙</button></td>
+            </tr>
+            <tr>
+              <td><div class="field-cell"><span class="field-name">OpenDt</span><span class="field-type-badge">date</span></div></td>
+              <td><div class="field-cell"><span class="field-name">CreatedDate</span><span class="field-type-badge">datetime</span></div></td>
+              <td><span class="transform-badge">formatDate</span></td>
+              <td><div class="conf-cell"><div class="conf-bar"><div class="conf-bar-fill hi" style="width:88%"></div></div><span class="conf-pct">88%</span></div></td>
+              <td><span class="status-accepted">accepted</span></td>
+              <td><button class="btn-danger-xs">✕</button> <button class="btn-ghost-xs">⚙</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: Export -->
+    <div id="screen-export" class="screen">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Export Integration Spec</div>
+          <div class="page-subtitle">Choose a format that matches your integration platform. All formats include compliance tags and transform logic.</div>
+        </div>
+      </div>
+
+      <div class="export-summary-card">
+        <div class="export-summary-stat"><span class="export-summary-value">3</span><span class="export-summary-label">Entities</span></div>
+        <div class="export-summary-divider"></div>
+        <div class="export-summary-stat"><span class="export-summary-value">47</span><span class="export-summary-label">Field mappings</span></div>
+        <div class="export-summary-divider"></div>
+        <div class="export-summary-stat"><span class="export-summary-value" style="color:var(--success)">39</span><span class="export-summary-label">Accepted</span></div>
+        <div class="export-summary-divider"></div>
+        <div class="export-summary-stat"><span class="export-summary-value" style="color:var(--text-muted)">0</span><span class="export-summary-label">Warnings</span></div>
+      </div>
+
+      <div class="export-section">
+        <div class="export-section-title">Standard formats</div>
+        <div class="export-section-desc">For review, version control, and custom integration pipelines.</div>
+        <div class="export-cards">
+          <div class="export-card">
+            <div class="export-card-icon" style="background:#F0FDF4;color:#16A34A">{ }</div>
+            <div class="export-card-title">Canonical JSON</div>
+            <div class="export-card-desc">Machine-readable mapping spec. Ideal for REST payloads and point-to-point integrations.</div>
+            <button class="btn btn-primary" style="margin-top:14px;align-self:flex-start;font-size:12px;padding:6px 12px">↓ Download .json</button>
+          </div>
+          <div class="export-card">
+            <div class="export-card-icon" style="background:#F5F3FF;color:#7C3AED">≡</div>
+            <div class="export-card-title">YAML</div>
+            <div class="export-card-desc">Human-readable diffs. Import into Git pull requests for schema-change review.</div>
+            <button class="btn btn-primary" style="margin-top:14px;align-self:flex-start;font-size:12px;padding:6px 12px">↓ Download .yaml</button>
+          </div>
+          <div class="export-card">
+            <div class="export-card-icon" style="background:#FFF7ED;color:#B45309">⊞</div>
+            <div class="export-card-title">CSV</div>
+            <div class="export-card-desc">Business analyst review in Excel. Source field → target field with confidence and rationale.</div>
+            <button class="btn btn-primary" style="margin-top:14px;align-self:flex-start;font-size:12px;padding:6px 12px">↓ Download .csv</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="export-section">
+        <div class="export-section-title">iPaaS integration platforms</div>
+        <div class="export-section-desc">Drop-in artifacts for your integration platform — no manual field mapping required.</div>
+        <div class="export-cards">
+          <div class="export-card ipaas">
+            <div class="export-card-icon" style="background:#EFF6FF;color:#2563EB">DW</div>
+            <div class="export-card-title">MuleSoft DataWeave</div>
+            <div class="export-card-desc">Drop directly into a Transform Message component in Anypoint Studio.</div>
+            <button class="btn btn-primary" style="margin-top:14px;align-self:flex-start;font-size:12px;padding:6px 12px">↓ Download .dwl</button>
+          </div>
+          <div class="export-card ipaas">
+            <div class="export-card-icon" style="background:#F0FDF4;color:#0891B2">BM</div>
+            <div class="export-card-title">Dell Boomi XML</div>
+            <div class="export-card-desc">Import as a Map component in a Boomi Process. Field profiles pre-configured.</div>
+            <button class="btn btn-primary" style="margin-top:14px;align-self:flex-start;font-size:12px;padding:6px 12px">↓ Download .xml</button>
+          </div>
+          <div class="export-card ipaas">
+            <div class="export-card-icon" style="background:#FFF7ED;color:#7C3AED">WR</div>
+            <div class="export-card-title">Workato Recipe</div>
+            <div class="export-card-desc">Ready-to-import Workato recipe with datapill expressions for each mapped field.</div>
+            <button class="btn btn-primary" style="margin-top:14px;align-self:flex-start;font-size:12px;padding:6px 12px">↓ Download .json</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="export-footer-note">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;margin-top:1px"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M8 7v4M8 5.5V5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        All exports include compliance tags (GLBA, BSA/AML, PCI-DSS, SOX, FFIEC) so downstream integration teams know which fields require masking, encryption, or audit logging.
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Preview tab switcher -->
+<div class="preview-tabs">
+  <button class="preview-tab active" onclick="showScreen('connect')">① Connect</button>
+  <button class="preview-tab" onclick="showScreen('orchestrate')">② Orchestrate</button>
+  <button class="preview-tab" onclick="showScreen('review')">③ Review</button>
+  <button class="preview-tab" onclick="showScreen('export')">④ Export</button>
+</div>
+
+<script>
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.preview-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  const tabs = document.querySelectorAll('.preview-tab');
+  const map = { connect: 0, orchestrate: 1, review: 2, export: 3 };
+  tabs[map[id]].classList.add('active');
+
+  // Update sidebar
+  const steps = document.querySelectorAll('.sidebar-nav-item');
+  steps.forEach((s,i) => {
+    s.classList.remove('active','done','disabled');
+    const stepMap = { connect: 0, orchestrate: 1, review: 2, export: 3 };
+    const current = stepMap[id];
+    if (i < current) s.classList.add('done');
+    else if (i === current) s.classList.add('active');
+    else s.classList.add('disabled');
+    // Update number
+    const num = s.querySelector('.nav-step-number');
+    if (i < current) num.textContent = '✓';
+    else num.textContent = i + 1;
+  });
+
+  // Show project card after first screen
+  const sidebar = document.querySelector('.sidebar-nav');
+  if (id !== 'connect') {
+    if (!document.querySelector('.sidebar-project-card')) {
+      const card = document.createElement('div');
+      card.className = 'sidebar-project-card';
+      card.style.cssText = 'margin:10px 12px;padding:10px 12px;background:#F1F5F9;border:1px solid #E2E8F0;border-radius:10px;font-size:11px;';
+      card.innerHTML = `<div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#94A3B8;margin-bottom:3px">Current project</div><div style="font-size:12px;font-weight:600;color:#0F172A;margin-bottom:6px">Core Director → Salesforce</div><div style="display:flex;align-items:center;gap:4px"><span style="font-size:10px;font-weight:600;padding:1px 6px;background:#EFF6FF;color:#2563EB;border-radius:999px;border:1px solid #BFDBFE">Core Director</span><span style="opacity:.4">→</span><span style="font-size:10px;font-weight:600;padding:1px 6px;background:#EFF6FF;color:#2563EB;border-radius:999px;border:1px solid #BFDBFE">Salesforce</span></div>${id !== 'connect' && id !== 'orchestrate' ? '<div style="display:flex;align-items:center;gap:5px;margin-top:6px;font-size:11px;color:#475569"><span style="width:6px;height:6px;border-radius:50%;background:#16A34A;display:inline-block"></span>47 fields mapped</div>' : ''}`;
+      sidebar.parentNode.insertBefore(card, sidebar);
+    }
+  }
+}
+</script>
+</body>
+</html>

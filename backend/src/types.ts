@@ -1,4 +1,4 @@
-export type SystemType = 'salesforce' | 'sap' | 'jackhenry' | 'generic';
+export type SystemType = 'salesforce' | 'sap' | 'jackhenry' | 'riskclam' | 'generic';
 
 export interface User {
   id: string;
@@ -108,6 +108,7 @@ export interface FieldMapping {
   confidence: number;
   rationale: string;
   status: 'suggested' | 'accepted' | 'rejected' | 'modified';
+  seedSource?: 'derived' | 'canonical' | 'agent';
 }
 
 export interface ValidationWarning {
@@ -141,4 +142,11 @@ export interface SuggestMappingsResponse {
   entityMappings: EntityMapping[];
   fieldMappings: FieldMapping[];
   validation: ValidationReport;
+}
+
+export interface SeedSummary {
+  fromDerived: number;
+  fromCanonical: number;
+  fromAgent: number;
+  total: number;
 }

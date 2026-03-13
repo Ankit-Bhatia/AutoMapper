@@ -10,7 +10,7 @@
  */
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep, ComplianceIssue, ComplianceReport } from './types.js';
-import type { ConnectorField, ComplianceTag } from '../connectors/IConnector.js';
+import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
 import type { Field, FieldMapping } from '../types.js';
 
 const PCI_SECURE_TARGET_PATTERNS = /encrypted|vault|token|pci/i;
@@ -180,7 +180,7 @@ export class ComplianceAgent extends AgentBase {
       updatedFieldMappings: fieldMappings,
       steps: [{ agentName: this.name, ...step }],
       totalImproved: 0,
-      metadata: this.lastReport,
+      metadata: { report: this.lastReport },
     };
   }
 }

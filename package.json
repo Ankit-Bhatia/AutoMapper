@@ -2,15 +2,19 @@
   "name": "auto-mapper",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["backend", "frontend"],
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev:backend": "npm --workspace backend run dev",
-    "dev:frontend": "npm --workspace frontend run dev",
-    "demo:backend": "npm --workspace backend run dev:demo",
-    "demo:frontend": "npm --workspace frontend run dev -- --host 127.0.0.1",
-    "build": "npm --workspace backend run build && npm --workspace frontend run build",
-    "test": "npm --workspace backend run test -- --run && npm --workspace frontend run test -- --run",
-    "test:backend": "npm --workspace backend run test -- --run",
-    "test:frontend": "npm --workspace frontend run test -- --run"
+    "dev:backend": "npm --workspace @automapper/demo-api run dev",
+    "dev:frontend": "npm --workspace @automapper/web run dev",
+    "dev:api": "npm --prefix backend run dev",
+    "demo:backend": "npm --workspace @automapper/demo-api run dev",
+    "demo:frontend": "npm --workspace @automapper/web run dev -- --host 127.0.0.1",
+    "build": "npm --prefix backend run build && npm --workspace apps/web run build",
+    "test": "npm --prefix backend run test -- --run && npm --workspace apps/web run test -- --run",
+    "test:backend": "npm --prefix backend run test -- --run",
+    "test:frontend": "npm --workspace apps/web run test -- --run",
+    "log:codex": "node scripts/log-agent-change.mjs --agent codex",
+    "log:claude": "node scripts/log-agent-change.mjs --agent claude",
+    "sync:status-jira": "node scripts/sync-status-jira.mjs"
   }
 }

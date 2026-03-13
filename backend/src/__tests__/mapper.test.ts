@@ -177,4 +177,79 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     expect(mappedSourceFields.has('sf-dda-bal2')).toBe(true);
     expect(mappedSourceFields.has('sf-dda-branch2')).toBe(false);
   });
+
+  it('maps LOS-style prefixed field names to FSC fields', async () => {
+    const srcLoan = makeEntity('se-los-loan', 'src-sys', 'LOAN', 'Loan');
+    const tgtFin = makeEntity('te-fsc-fin', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+
+    const fields: Field[] = [
+      makeField('sf-los-amt', 'se-los-loan', 'AMT_APPROVED_LOAN', 'decimal'),
+      makeField('sf-los-term', 'se-los-loan', 'NBR_TERM_IN_MOS', 'integer'),
+      makeField('tf-fsc-amt', 'te-fsc-fin', 'Loan_Amount__c', 'decimal'),
+      makeField('tf-fsc-term', 'te-fsc-fin', 'LoanTerm__c', 'integer'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcLoan],
+      targetEntities: [tgtFin],
+      fields,
+    });
+
+    const amountMapping = fieldMappings.find((m) => m.sourceFieldId === 'sf-los-amt');
+    const termMapping = fieldMappings.find((m) => m.sourceFieldId === 'sf-los-term');
+
+    expect(amountMapping?.targetFieldId).toBe('tf-fsc-amt');
+    expect(termMapping?.targetFieldId).toBe('tf-fsc-term');
+  });
+
+  it('maps LOS entities even when lexical entity similarity is zero', async () => {
+    const srcBorrower = makeEntity('se-los-borrower', 'src-sys', 'BORROWER', 'Borrower');
+    const tgtParty = makeEntity('te-fsc-party', 'tgt-sys', 'PartyProfile', 'Party Profile');
+    const tgtFin = makeEntity('te-fsc-fin2', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+
+    const fields: Field[] = [
+      makeField('sf-los-first', 'se-los-borrower', 'NAME_FIRST', 'string'),
+      makeField('sf-los-last', 'se-los-borrower', 'NAME_LAST', 'string'),
+      makeField('tf-party-first', 'te-fsc-party', 'FirstName', 'string'),
+      makeField('tf-party-last', 'te-fsc-party', 'LastName', 'string'),
+      makeField('tf-fin-name', 'te-fsc-fin2', 'Name', 'string'),
+    ];
+
+    const { entityMappings, fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcBorrower],
+      targetEntities: [tgtFin, tgtParty],
+      fields,
+    });
+
+    expect(entityMappings).toHaveLength(1);
+    expect(entityMappings[0]?.targetEntityId).toBe('te-fsc-party');
+    expect(fieldMappings.some((mapping) => mapping.targetFieldId === 'tf-party-first')).toBe(true);
+    expect(fieldMappings.some((mapping) => mapping.targetFieldId === 'tf-party-last')).toBe(true);
+  });
+
+  it('does not map LOS AMT_* fields to descriptor targets like Name when financial targets exist', async () => {
+    const srcLoan = makeEntity('se-los-loan2', 'src-sys', 'LOAN', 'Loan');
+    const tgtFin = makeEntity('te-fsc-fin3', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+
+    const fields: Field[] = [
+      makeField('sf-los-amt2', 'se-los-loan2', 'AMT_BASE_LOAN', 'string'),
+      makeField('tf-fin-name3', 'te-fsc-fin3', 'Name', 'string'),
+      makeField('tf-fin-bal3', 'te-fsc-fin3', 'CurrentBalance', 'decimal'),
+      makeField('tf-fin-loan3', 'te-fsc-fin3', 'Loan_Amount__c', 'decimal'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcLoan],
+      targetEntities: [tgtFin],
+      fields,
+    });
+
+    const mapping = fieldMappings.find((m) => m.sourceFieldId === 'sf-los-amt2');
+    expect(mapping).toBeDefined();
+    expect(mapping?.targetFieldId).not.toBe('tf-fin-name3');
+    expect(['tf-fin-bal3', 'tf-fin-loan3']).toContain(mapping?.targetFieldId);
+  });
 });

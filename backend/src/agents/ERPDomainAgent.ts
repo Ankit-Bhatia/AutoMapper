@@ -11,7 +11,7 @@
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
 import type { Field, FieldMapping } from '../types.js';
-import type { ConnectorField } from '../connectors/IConnector.js';
+import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 
 /**
  * SAP technical field name → semantic purpose + confidence boost when mapping

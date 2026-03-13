@@ -145,7 +145,9 @@ function parseFieldRows(contentHtml: string): CrawledField[] {
     const tdMatches = row.match(/<td[\s\S]*?<\/td>/gi) ?? [];
     if (tdMatches.length < 2) continue;
 
-    const fieldName = stripTags(tdMatches[0]);
+    const nameCell = tdMatches[0];
+    if (!nameCell) continue;
+    const fieldName = stripTags(nameCell);
     if (!fieldName) continue;
 
     const detailsHtml = tdMatches[1];

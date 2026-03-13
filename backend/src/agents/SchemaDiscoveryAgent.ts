@@ -12,7 +12,7 @@
  */
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
-import type { ConnectorField } from '../connectors/IConnector.js';
+import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 import type { Field } from '../types.js';
 
 /** Semantic purpose classification for a field */
@@ -54,7 +54,7 @@ function inferPurpose(field: Field | ConnectorField): FieldPurpose {
   if (/date|time|created|updated|opened|closed/.test(n)) return 'date';
   if (/id$|number$|code$|ref$/.test(n)) return 'reference';
   if (/type|category|class|kind/.test(n)) return 'classification';
-  if (field.dataType === 'text' || field.dataType === 'textarea') return 'text';
+  if (field.dataType === 'text') return 'text';
   return 'other';
 }
 

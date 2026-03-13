@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "dev:demo": "node --import tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "start": "node dist/backend/src/index.js",
     "lint": "eslint src --ext .ts --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -15,12 +15,17 @@
     "test:coverage": "vitest run --coverage",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "db:seed": "prisma db seed"
+  },
+  "prisma": {
+    "seed": "node --import tsx prisma/seed.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.9.0",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
@@ -29,10 +34,12 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "uuid": "^11.0.3",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.7",

@@ -20,8 +20,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import type { Express, Request, Response } from 'express';
-import { defaultRegistry } from '../connectors/ConnectorRegistry.js';
-import type { InMemoryStore } from '../db/inMemoryStore.js';
+import { defaultRegistry } from '../../../packages/connectors/ConnectorRegistry.js';
+import type { DbStore } from '../db/dbStore.js';
 
 // ─── Session management ───────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ const sessions = new Map<string, StreamableHTTPServerTransport>();
 
 // ─── Server factory ───────────────────────────────────────────────────────────
 
-function createMcpServer(store: InMemoryStore): McpServer {
+function createMcpServer(store: DbStore): McpServer {
   const server = new McpServer({ name: 'automapper', version: '1.0.0' });
 
   // ── list_connectors ────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ function createMcpServer(store: InMemoryStore): McpServer {
     'List all registered AutoMapper connectors with metadata.',
     {},
     async () => {
-      const connectors = defaultRegistry.list();
+      const connectors = defaultRegistry.listAll();
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ connectors, total: connectors.length }, null, 2) }],
       };
@@ -126,7 +126,8 @@ function createMcpServer(store: InMemoryStore): McpServer {
     'List all AutoMapper mapping projects with their source/target system info and mapping status.',
     {},
     async () => {
-      const projects = store.listProjects();
+      const state = await store.getState();
+      const projects = state.projects;
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ projects, total: projects.length }, null, 2) }],
       };
@@ -139,11 +140,20 @@ function createMcpServer(store: InMemoryStore): McpServer {
     'Get full details of a mapping project including all entity and field mappings with confidence scores.',
     { project_id: z.string() },
     async ({ project_id }) => {
-      const project = store.getProject(project_id);
+      const project = await store.getProject(project_id);
       if (!project) {
         return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Project "${project_id}" not found` }) }], isError: true };
       }
-      return { content: [{ type: 'text' as const, text: JSON.stringify(project, null, 2) }] };
+      const state = await store.getState();
+      const entityMappings = state.entityMappings.filter((mapping) => mapping.projectId === project_id);
+      const entityMappingIds = new Set(entityMappings.map((mapping) => mapping.id));
+      const fieldMappings = state.fieldMappings.filter((mapping) => entityMappingIds.has(mapping.entityMappingId));
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ project, entityMappings, fieldMappings }, null, 2),
+        }],
+      };
     },
   );
 
@@ -153,17 +163,21 @@ function createMcpServer(store: InMemoryStore): McpServer {
     'Run heuristic field mapping for an existing project and return suggested mappings with confidence scores.',
     { project_id: z.string() },
     async ({ project_id }) => {
-      const project = store.getProject(project_id);
+      const project = await store.getProject(project_id);
       if (!project) {
         return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Project "${project_id}" not found` }) }], isError: true };
       }
+      const state = await store.getState();
+      const entityMappings = state.entityMappings.filter((mapping) => mapping.projectId === project_id);
+      const entityMappingIds = new Set(entityMappings.map((mapping) => mapping.id));
+      const fieldMappings = state.fieldMappings.filter((mapping) => entityMappingIds.has(mapping.entityMappingId));
       // Return current mappings (the REST API endpoint /suggest-mappings would run the full heuristic)
       return {
         content: [{
           type: 'text' as const,
           text: JSON.stringify({
             project_id,
-            fieldMappings: project.fieldMappings ?? [],
+            fieldMappings,
             note: 'Use POST /api/projects/:id/suggest-mappings via REST API to regenerate mappings, or POST /api/projects/:id/orchestrate for the full AI agent pipeline.',
           }, null, 2),
         }],
@@ -184,7 +198,7 @@ function createMcpServer(store: InMemoryStore): McpServer {
  * import { setupMCPServer } from './mcp/autoMapperMCPServer.js';
  * setupMCPServer(app, store);
  */
-export function setupMCPServer(app: Express, store: InMemoryStore): void {
+export function setupMCPServer(app: Express, store: DbStore): void {
   async function handleRequest(req: Request, res: Response): Promise<void> {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 

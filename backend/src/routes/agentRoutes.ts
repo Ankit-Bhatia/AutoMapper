@@ -9,26 +9,87 @@ import type { Express, Request, Response } from 'express';
 import type { DbStore } from '../db/dbStore.js';
 import { OrchestratorAgent } from '../agents/OrchestratorAgent.js';
 import type { AgentContext } from '../agents/types.js';
+import { activeProvider } from '../agents/llm/LLMGateway.js';
 import { authMiddleware } from '../auth/authMiddleware.js';
 import type { SystemType } from '../types.js';
 import { captureException, sendHttpError } from '../utils/httpErrors.js';
+import { runWithLLMRuntimeContext } from '../services/llmRuntimeContext.js';
+import { llmSettingsStore } from '../services/llmSettingsStore.js';
 
 /** Compliance reports keyed by projectId — persisted in memory per server lifetime */
 const complianceCache = new Map<string, unknown>();
+const HEARTBEAT_INTERVAL_MS = 5000;
+const DB_CALL_TIMEOUT_MS = 8000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
 
 function sendError(req: Request, res: Response, status: number, code: string, message: string): void {
   sendHttpError(req, res, status, code, message, null, 'orchestrator');
 }
 
+async function withLLMContext<T>(
+  req: Request,
+  res: Response,
+  projectId: string | undefined,
+  handler: () => Promise<T>,
+): Promise<T> {
+  const userId = req.user?.userId ?? 'demo-admin';
+  const runtimeConfig = llmSettingsStore.getRuntimeConfig(userId);
+  return runWithLLMRuntimeContext(
+    {
+      llmConfig: runtimeConfig,
+      usageMeta: {
+        userId,
+        projectId,
+        requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : undefined,
+      },
+      onUsage: (capture, meta) => {
+        if (!meta?.userId) return;
+        llmSettingsStore.captureUsage(meta.userId, capture, {
+          projectId: meta.projectId,
+          requestId: meta.requestId,
+        });
+      },
+    },
+    handler,
+  );
+}
+
 export function setupAgentRoutes(app: Express, store: DbStore): void {
   const handleOrchestrationSse = async (req: Request, res: Response) => {
-    const project = await store.getProject(req.params.id);
+    let project;
+    try {
+      project = await withTimeout(store.getProject(req.params.id), DB_CALL_TIMEOUT_MS, 'getProject');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not resolve project';
+      sendError(req, res, 503, 'DB_TIMEOUT', message);
+      return;
+    }
     if (!project) {
       sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
       return;
     }
 
-    const state = await store.getState();
+    let state;
+    try {
+      state = await withTimeout(store.getState(), DB_CALL_TIMEOUT_MS, 'getState');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load project state';
+      sendError(req, res, 503, 'DB_TIMEOUT', message);
+      return;
+    }
     const sourceSystem = state.systems.find((s) => s.id === project.sourceSystemId);
     const targetSystem = state.systems.find((s) => s.id === project.targetSystemId);
 
@@ -52,56 +113,73 @@ export function setupAgentRoutes(app: Express, store: DbStore): void {
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
     const writeEvent = (payload: object) => {
+      if (res.writableEnded || req.destroyed) return;
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
-
-    writeEvent({
-      type: 'start',
-      projectId: project.id,
-      totalMappings: fieldMappings.length,
-      sourceSystemType: sourceSystem?.type,
-      targetSystemType: targetSystem?.type,
-      hasLLM: Boolean(process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY),
+    const heartbeat = setInterval(() => {
+      writeEvent({ type: 'heartbeat', ts: Date.now() });
+    }, HEARTBEAT_INTERVAL_MS);
+    req.on('close', () => {
+      clearInterval(heartbeat);
     });
 
-    const context: AgentContext = {
-      projectId: project.id,
-      sourceSystemType: (sourceSystem?.type ?? 'unknown') as SystemType,
-      targetSystemType: (targetSystem?.type ?? 'unknown') as SystemType,
-      sourceEntities,
-      targetEntities,
-      fields: state.fields,
-      entityMappings,
-      fieldMappings,
-      onStep: (step) => {
-        writeEvent({ type: 'step', ...step });
-      },
-    };
-
     try {
-      const orchestrator = new OrchestratorAgent();
-      const result = await orchestrator.orchestrate(context);
+      await withLLMContext(req, res, project.id, async () => {
+        const llmProvider = activeProvider();
+        writeEvent({
+          type: 'start',
+          projectId: project.id,
+          totalMappings: fieldMappings.length,
+          sourceSystemType: sourceSystem?.type,
+          targetSystemType: targetSystem?.type,
+          llmProvider,
+          hasLLM: llmProvider !== 'heuristic',
+        });
 
-      // Persist updated mappings
-      await store.upsertMappings(project.id, entityMappings, result.updatedFieldMappings);
+        const context: AgentContext = {
+          projectId: project.id,
+          sourceSystemType: (sourceSystem?.type ?? 'unknown') as SystemType,
+          targetSystemType: (targetSystem?.type ?? 'unknown') as SystemType,
+          sourceEntities,
+          targetEntities,
+          fields: state.fields,
+          entityMappings,
+          fieldMappings,
+          onStep: (step) => {
+            writeEvent({ type: 'step', ...step });
+          },
+        };
 
-      // Cache compliance report
-      if (result.complianceReport) {
-        complianceCache.set(project.id, result.complianceReport);
-      }
+        const orchestrator = new OrchestratorAgent();
+        const result = await orchestrator.orchestrate(context);
 
-      writeEvent({
-        type: 'complete',
-        totalImproved: result.totalImproved,
-        agentsRun: result.agentsRun,
-        durationMs: result.durationMs,
-        complianceSummary: result.complianceReport
-          ? {
-              errors: result.complianceReport.totalErrors,
-              warnings: result.complianceReport.totalWarnings,
-              piiFields: result.complianceReport.piiFieldCount,
-            }
-          : null,
+        // Persist updated mappings
+        await withTimeout(
+          store.upsertMappings(project.id, entityMappings, result.updatedFieldMappings),
+          DB_CALL_TIMEOUT_MS,
+          'upsertMappings',
+        );
+
+        // Cache compliance report
+        if (result.complianceReport) {
+          complianceCache.set(project.id, result.complianceReport);
+        }
+
+        writeEvent({
+          type: 'complete',
+          entityMappings,
+          fieldMappings: result.updatedFieldMappings,
+          totalImproved: result.totalImproved,
+          agentsRun: result.agentsRun,
+          durationMs: result.durationMs,
+          complianceSummary: result.complianceReport
+            ? {
+                errors: result.complianceReport.totalErrors,
+                warnings: result.complianceReport.totalWarnings,
+                piiFields: result.complianceReport.piiFieldCount,
+              }
+            : null,
+        });
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Orchestration failed';
@@ -117,6 +195,7 @@ export function setupAgentRoutes(app: Express, store: DbStore): void {
       });
       writeEvent({ type: 'error', message });
     } finally {
+      clearInterval(heartbeat);
       res.end();
     }
   };

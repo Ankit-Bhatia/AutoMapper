@@ -1,25 +1,29 @@
 /**
- * MappingProposalAgent — LLM-assisted mapping generation with PII guard.
+ * MappingProposalAgent — context-aware mapping proposal generation.
  *
  * Workflow:
- *   1. Build PII-safe schema descriptions using PIIGuard
- *   2. Call LLMGateway.llmComplete() with a structured prompt
- *   3. Parse the JSON response into mapping proposals
- *   4. Apply proposals to low-confidence or unmapped fields
- *   5. Fall back to heuristic (no-op) if no LLM provider available
- *
- * All external LLM calls go through PIIGuard — GLBA_NPI and PCI_CARD
- * field names are replaced with placeholders before transmission.
+ *   1. Build deterministic context scores from schema metadata
+ *      (name similarity, type compatibility, compliance tags, ISO20022 match)
+ *   2. In heuristic mode (no provider), apply context ranker directly
+ *   3. If LLM provider exists, request proposals and gate them through context scores
+ *   4. Emit explicit step-level audit events for every rescore/retarget action
  */
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
 import type { Field, FieldMapping, EntityMapping } from '../types.js';
-import type { ConnectorField } from '../connectors/IConnector.js';
+import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 import {
   buildSafeSchemaDescription,
   countRedactedFields,
 } from './llm/PIIGuard.js';
 import { llmComplete, activeProvider, buildMappingPrompt } from './llm/LLMGateway.js';
+import { jaccard } from '../utils/stringSim.js';
+import {
+  buildFieldSemanticProfile,
+  intentSimilarity,
+  isHardIncompatible,
+  semanticTypeScore,
+} from '../services/fieldSemantics.js';
 
 interface LLMProposal {
   sourceField: string;
@@ -28,14 +32,150 @@ interface LLMProposal {
   reasoning?: string;
 }
 
-const MIN_CONFIDENCE_THRESHOLD = 0.55;
+interface RankedCandidate {
+  targetField: Field | ConnectorField;
+  score: number;
+  reasons: string[];
+}
+
+const MIN_CONTEXT_AUTOPICK_SCORE = 0.68;
+const MIN_CONTEXT_MARGIN = 0.08;
+const MIN_LLM_CONFIDENCE = 0.72;
+const MIN_LLM_CONTEXT_SCORE = 0.35;
+const MIN_IMPROVEMENT_DELTA = 0.05;
+const CONTEXT_HINT_LIMIT = 16;
+const CONTEXT_HINT_CANDIDATES = 2;
+
+function normalize(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function clamp01(score: number): number {
+  return Math.max(0, Math.min(0.99, score));
+}
+
+function appendRationale(existing: string, detail: string): string {
+  return existing ? `${existing} | ${detail}` : detail;
+}
 
 function fieldById(id: string, fields: (Field | ConnectorField)[]): Field | ConnectorField | undefined {
-  return fields.find((f) => f.id === id);
+  return fields.find((field) => field.id === id);
 }
 
 function fieldByName(name: string, entityId: string, fields: (Field | ConnectorField)[]): Field | ConnectorField | undefined {
-  return fields.find((f) => f.name === name && f.entityId === entityId);
+  const exact = fields.find((field) => field.name === name && field.entityId === entityId);
+  if (exact) return exact;
+  const normalized = normalize(name);
+  return fields.find((field) => field.entityId === entityId && normalize(field.name) === normalized);
+}
+
+function complianceIntersectionScore(source: Field | ConnectorField, target: Field | ConnectorField): number {
+  const sourceTags = source.complianceTags ?? [];
+  const targetTags = target.complianceTags ?? [];
+
+  if (!sourceTags.length && !targetTags.length) return 0.7;
+  if (!sourceTags.length || !targetTags.length) return 0.4;
+
+  const sourceSet = new Set(sourceTags);
+  const shared = targetTags.filter((tag) => sourceSet.has(tag));
+  if (shared.length > 0) return 1;
+  return 0.15;
+}
+
+function scoreTargetCandidate(
+  sourceField: Field | ConnectorField,
+  targetField: Field | ConnectorField,
+): RankedCandidate {
+  const sourceProfile = buildFieldSemanticProfile(sourceField);
+  const targetProfile = buildFieldSemanticProfile(targetField);
+  const sourceText = sourceProfile.text;
+  const targetText = targetProfile.text;
+
+  const nameScore = jaccard(sourceText, targetText);
+  const typeScore = semanticTypeScore(sourceProfile, targetField.dataType);
+  const semanticScore = intentSimilarity(sourceProfile, targetProfile);
+  const complianceScore = complianceIntersectionScore(sourceField, targetField);
+  const canonicalScore =
+    sourceField.iso20022Name && targetField.iso20022Name && sourceField.iso20022Name === targetField.iso20022Name
+      ? 1
+      : 0;
+  const incompatible = isHardIncompatible(sourceProfile, targetProfile);
+  const typeWeight = sourceProfile.typeReliability >= 0.8 ? 0.16 : 0.08;
+
+  const sourceTags = sourceField.complianceTags ?? [];
+  const targetTags = targetField.complianceTags ?? [];
+  const sourceGlba = sourceTags.includes('GLBA_NPI');
+  const sourcePci = sourceTags.includes('PCI_CARD');
+  const targetGlba = targetTags.includes('GLBA_NPI');
+  const targetPci = targetTags.includes('PCI_CARD');
+
+  const compliancePenalty =
+    (sourceGlba && !targetGlba ? 0.16 : 0) +
+    (sourcePci && !targetPci ? 0.22 : 0);
+
+  let score =
+    (0.30 * semanticScore) +
+    (0.22 * nameScore) +
+    (typeWeight * typeScore) +
+    (0.16 * canonicalScore) +
+    (0.12 * complianceScore) -
+    compliancePenalty;
+
+  if (canonicalScore === 1 && typeScore >= 0.75 && semanticScore >= 0.6) {
+    score = Math.max(score, 0.8);
+  }
+  if (semanticScore >= 0.8 && typeScore >= 0.75) {
+    score += 0.08;
+  }
+  if (incompatible) {
+    score -= 0.45;
+  }
+
+  const reasons: string[] = [];
+  if (semanticScore >= 0.6) reasons.push(`semantic ${semanticScore.toFixed(2)}`);
+  if (nameScore >= 0.45) reasons.push(`name ${nameScore.toFixed(2)}`);
+  if (typeScore >= 0.75) reasons.push(`type ${typeScore.toFixed(2)}`);
+  if (canonicalScore === 1) reasons.push('iso20022 match');
+  if (complianceScore >= 0.8) reasons.push('compliance aligned');
+  if (compliancePenalty > 0) reasons.push('compliance mismatch penalty');
+  if (incompatible) reasons.push('hard incompatibility gate');
+
+  return {
+    targetField,
+    score: clamp01(score),
+    reasons,
+  };
+}
+
+function rankTargetsForSource(
+  sourceField: Field | ConnectorField,
+  targetFields: (Field | ConnectorField)[],
+): RankedCandidate[] {
+  return targetFields
+    .map((targetField) => scoreTargetCandidate(sourceField, targetField))
+    .sort((a, b) => b.score - a.score);
+}
+
+function isCandidateDecisive(best: RankedCandidate | undefined, second: RankedCandidate | undefined): boolean {
+  if (!best) return false;
+  const margin = best.score - (second?.score ?? 0);
+  return best.score >= MIN_CONTEXT_AUTOPICK_SCORE && margin >= MIN_CONTEXT_MARGIN;
+}
+
+function buildContextHint(
+  sourceField: Field | ConnectorField,
+  candidates: RankedCandidate[],
+): string | null {
+  const top = candidates.slice(0, CONTEXT_HINT_CANDIDATES);
+  if (!top.length) return null;
+  const detail = top
+    .map((candidate) => `${candidate.targetField.name}(${candidate.score.toFixed(2)})`)
+    .join(', ');
+  return `${sourceField.name}: ${detail}`;
+}
+
+function buildEntityMappingIndex(entityMappings: EntityMapping[]): Map<string, EntityMapping> {
+  return new Map(entityMappings.map((mapping) => [mapping.id, mapping]));
 }
 
 export class MappingProposalAgent extends AgentBase {
@@ -46,15 +186,6 @@ export class MappingProposalAgent extends AgentBase {
     const { fields, fieldMappings, sourceEntities, targetEntities, entityMappings } = context;
 
     const provider = activeProvider();
-    if (provider === 'heuristic') {
-      this.info(
-        context,
-        'skip',
-        'No LLM provider configured (OPENAI_API_KEY / ANTHROPIC_API_KEY) — MappingProposalAgent running in heuristic mode (no-op)',
-      );
-      return this.noOp(fieldMappings);
-    }
-
     const redactedCount = countRedactedFields(fields);
     this.info(
       context,
@@ -63,106 +194,242 @@ export class MappingProposalAgent extends AgentBase {
       { redactedCount, provider },
     );
 
-    // Build safe schema descriptions (PII stripped)
-    const srcDesc = buildSafeSchemaDescription(sourceEntities, fields.filter((f) =>
-      sourceEntities.some((e) => e.id === f.entityId),
-    ));
-    const tgtDesc = buildSafeSchemaDescription(targetEntities, fields.filter((f) =>
-      targetEntities.some((e) => e.id === f.entityId),
-    ));
+    const entityMappingById = buildEntityMappingIndex(entityMappings);
 
-    // Build hints from already-confirmed high-confidence mappings
-    const hints: string[] = fieldMappings
-      .filter((m) => m.confidence >= 0.85 && m.sourceFieldId && m.targetFieldId)
-      .slice(0, 5)
-      .map((m) => {
-        const src = fieldById(m.sourceFieldId!, fields)?.name ?? '?';
-        const tgt = fieldById(m.targetFieldId!, fields)?.name ?? '?';
-        return `${src} → ${tgt} (${m.confidence.toFixed(2)})`;
-      });
-
-    const messages = buildMappingPrompt(srcDesc, tgtDesc, hints);
-
-    this.info(context, 'llm_call', `Sending PII-safe schema to ${provider}...`);
-
-    let proposals: LLMProposal[] = [];
-    try {
-      const response = await llmComplete(messages);
-      if (!response) {
-        return this.noOp(fieldMappings);
-      }
-
-      // Parse JSON array from response
-      const jsonMatch = response.content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]) as unknown;
-        if (Array.isArray(parsed)) {
-          proposals = parsed as LLMProposal[];
-        }
-      }
-
-      this.info(
-        context,
-        'llm_response',
-        `Received ${proposals.length} mapping proposals from ${response.provider} (${response.tokensUsed ?? '?'} tokens)`,
-        { provider: response.provider, tokensUsed: response.tokensUsed },
+    const targetFieldsByEntityId = new Map<string, (Field | ConnectorField)[]>();
+    for (const targetEntity of targetEntities) {
+      targetFieldsByEntityId.set(
+        targetEntity.id,
+        fields.filter((field) => field.entityId === targetEntity.id),
       );
-    } catch (err) {
-      this.info(context, 'llm_error', `LLM call failed: ${String(err)} — falling back to heuristic`);
-      return this.noOp(fieldMappings);
     }
 
-    // Apply LLM proposals to low-confidence mappings
+    const rankingByMappingId = new Map<string, RankedCandidate[]>();
+    const contextHints: string[] = [];
+
+    for (const mapping of fieldMappings) {
+      const sourceField = fieldById(mapping.sourceFieldId, fields);
+      const entityMapping = entityMappingById.get(mapping.entityMappingId);
+      if (!sourceField || !entityMapping) continue;
+
+      const targetFields = targetFieldsByEntityId.get(entityMapping.targetEntityId) ?? [];
+      const ranked = rankTargetsForSource(sourceField, targetFields);
+      if (!ranked.length) continue;
+
+      rankingByMappingId.set(mapping.id, ranked);
+      if (contextHints.length < CONTEXT_HINT_LIMIT) {
+        const hint = buildContextHint(sourceField, ranked);
+        if (hint) contextHints.push(hint);
+      }
+    }
+
+    // Build safe schema descriptions (PII stripped)
+    const srcDesc = buildSafeSchemaDescription(sourceEntities, fields.filter((field) =>
+      sourceEntities.some((entity) => entity.id === field.entityId),
+    ));
+    const tgtDesc = buildSafeSchemaDescription(targetEntities, fields.filter((field) =>
+      targetEntities.some((entity) => entity.id === field.entityId),
+    ));
+
+    const highConfidenceHints: string[] = fieldMappings
+      .filter((mapping) => mapping.confidence >= 0.85)
+      .slice(0, 5)
+      .map((mapping) => {
+        const sourceName = fieldById(mapping.sourceFieldId, fields)?.name ?? '?';
+        const targetName = fieldById(mapping.targetFieldId, fields)?.name ?? '?';
+        return `${sourceName} → ${targetName} (${mapping.confidence.toFixed(2)})`;
+      });
+
+    let proposals: LLMProposal[] = [];
+    if (provider !== 'heuristic') {
+      const messages = buildMappingPrompt(
+        srcDesc,
+        tgtDesc,
+        [...highConfidenceHints, ...contextHints].slice(0, 32),
+      );
+
+      this.info(context, 'llm_call', `Sending PII-safe schema to ${provider}...`);
+
+      try {
+        const response = await llmComplete(messages);
+        if (response) {
+          const jsonMatch = response.content.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]) as unknown;
+            if (Array.isArray(parsed)) {
+              proposals = parsed as LLMProposal[];
+            }
+          }
+
+          this.info(
+            context,
+            'llm_response',
+            `Received ${proposals.length} mapping proposals from ${response.provider} (${response.tokensUsed ?? '?'} tokens)`,
+            { provider: response.provider, tokensUsed: response.tokensUsed },
+          );
+        }
+      } catch (error) {
+        this.info(context, 'llm_error', `LLM call failed: ${String(error)} — using context ranker only`);
+      }
+    } else {
+      this.info(
+        context,
+        'context_mode',
+        'No LLM provider configured — applying context ranker (schema + compliance + canonical signals)',
+        { rankedMappings: rankingByMappingId.size },
+      );
+    }
+
     const updatedMappings = [...fieldMappings];
     let improved = 0;
     const steps: AgentStep[] = [];
 
+    // Pass 1: deterministic context ranker.
+    for (let index = 0; index < updatedMappings.length; index += 1) {
+      const existing = updatedMappings[index];
+      if (existing.status === 'accepted' || existing.status === 'rejected') continue;
+
+      const ranked = rankingByMappingId.get(existing.id);
+      if (!ranked || !ranked.length) continue;
+
+      const best = ranked[0];
+      const second = ranked[1];
+      const current = ranked.find((candidate) => candidate.targetField.id === existing.targetFieldId);
+
+      const shouldRetarget =
+        isCandidateDecisive(best, second) &&
+        best !== undefined &&
+        best.targetField.id !== existing.targetFieldId &&
+        (best.score >= existing.confidence + MIN_IMPROVEMENT_DELTA || existing.confidence < 0.62);
+
+      if (shouldRetarget && best) {
+        const sourceName = fieldById(existing.sourceFieldId, fields)?.name ?? existing.sourceFieldId;
+        const step: Omit<AgentStep, 'agentName'> = {
+          action: 'context_retarget',
+          detail: `Context ranker selected ${best.targetField.name} for ${sourceName} (${best.score.toFixed(2)})`,
+          fieldMappingId: existing.id,
+          before: { targetFieldId: existing.targetFieldId, confidence: existing.confidence },
+          after: { targetFieldId: best.targetField.id, confidence: best.score },
+          durationMs: 0,
+          metadata: { reasons: best.reasons },
+        };
+        this.emit(context, step);
+        steps.push({ agentName: this.name, ...step });
+
+        updatedMappings[index] = {
+          ...existing,
+          targetFieldId: best.targetField.id,
+          confidence: Math.max(existing.confidence, best.score),
+          rationale: appendRationale(existing.rationale, `context-ranker(${best.reasons.join(', ') || 'schema signal'})`),
+        };
+
+        improved += 1;
+        continue;
+      }
+
+      const currentScore = current?.score ?? 0;
+      if (currentScore >= existing.confidence + MIN_IMPROVEMENT_DELTA) {
+        const sourceName = fieldById(existing.sourceFieldId, fields)?.name ?? existing.sourceFieldId;
+        const step: Omit<AgentStep, 'agentName'> = {
+          action: 'context_rescore',
+          detail: `Context ranker improved confidence for ${sourceName} to ${currentScore.toFixed(2)}`,
+          fieldMappingId: existing.id,
+          before: { confidence: existing.confidence },
+          after: { confidence: currentScore },
+          durationMs: 0,
+          metadata: { reasons: current?.reasons ?? [] },
+        };
+        this.emit(context, step);
+        steps.push({ agentName: this.name, ...step });
+
+        updatedMappings[index] = {
+          ...existing,
+          confidence: currentScore,
+          rationale: appendRationale(existing.rationale, `context-ranker(${(current?.reasons ?? []).join(', ') || 'schema signal'})`),
+        };
+
+        improved += 1;
+      }
+    }
+
+    // Pass 2: LLM suggestions gated by context quality.
     for (const proposal of proposals) {
-      if (proposal.confidence < MIN_CONFIDENCE_THRESHOLD) continue;
+      if (proposal.confidence < MIN_LLM_CONFIDENCE) continue;
 
-      // Find the entity mapping context
-      for (const em of entityMappings) {
-        const srcField = fieldByName(proposal.sourceField, em.sourceEntityId, fields);
-        const tgtField = fieldByName(proposal.targetField, em.targetEntityId, fields);
-        if (!srcField || !tgtField) continue;
+      for (const entityMapping of entityMappings) {
+        const sourceField = fieldByName(proposal.sourceField, entityMapping.sourceEntityId, fields);
+        const targetField = fieldByName(proposal.targetField, entityMapping.targetEntityId, fields);
+        if (!sourceField || !targetField) continue;
 
-        // Find existing mapping for this source field
-        const existingIdx = updatedMappings.findIndex(
-          (m) => m.entityMappingId === em.id && m.sourceFieldId === srcField.id,
+        const existingIndex = updatedMappings.findIndex(
+          (mapping) => mapping.entityMappingId === entityMapping.id && mapping.sourceFieldId === sourceField.id,
         );
+        if (existingIndex < 0) continue;
 
-        if (existingIdx >= 0) {
-          const existing = updatedMappings[existingIdx];
-          // Only update if LLM proposal is higher confidence
-          if (proposal.confidence > existing.confidence) {
-            const step: Omit<AgentStep, 'agentName'> = {
-              action: 'llm_rescore',
-              detail: `LLM proposed ${proposal.sourceField} → ${proposal.targetField} (${proposal.confidence.toFixed(2)}): ${proposal.reasoning ?? ''}`,
-              fieldMappingId: existing.id,
-              before: { confidence: existing.confidence },
-              after: { confidence: proposal.confidence },
-              durationMs: 0,
-              metadata: { provider, reasoning: proposal.reasoning },
-            };
-            this.emit(context, step);
-            steps.push({ agentName: this.name, ...step });
+        const existing = updatedMappings[existingIndex];
+        if (existing.status === 'accepted' || existing.status === 'rejected') continue;
 
-            updatedMappings[existingIdx] = { ...existing, confidence: proposal.confidence };
-            improved++;
-          }
-        }
+        const ranked = rankingByMappingId.get(existing.id) ?? [];
+        const contextCandidate = ranked.find((candidate) => candidate.targetField.id === targetField.id);
+        const contextScore = contextCandidate?.score ?? scoreTargetCandidate(sourceField, targetField).score;
+        if (contextScore < MIN_LLM_CONTEXT_SCORE) continue;
+
+        const mergedConfidence = clamp01((0.6 * proposal.confidence) + (0.4 * contextScore));
+        const changesTarget = existing.targetFieldId !== targetField.id;
+        const improvesConfidence = mergedConfidence >= existing.confidence + MIN_IMPROVEMENT_DELTA;
+        if (!changesTarget && !improvesConfidence) continue;
+
+        const stepAction = changesTarget ? 'llm_retarget' : 'llm_rescore';
+        const step: Omit<AgentStep, 'agentName'> = {
+          action: stepAction,
+          detail: `LLM proposed ${proposal.sourceField} → ${proposal.targetField} (${proposal.confidence.toFixed(2)}), gated score ${mergedConfidence.toFixed(2)}`,
+          fieldMappingId: existing.id,
+          before: { targetFieldId: existing.targetFieldId, confidence: existing.confidence },
+          after: { targetFieldId: targetField.id, confidence: mergedConfidence },
+          durationMs: 0,
+          metadata: {
+            provider,
+            reasoning: proposal.reasoning,
+            llmConfidence: proposal.confidence,
+            contextScore,
+          },
+        };
+        this.emit(context, step);
+        steps.push({ agentName: this.name, ...step });
+
+        updatedMappings[existingIndex] = {
+          ...existing,
+          targetFieldId: targetField.id,
+          confidence: Math.max(existing.confidence, mergedConfidence),
+          rationale: appendRationale(
+            existing.rationale,
+            proposal.reasoning ? `llm-gated(${proposal.reasoning})` : 'llm-gated suggestion',
+          ),
+        };
+
+        improved += 1;
       }
     }
 
     const summary: Omit<AgentStep, 'agentName'> = {
       action: 'mapping_proposal_complete',
-      detail: `LLM-assisted proposals applied — ${improved} mappings improved via ${provider}`,
+      detail: `${provider === 'heuristic' ? 'Context ranker' : 'LLM + context ranker'} applied — ${improved} mappings improved`,
       durationMs: Date.now() - start,
-      metadata: { proposalCount: proposals.length, improved, provider },
+      metadata: {
+        proposalCount: proposals.length,
+        improved,
+        provider,
+        rankedMappings: rankingByMappingId.size,
+      },
     };
     this.emit(context, summary);
     steps.push({ agentName: this.name, ...summary });
 
-    return { agentName: this.name, updatedFieldMappings: updatedMappings, steps, totalImproved: improved };
+    return {
+      agentName: this.name,
+      updatedFieldMappings: updatedMappings,
+      steps,
+      totalImproved: improved,
+    };
   }
 }

@@ -2,18 +2,18 @@
 
 This guide covers everything needed to run a live customer demo. Two paths are available:
 
-- **Demo mode** — zero setup, no database, in-memory state (`demo-server.mjs`)
+- **Demo mode** — zero setup, no database, in-memory state (`apps/demo-api/server.mjs`)
 - **Production mode** — PostgreSQL + JWT auth, full persistence, all features
 
 ---
 
 ## Quick Start (Demo Mode)
 
-The demo server runs with `node demo-server.mjs` — no build step, no database, no `.env` file.
+The demo server runs with `node apps/demo-api/server.mjs` — no build step, no database, no `.env` file.
 
 ```bash
 # From the project root:
-node demo-server.mjs
+node apps/demo-api/server.mjs
 # → ✅  AutoMapper Demo Server running on http://localhost:4000
 ```
 
@@ -104,11 +104,11 @@ npm run build && npm start
 ### 5. Start the frontend
 
 ```bash
-cd frontend
+cd apps/web
 npm install
 npm run dev          # development server on http://localhost:5173
 # or
-npm run build        # build to frontend/dist/ for production serving
+npm run build        # build to apps/web/dist/ for production serving
 ```
 
 ---
