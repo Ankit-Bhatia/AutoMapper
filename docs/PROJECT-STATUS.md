@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-13
+> **Last updated:** 2026-03-14
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -110,7 +110,7 @@ AutoMapper/
 | **Connectors** | Jack Henry (SilverLake, CoreDirector, Symitar) — mock + live; Salesforce FSC — jsforce + mock; SAP S/4HANA — OData + sapParser; jXchange MCP stub |
 | **Agent pipeline** | 8-agent orchestration: SchemaDiscovery, Compliance, BankingDomain, CRMDomain, ERPDomain, **RiskClamDomain**, MappingProposal, MappingRationale, Validation |
 | **RiskClam / BOSL** | `RiskClamDomainAgent` with 3-layer confidence boost (synonym +0.22, prefix-type +0.10/−0.20, FSC namespace +0.06); `riskclam` added to `SystemType`; `inferSystemType()` detects BOSL/RiskClam names; entity boost table; registered in OrchestratorAgent |
-| **Schema Intelligence** | `SchemaIntelligenceAgent` (Step 2, active when `targetSystemType === 'salesforce'`): 6-step pipeline — field classification (system audit −0.40, formula −0.28, Person Account annotation, FSC namespace +0.06), XML taxonomy recognition (±type-compatibility), 212-entry BOSL→FSC confirmed pattern boost (+0.30 exact / +0.08 family), one-to-many detection (23 flagged fields), Caribbean domain glossary annotation, confidence & rationale enrichment. Data compiled in `schemaIntelligenceData.ts`. Reference markdowns in `backend/data/schema-intelligence/`. |
+| **Schema Intelligence** | `SchemaIntelligenceAgent` (Step 2, active when `targetSystemType === 'salesforce'`): 6-step pipeline — field classification (system audit −0.40, formula −0.28, Person Account annotation, FSC namespace +0.06), XML taxonomy recognition (±type-compatibility), 212-entry BOSL→FSC confirmed pattern boost (+0.30 exact / +0.08 family), one-to-many detection (23 flagged fields), Caribbean domain glossary annotation, confidence & rationale enrichment. Data compiled in `schemaIntelligenceData.ts`. Reference markdowns in `backend/data/schema-intelligence/`. Frontend now surfaces these signals in `MappingTable` and `AgentPipeline`: confirmed-pattern badges, formula-target acknowledgement gate before export, one-to-many routing CTA, Person Account tooltip, expanded structured rationale, and Schema Intelligence summary counts in the orchestration detail pane. |
 | **Semantic mapping engine** | `fieldSemantics.ts` with semantic intent profiling, hard type-compatibility gates, LOS-prefix inference; `MappingProposalAgent` uses semantic+lexical+domain scoring |
 | **LLM multi-provider** | `LLMGateway`: Gemini 1.5 Flash → Anthropic → OpenAI → heuristic fallback; per-call timeout/retry; output token cap; env-configurable ambiguity band |
 | **BYOL (Bring Your Own LLM)** | `llmSettingsStore` (per-user config + usage, file-backed); `llmRuntimeContext` (AsyncLocalStorage injection); `GET/PUT /api/llm/config`, `GET /api/llm/usage`; `LLMSettingsPanel` UI: mode toggle, provider select, API key, model, custom base URL, pause toggle, "Use AutoMapper Default" button; usage dashboard: calls/tokens/failures/avg response/event log |
@@ -132,7 +132,6 @@ AutoMapper/
 | Gap | Detail | Priority |
 |---|---|---|
 | **🔴 KAN-77 — Export downloads broken** | `ExportPanel.tsx` calls `fetch()` directly without `credentials: 'include'` — auth cookies never sent, so backend returns 401. In standalone/demo mode `apiBase()` returns `''` (empty string), making the request relative and hitting nothing. No user-facing error message shown on failure — error is silently swallowed to console only. | **HIGH — blocks demo** |
-| **🟠 KAN-78 — SchemaIntelligence UI invisible** | `SchemaIntelligenceAgent` is live in the pipeline and emits rich metadata (`confirmedPattern`, `isOneToMany`, `formulaTarget`, `personAccountOnly`) via `AgentStep.metadata`, but `MappingTable` and `FieldMappingCard` render none of it. Confirmed pattern hits, formula warnings, one-to-many flags, and FSC namespace badges need to surface in the Mapping Review UI. | HIGH |
 | **🟠 KAN-79 — One-to-many routing unresolved** | 23 source fields are flagged `isOneToMany` by `SchemaIntelligenceAgent` but there is no UI mechanism to route them to the correct target. Export should be gated (or at minimum warn) until all one-to-many fields have a confirmed routing decision. | HIGH |
 | BYOL persistence (KAN-80) | `llm-configs.json` / `llm-usage.json` are file-backed — should migrate to Prisma `LLMUserConfig` + `LLMUsageEvent` models before hosted/multi-tenant deployment | Medium |
 | LLM Settings as global page (KAN-81) | Currently only accessible on the Connect step; a sidebar-reachable settings page would be cleaner | Medium |
@@ -218,6 +217,17 @@ cd apps/web && npm test
   - Updated `OrchestratorAgent.ts` — wired SchemaIntelligenceAgent as Step 2; renumbered all subsequent steps; updated JSDoc header.
   - Backend typecheck: **pass** (exit 0).
 - **Jira tickets KAN-77 to KAN-82 created** — full sprint backlog on `abhatia88.atlassian.net` project KAN with root cause analysis, file references, implementation guidance, and acceptance criteria ready for Codex.
+
+### 2026-03-14 — Codex
+- **KAN-78 implemented** — surfaced Schema Intelligence throughout the active UI flow in `AutoMapper/`.
+  - Added `apps/web/src/components/schemaIntelligence.ts` — shared parser for enriched `FieldMapping.rationale`, extracting confirmed-pattern, formula-target, one-to-many, Person Account, FSC, type-mismatch, and Caribbean glossary signals.
+  - Added `apps/web/src/components/SchemaIntelligenceBadge.tsx` — reusable badge renderer for review rows and detail sections.
+  - Updated `apps/web/src/components/MappingTable.tsx` — inline Schema Intelligence badges, structured rationale sections, Person Account tooltip chip, formula-target acknowledgement banner, one-to-many routing CTA, and export footer warning state.
+  - Updated `apps/web/src/MappingStudioApp.tsx` — persistent formula-warning acknowledgement state and export gate enforcement from both the review CTA and sidebar navigation.
+  - Updated `apps/web/src/components/AgentPipeline.tsx` — Schema Intelligence is now a first-class orchestration stage with summary counts (confirmed hits, routing flags, formula warnings, audit blocks).
+  - Updated `apps/web/src/components/ConnectorGrid.tsx` copy from 7-agent to 8-agent workflow.
+  - Added/updated tests in `apps/web/src/components/MappingTable.test.tsx`, `apps/web/src/components/AgentPipeline.test.tsx`, and `apps/web/src/MappingStudioApp.test.tsx`.
+  - Validation: `cd backend && npx tsc --noEmit` **pass**; `cd apps/web && npm test` **pass (32/32)**; `npm run build` **pass**.
 
 ### 2026-03-11 — Claude
 - Consolidated to single repo: retired `AutoMapper-main/`, `AutoMapper/` is now the only codebase.

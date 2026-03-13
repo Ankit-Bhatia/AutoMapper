@@ -61,6 +61,8 @@ const fieldMapping = {
   status: 'accepted' as const,
 };
 
+let pipelineFieldMappings = [fieldMapping];
+
 vi.mock('@core/api-client', () => ({
   api: (...args: unknown[]) => apiMock(...args),
   isDemoUiMode: () => false,
@@ -115,7 +117,7 @@ vi.mock('./components/AgentPipeline', () => ({
       onClick={() => {
         onComplete({
           entityMappings: [entityMapping],
-          fieldMappings: [fieldMapping],
+          fieldMappings: pipelineFieldMappings,
           validation: {
             warnings: [],
             summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
@@ -152,6 +154,7 @@ vi.mock('./components/SeedSummaryCard', () => ({
 
 describe('MappingStudioApp export gating', () => {
   beforeEach(() => {
+    pipelineFieldMappings = [fieldMapping];
     apiMock.mockReset();
     apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
       const method = (init?.method ?? 'GET').toUpperCase();
@@ -237,6 +240,85 @@ describe('MappingStudioApp export gating', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Export Panel Visible')).toBeInTheDocument();
+    });
+  });
+
+  it('blocks export from Review until formula-target mappings are acknowledged', async () => {
+    const user = userEvent.setup();
+    const formulaFieldMapping = {
+      ...fieldMapping,
+      id: 'field-map-formula',
+      rationale: "⚠️ Formula field target: 'FormulaAmount__c' appears to be a calculated field — inbound writes will fail. Map the source fields that feed this formula instead. | test",
+    };
+    pipelineFieldMappings = [formulaFieldMapping];
+
+    apiMock.mockReset();
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      const method = (init?.method ?? 'GET').toUpperCase();
+
+      if (path === '/api/projects' && method === 'POST') return { project };
+      if (path === `/api/projects/${project.id}/schema/jackhenry-silverlake` && method === 'POST') return { mode: 'mock' };
+      if (path === `/api/projects/${project.id}/schema/salesforce` && method === 'POST') return { mode: 'mock' };
+      if (path === `/api/projects/${project.id}/suggest-mappings` && method === 'POST') {
+        return {
+          entityMappings: [entityMapping],
+          fieldMappings: [formulaFieldMapping],
+          validation: {
+            warnings: [],
+            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+          },
+        };
+      }
+      if (path === `/api/projects/${project.id}` && method === 'GET') {
+        return {
+          project,
+          sourceEntities: [sourceEntity],
+          targetEntities: [targetEntity],
+          fields: [sourceField, targetRequiredField],
+          entityMappings: [entityMapping],
+          fieldMappings: [formulaFieldMapping],
+        };
+      }
+      if (path === `/api/projects/${project.id}/seed` && method === 'POST') {
+        return { summary: { fromDerived: 0, fromCanonical: 0, fromAgent: 0, total: 0 } };
+      }
+      if (path === `/api/projects/${project.id}/conflicts` && method === 'GET') return { conflicts: [] };
+      if (path === `/api/projects/${project.id}/preflight` && method === 'GET') {
+        return {
+          projectId: project.id,
+          mappedTargetCount: 1,
+          targetFieldCount: 1,
+          acceptedMappingsCount: 1,
+          suggestedMappingsCount: 0,
+          rejectedMappingsCount: 0,
+          unmappedRequiredFields: [],
+          unresolvedConflicts: 0,
+          canExport: true,
+        };
+      }
+      return {};
+    });
+
+    render(<MappingStudioApp />);
+
+    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
+    await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Finish Pipeline' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Finish Pipeline' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Proceed To Export' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Proceed To Export' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/acknowledge 1 formula field warning before export/i)).toBeInTheDocument();
+      expect(screen.queryByText('Export Panel Visible')).not.toBeInTheDocument();
     });
   });
 });

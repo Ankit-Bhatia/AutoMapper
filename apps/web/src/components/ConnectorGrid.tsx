@@ -1101,7 +1101,7 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
             </button>
           </div>
           <p className="connector-proceed-note">
-            AutoMapper will ingest both schemas and prepare them for the 7-agent orchestration pipeline. Uploaded files
+            AutoMapper will ingest both schemas and prepare them for the 8-agent orchestration pipeline. Uploaded files
             take priority for their selected side.
           </p>
         </div>

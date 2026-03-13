@@ -2,12 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentStepState, EntityMapping, FieldMapping, OrchestrationEvent, ValidationReport } from '@contracts';
 import { api, apiBase, getEventSource, isDemoUiMode, MockEventSource } from '@core/api-client';
 
-// The 7 agents in orchestration order
+// The 8 agent stages surfaced in the orchestration UI.
 const AGENT_DEFS: { id: string; label: string; description: string }[] = [
   {
     id: 'SchemaDiscoveryAgent',
     label: 'Schema Discovery',
     description: 'Validates ingested schemas and computes entity-level statistics.',
+  },
+  {
+    id: 'SchemaIntelligenceAgent',
+    label: 'Schema Intelligence',
+    description: 'Applies BOSL to FSC corpus patterns, formula-field checks, and routing annotations.',
   },
   {
     id: 'ComplianceAgent',
@@ -64,6 +69,12 @@ const MAJOR_STAGE_DEFS: Array<{
     label: 'Schema Discovery',
     description: 'Validate source and target metadata before orchestration.',
     agents: ['SchemaDiscoveryAgent'],
+  },
+  {
+    id: 'schema-intelligence',
+    label: 'Schema Intelligence',
+    description: 'Apply confirmed BOSL to FSC patterns and target-field safety checks.',
+    agents: ['SchemaIntelligenceAgent'],
   },
   {
     id: 'compliance-scan',
@@ -125,6 +136,7 @@ const AGENT_ALIAS_MAP: Map<string, string> = (() => {
 function inferAgentFromAction(action?: string): string | null {
   if (!action) return null;
   const normalized = action.trim().toLowerCase();
+  if (normalized.startsWith('schema_intelligence_')) return 'SchemaIntelligenceAgent';
   if (normalized.startsWith('schema_')) return 'SchemaDiscoveryAgent';
   if (normalized.startsWith('compliance_')) return 'ComplianceAgent';
   if (normalized.startsWith('banking_')) return 'BankingDomainAgent';
@@ -245,6 +257,12 @@ export function AgentPipeline({
   const [elapsedMs, setElapsedMs] = useState(0);
   const [hasLLM, setHasLLM] = useState(false);
   const [llmProvider, setLlmProvider] = useState<string | null>(null);
+  const [schemaIntelligenceSummary, setSchemaIntelligenceSummary] = useState<{
+    confirmedPatternHits: number;
+    flaggedOneToMany: number;
+    flaggedFormulaTargets: number;
+    flaggedSystemAudit: number;
+  } | null>(null);
   const esCurrent = useRef<EventSource | MockEventSource | null>(null);
   const logBodyRef = useRef<HTMLDivElement | null>(null);
   const finishedRef = useRef(false);
@@ -452,6 +470,7 @@ export function AgentPipeline({
     setElapsedMs(0);
     setHasLLM(false);
     setLlmProvider(null);
+    setSchemaIntelligenceSummary(null);
     setSelectedAgentId(null);
     setShowMobileLog(false);
     runStartedAtRef.current = Date.now();
@@ -483,6 +502,7 @@ export function AgentPipeline({
         llmProvider?: string;
         complianceSummary?: { errors?: number; warnings?: number };
         durationMs?: number;
+        metadata?: Record<string, unknown>;
       }) | null = null;
       try {
         data = JSON.parse(e.data);
@@ -553,6 +573,14 @@ export function AgentPipeline({
 
         if (eventType === 'step') {
           const action = normalizedAction;
+          if (action === 'schema_intelligence_complete' && data.metadata) {
+            setSchemaIntelligenceSummary({
+              confirmedPatternHits: Number(data.metadata.confirmedPatternHits ?? 0),
+              flaggedOneToMany: Number(data.metadata.flaggedOneToMany ?? 0),
+              flaggedFormulaTargets: Number(data.metadata.flaggedFormulaTargets ?? 0),
+              flaggedSystemAudit: Number(data.metadata.flaggedSystemAudit ?? 0),
+            });
+          }
           if (action === 'orchestrate_complete' || action === 'pipeline_complete') {
             completeEventSeenRef.current = true;
             setAllowReviewBypass(true);
@@ -808,7 +836,7 @@ export function AgentPipeline({
       ? `${llmProvider.toUpperCase()} + Context`
       : 'LLM + Context')
     : 'Context Only';
-  const subtitle = `${sourceConnectorName ?? 'Source'} → ${targetConnectorName ?? 'Target'} · 7-agent automated mapping workflow`;
+  const subtitle = `${sourceConnectorName ?? 'Source'} → ${targetConnectorName ?? 'Target'} · 8-agent automated mapping workflow`;
 
   const selectedAgentDef = selectedAgent ? AGENT_DEFS.find((agent) => agent.id === selectedAgent.id) : null;
 
@@ -964,6 +992,26 @@ export function AgentPipeline({
             <div className="pipeline-agent-detail-output">
               {selectedAgent?.output ?? (running ? 'Awaiting detailed output from this agent...' : 'No agent output yet.')}
             </div>
+            {selectedAgent?.id === 'SchemaIntelligenceAgent' && schemaIntelligenceSummary && (
+              <div className="pipeline-agent-summary-grid">
+                <div className="pipeline-agent-summary-card">
+                  <div className="pipeline-agent-summary-label">Confirmed hits</div>
+                  <div className="pipeline-agent-summary-value">{schemaIntelligenceSummary.confirmedPatternHits}</div>
+                </div>
+                <div className="pipeline-agent-summary-card">
+                  <div className="pipeline-agent-summary-label">Routing flags</div>
+                  <div className="pipeline-agent-summary-value">{schemaIntelligenceSummary.flaggedOneToMany}</div>
+                </div>
+                <div className="pipeline-agent-summary-card">
+                  <div className="pipeline-agent-summary-label">Formula warnings</div>
+                  <div className="pipeline-agent-summary-value">{schemaIntelligenceSummary.flaggedFormulaTargets}</div>
+                </div>
+                <div className="pipeline-agent-summary-card">
+                  <div className="pipeline-agent-summary-label">Audit blocks</div>
+                  <div className="pipeline-agent-summary-value">{schemaIntelligenceSummary.flaggedSystemAudit}</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1113,7 +1161,7 @@ export function AgentPipeline({
           <div className="empty-state-icon">◈</div>
           <div className="empty-state-title">Ready to orchestrate</div>
           <p className="empty-state-body">
-            Click <strong>Run pipeline</strong> to start the 7-agent analysis. Review unlocks when all steps complete.
+            Click <strong>Run pipeline</strong> to start the 8-agent analysis. Review unlocks when all steps complete.
           </p>
         </div>
       )}

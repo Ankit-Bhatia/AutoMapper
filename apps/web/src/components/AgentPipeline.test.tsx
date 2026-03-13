@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentPipeline } from './AgentPipeline';
 
 const { apiMock, TestEventSource, setEventSourceMode } = vi.hoisted(() => {
-  let mode: 'agent_events' | 'step_agent_alias' | 'validation_heartbeats' | 'orchestrate_only_close' = 'agent_events';
+  let mode: 'agent_events' | 'step_agent_alias' | 'validation_heartbeats' | 'orchestrate_only_close' | 'schema_intelligence_summary' = 'agent_events';
 
-  function setEventSourceMode(next: 'agent_events' | 'step_agent_alias' | 'validation_heartbeats' | 'orchestrate_only_close') {
+  function setEventSourceMode(next: 'agent_events' | 'step_agent_alias' | 'validation_heartbeats' | 'orchestrate_only_close' | 'schema_intelligence_summary') {
     mode = next;
   }
 
@@ -133,6 +133,39 @@ const { apiMock, TestEventSource, setEventSourceMode } = vi.hoisted(() => {
               { delay: 25, payload: { type: 'step', agentName: 'MappingRationaleAgent', action: 'rationale_generation_complete', detail: 'rationale done' } },
               { delay: 30, payload: { type: 'step', agentName: 'ValidationAgent', action: 'validation_complete', detail: 'validation done' } },
               { delay: 35, payload: { type: 'step', agentName: 'OrchestratorAgent', action: 'orchestrate_complete', detail: 'pipeline checkpoint complete' } },
+            ]
+          : mode === 'schema_intelligence_summary'
+            ? [
+              { delay: 0, payload: { type: 'step', agentName: 'SchemaDiscoveryAgent', action: 'schema_discovery_complete', detail: 'schema done' } },
+              {
+                delay: 5,
+                payload: {
+                  type: 'step',
+                  agentName: 'SchemaIntelligenceAgent',
+                  action: 'schema_intelligence_complete',
+                  detail: 'Schema Intelligence pipeline complete — 5 confirmed pattern hits, 2 mappings improved, 1 one-to-many flags, 1 formula target warnings, 0 system audit field penalties',
+                  metadata: {
+                    confirmedPatternHits: 5,
+                    flaggedOneToMany: 1,
+                    flaggedFormulaTargets: 1,
+                    flaggedSystemAudit: 0,
+                  },
+                },
+              },
+              { delay: 10, payload: { type: 'step', agentName: 'ComplianceAgent', action: 'compliance_scan_complete', detail: 'compliance done' } },
+              { delay: 15, payload: { type: 'step', agentName: 'BankingDomainAgent', action: 'banking_domain_complete', detail: 'banking done' } },
+              { delay: 20, payload: { type: 'step', agentName: 'CRMDomainAgent', action: 'crm_domain_complete', detail: 'crm done' } },
+              { delay: 25, payload: { type: 'step', agentName: 'MappingProposalAgent', action: 'mapping_proposal_complete', detail: 'proposal done' } },
+              { delay: 30, payload: { type: 'step', agentName: 'MappingRationaleAgent', action: 'rationale_generation_complete', detail: 'rationale done' } },
+              { delay: 35, payload: { type: 'step', agentName: 'ValidationAgent', action: 'validation_complete', detail: 'validation done' } },
+              {
+                delay: 40,
+                payload: {
+                  type: 'complete',
+                  durationMs: 40,
+                  complianceSummary: { errors: 0, warnings: 0 },
+                },
+              },
             ]
           : [
             { delay: 0, payload: { type: 'step', agent: 'SchemaDiscoveryAgent', action: 'start', detail: 'start schema' } },
@@ -293,5 +326,23 @@ describe('AgentPipeline', () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/pipeline complete/i)).toBeInTheDocument();
     expect(screen.queryByText(/lost connection to orchestration pipeline/i)).not.toBeInTheDocument();
+  });
+
+  it('shows Schema Intelligence summary counts when that agent is selected', async () => {
+    setEventSourceMode('schema_intelligence_summary');
+
+    render(<AgentPipeline projectId="p1" onComplete={vi.fn()} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /run pipeline/i }));
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /schema intelligence/i }));
+
+    expect(screen.getByText(/confirmed hits/i)).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText(/routing flags/i)).toBeInTheDocument();
+    expect(screen.getByText(/formula warnings/i)).toBeInTheDocument();
   });
 });

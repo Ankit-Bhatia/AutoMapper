@@ -14,6 +14,7 @@ import {
   LLMSettingsPanel,
   type LLMConfigUpdatePayload,
 } from './components/LLMSettingsPanel';
+import { getActiveFormulaTargetIds } from './components/schemaIntelligence';
 import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
 import type {
   Entity,
@@ -105,6 +106,7 @@ export function MappingStudioApp() {
   const [preflight, setPreflight] = useState<ProjectPreflight | null>(null);
   const [reviewGateMessage, setReviewGateMessage] = useState<string | null>(null);
   const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(new Set());
+  const [acknowledgedFormulaMappingIds, setAcknowledgedFormulaMappingIds] = useState<Set<string>>(new Set());
   const [validation, setValidation] = useState<ValidationReport>({
     warnings: [],
     summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
@@ -252,6 +254,7 @@ export function MappingStudioApp() {
     setSourceSchemaMode(null);
     setTargetSchemaMode(null);
     setSelectedMappingIds(new Set());
+    setAcknowledgedFormulaMappingIds(new Set());
 
     try {
       const payload = await loadProject(projectId);
@@ -273,6 +276,7 @@ export function MappingStudioApp() {
         refreshPreflight(projectId),
         refreshConflicts(projectId),
       ]);
+      const formulaTargetIds = getActiveFormulaTargetIds(payload.fieldMappings);
 
       const hasMappings = payload.fieldMappings.length > 0;
       setIsOrchestrated(hasMappings);
@@ -284,6 +288,13 @@ export function MappingStudioApp() {
       }
 
       if (destination === 'export') {
+        if (formulaTargetIds.length > 0) {
+          setStep('review');
+          setReviewGateMessage(
+            `Acknowledge ${formulaTargetIds.length} formula field warning${formulaTargetIds.length === 1 ? '' : 's'} before export.`,
+          );
+          return;
+        }
         if (preflightData?.canExport) {
           setStep('export');
         } else {
@@ -468,6 +479,7 @@ export function MappingStudioApp() {
     setPreflight(null);
     setReviewGateMessage(null);
     setSelectedMappingIds(new Set());
+    setAcknowledgedFormulaMappingIds(new Set());
     void loadProjectHistory();
   }
 
@@ -475,6 +487,15 @@ export function MappingStudioApp() {
   function handleMappingUpdate(updated: FieldMapping) {
     setReviewGateMessage(null);
     setFieldMappings((prev) => prev.map((fm) => (fm.id === updated.id ? updated : fm)));
+  }
+
+  function handleAcknowledgeFormulaWarning(mappingId: string) {
+    setAcknowledgedFormulaMappingIds((prev) => {
+      const next = new Set(prev);
+      next.add(mappingId);
+      return next;
+    });
+    setReviewGateMessage(null);
   }
 
   function handleSelectionChange(mappingId: string, selected: boolean) {
@@ -513,9 +534,61 @@ export function MappingStudioApp() {
     () => fieldMappings.filter((fm) => fm.status === 'accepted').length,
     [fieldMappings],
   );
+  const activeFormulaTargetIds = useMemo(
+    () => getActiveFormulaTargetIds(fieldMappings),
+    [fieldMappings],
+  );
+  const pendingFormulaAcknowledgementIds = useMemo(
+    () => activeFormulaTargetIds.filter((mappingId) => !acknowledgedFormulaMappingIds.has(mappingId)),
+    [acknowledgedFormulaMappingIds, activeFormulaTargetIds],
+  );
+  const formulaExportBlocked = pendingFormulaAcknowledgementIds.length > 0;
+
+  useEffect(() => {
+    const activeIds = new Set(activeFormulaTargetIds);
+    setAcknowledgedFormulaMappingIds((prev) => {
+      const next = new Set([...prev].filter((mappingId) => activeIds.has(mappingId)));
+      if (next.size === prev.size) {
+        return prev;
+      }
+      return next;
+    });
+  }, [activeFormulaTargetIds]);
 
   const sourceConnectorName = sourceConnectorId ? CONNECTOR_NAMES[sourceConnectorId] ?? sourceConnectorId : undefined;
   const targetConnectorName = targetConnectorId ? CONNECTOR_NAMES[targetConnectorId] ?? targetConnectorId : undefined;
+
+  function attemptOpenExport() {
+    const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
+    if (unresolved > 0) {
+      setReviewGateMessage(
+        `Resolve ${unresolved} unresolved conflict${unresolved === 1 ? '' : 's'} before export.`,
+      );
+      setConflictDrawerOpen(true);
+      setStep('review');
+      return;
+    }
+
+    if (formulaExportBlocked) {
+      setReviewGateMessage(
+        `Acknowledge ${pendingFormulaAcknowledgementIds.length} formula field warning${pendingFormulaAcknowledgementIds.length === 1 ? '' : 's'} before export.`,
+      );
+      setStep('review');
+      return;
+    }
+
+    setReviewGateMessage(null);
+    setStep('export');
+  }
+
+  function handleStepClick(nextStep: WorkflowStep) {
+    if (nextStep === 'export') {
+      attemptOpenExport();
+      return;
+    }
+    setReviewGateMessage(null);
+    setStep(nextStep);
+  }
 
   // ── Render main content by step ─────────────────────────────────────────────
   function renderContent() {
@@ -621,18 +694,9 @@ export function MappingStudioApp() {
               onSelectionChange={handleSelectionChange}
               selectionCap={200}
               onMappingUpdate={handleMappingUpdate}
-              onProceedToExport={() => {
-                const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
-                if (unresolved > 0) {
-                  setReviewGateMessage(
-                    `Resolve ${unresolved} unresolved conflict${unresolved === 1 ? '' : 's'} before export.`,
-                  );
-                  setConflictDrawerOpen(true);
-                  return;
-                }
-                setReviewGateMessage(null);
-                setStep('export');
-              }}
+              acknowledgedFormulaMappingIds={acknowledgedFormulaMappingIds}
+              onAcknowledgeFormulaWarning={handleAcknowledgeFormulaWarning}
+              onProceedToExport={attemptOpenExport}
             />
             <ConflictDrawer
               projectId={project.id}
@@ -678,7 +742,7 @@ export function MappingStudioApp() {
       <div className="app-shell">
         <Sidebar
           currentStep={step}
-          onStepClick={setStep}
+          onStepClick={handleStepClick}
           onReset={handleReset}
           projectName={project?.name}
           sourceConnector={sourceConnectorName}
