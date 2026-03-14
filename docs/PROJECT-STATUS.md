@@ -491,3 +491,31 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
   - run frontend from `AutoMapper/apps/web`
   - run backend from `AutoMapper/backend`
   - do not start localhost services from `AutoMapper-main`
+
+### Untracked File Audit — 2026-03-15 01:00 IST
+
+- Preserved as canonical source/docs in `AutoMapper`:
+  - `docs/AGENT_CHANGE_LOG.md`
+  - `docs/AGENT_LOGGING_WORKFLOW.md`
+  - `docs/PRODUCT_BACKLOG.md`
+  - `docs/SPRINT_001.md`
+  - `docs/adr/ADR-001-repository-structure.md`
+  - `docs/adr/ADR-002-postgresql-canonical-schema-learning-layer.md`
+  - `scripts/sync_salesforce_org_model.py`
+- Integrated follow-up:
+  - root package script `salesforce:model:extract` now points at `scripts/sync_salesforce_org_model.py`
+- Evaluated but intentionally left uncommitted because they are incomplete, stale, or not wired to the current tracked code:
+  - `apps/web/src/components/AdminControlPanel.tsx`
+  - `apps/web/src/components/LLMSettingsPage.tsx`
+  - `apps/web/src/components/UserPersonaPanel.tsx`
+  - `apps/web/src/components/ProjectHistoryPanel.test.tsx`
+  - `apps/web/src/components/Sidebar.test.tsx`
+  - `backend/src/__tests__/demoAuthProject.test.ts`
+  - `backend/src/__tests__/project-delete.test.ts`
+  - `backend/prisma/migrations/20260311013000_add_llm_settings_usage/migration.sql`
+  - `apps/demo-api/demo-server.legacy.mjs`
+- Reasons for rejection:
+  - frontend orphan files are not imported by the tracked app flow
+  - untracked frontend/backend tests fail against the current tracked implementation
+  - the untracked Prisma migration does not match the current tracked Prisma schema
+  - `demo-server.legacy.mjs` is a local backup artifact, not canonical runtime source

@@ -13,6 +13,7 @@
     "test": "npm --prefix backend run test -- --run && npm --workspace apps/web run test -- --run",
     "test:backend": "npm --prefix backend run test -- --run",
     "test:frontend": "npm --workspace apps/web run test -- --run",
+    "salesforce:model:extract": "python3 scripts/sync_salesforce_org_model.py",
     "log:codex": "node scripts/log-agent-change.mjs --agent codex",
     "log:claude": "node scripts/log-agent-change.mjs --agent claude",
     "sync:status-jira": "node scripts/sync-status-jira.mjs"
