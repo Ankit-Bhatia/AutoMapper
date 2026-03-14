@@ -542,3 +542,13 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
   - `local-archive/automapper-main-archived-20260315/AutoMapper-UI-Review.docx`
   - `local-archive/automapper-main-archived-20260315/ui-review.js`
   - `local-archive/automapper-main-archived-20260315/docs/agent-change-log.jsonl`
+- Quarantined local-only incomplete files out of the repo working tree:
+  - `local-archive/untracked-quarantine-20260315/apps/demo-api/demo-server.legacy.mjs`
+  - `local-archive/untracked-quarantine-20260315/apps/web/src/components/AdminControlPanel.tsx`
+  - `local-archive/untracked-quarantine-20260315/apps/web/src/components/LLMSettingsPage.tsx`
+  - `local-archive/untracked-quarantine-20260315/apps/web/src/components/ProjectHistoryPanel.test.tsx`
+  - `local-archive/untracked-quarantine-20260315/apps/web/src/components/Sidebar.test.tsx`
+  - `local-archive/untracked-quarantine-20260315/apps/web/src/components/UserPersonaPanel.tsx`
+  - `local-archive/untracked-quarantine-20260315/backend/prisma/migrations/20260311013000_add_llm_settings_usage/migration.sql`
+  - `local-archive/untracked-quarantine-20260315/backend/src/__tests__/demoAuthProject.test.ts`
+  - `local-archive/untracked-quarantine-20260315/backend/src/__tests__/project-delete.test.ts`
