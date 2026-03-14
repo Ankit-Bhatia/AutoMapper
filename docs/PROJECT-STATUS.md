@@ -499,7 +499,7 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
 ### Workspace Consolidation — 2026-03-15 00:16:31 IST
 
 - Canonical local repository: `/Users/ankitbhatia/Desktop/AutoMapper Implementation/AutoMapper`
-- Legacy parallel clone: `/Users/ankitbhatia/Desktop/AutoMapper Implementation/AutoMapper-main`
+- Legacy parallel clone archived to: `/Users/ankitbhatia/Desktop/AutoMapper Implementation/AutoMapper-main-archived-20260315`
 - Comparison result:
   - `AutoMapper` contains the newer pushed branch head for `codex/KAN-78-schema-intelligence-ui`
   - `AutoMapper-main` is a stale local clone and must not be used to run frontend or backend
@@ -509,6 +509,7 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
   - run frontend from `AutoMapper/apps/web`
   - run backend from `AutoMapper/backend`
   - do not start localhost services from `AutoMapper-main`
+  - `AutoMapper-kan82` worktree was removed after cherry-picking `KAN-82` into the canonical repo
 
 ### Untracked File Audit — 2026-03-15 01:00 IST
 
@@ -537,3 +538,7 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
   - untracked frontend/backend tests fail against the current tracked implementation
   - the untracked Prisma migration does not match the current tracked Prisma schema
   - `demo-server.legacy.mjs` is a local backup artifact, not canonical runtime source
+- Archived non-source files moved under the canonical workspace:
+  - `local-archive/automapper-main-archived-20260315/AutoMapper-UI-Review.docx`
+  - `local-archive/automapper-main-archived-20260315/ui-review.js`
+  - `local-archive/automapper-main-archived-20260315/docs/agent-change-log.jsonl`

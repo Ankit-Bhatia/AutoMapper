@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { v4 as uuidv4 } from 'uuid';
-import type { Entity, Field, Relationship } from '../types.js';
+import type { DataType, Entity, Field, Relationship } from '../types.js';
 import { normalizeODataType } from '../utils/typeUtils.js';
 
 interface ParsedSchema {
@@ -34,6 +34,24 @@ interface JsonSchemaInput {
   }>;
 }
 
+const LOOSE_DATA_TYPE_MAP: Record<string, DataType> = {
+  string: 'string',
+  text: 'text',
+  number: 'number',
+  integer: 'integer',
+  decimal: 'decimal',
+  boolean: 'boolean',
+  date: 'date',
+  datetime: 'datetime',
+  time: 'time',
+  picklist: 'picklist',
+  email: 'email',
+  phone: 'phone',
+  id: 'id',
+  reference: 'reference',
+  unknown: 'unknown',
+};
+
 export function parseSapSchema(content: string, filename: string, systemId: string): ParsedSchema {
   const lowered = filename.toLowerCase();
   if (lowered.endsWith('.xml')) {
@@ -46,6 +64,11 @@ export function parseSapSchema(content: string, filename: string, systemId: stri
     return parseCsvSchema(content, systemId);
   }
   throw new Error('Unsupported SAP schema file. Allowed: .xml, .json, .csv');
+}
+
+function normalizeLooseDataType(value: string | undefined): DataType {
+  if (!value) return 'unknown';
+  return LOOSE_DATA_TYPE_MAP[value.toLowerCase()] ?? 'unknown';
 }
 
 function parseJsonSchema(schema: JsonSchemaInput, systemId: string): ParsedSchema {
@@ -71,7 +94,7 @@ function parseJsonSchema(schema: JsonSchemaInput, systemId: string): ParsedSchem
         entityId,
         name: fld.name,
         label: fld.label,
-        dataType: (fld.dataType as string) ?? 'unknown',
+        dataType: normalizeLooseDataType(fld.dataType),
         length: fld.length,
         precision: fld.precision,
         scale: fld.scale,
@@ -180,7 +203,7 @@ function parseCsvSchema(content: string, systemId: string): ParsedSchema {
       entityId: entityMap.get(entityName)!,
       name: cols[idx('field')] ?? 'UnknownField',
       label: cols[idx('label')] || undefined,
-      dataType: ((cols[idx('datatype')] as string) || 'unknown'),
+      dataType: normalizeLooseDataType(cols[idx('datatype')]),
       required: (cols[idx('required')] || '').toLowerCase() === 'true',
       isKey: (cols[idx('iskey')] || '').toLowerCase() === 'true',
     });
