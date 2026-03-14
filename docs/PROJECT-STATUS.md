@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-14
+> **Last updated:** 2026-03-15
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -622,3 +622,83 @@ Validation:
 
 PR note:
 - This ticket is intentionally stacked on top of KAN-83 because KAN-84 depends on `isUpsertKey` and persisted Salesforce record types introduced there.
+
+### Persona UI Restore — Implemented by Codex — 2026-03-15 01:23:39 IST
+
+- Restored persona-aware UI in the live `AutoMapper/apps/web` app.
+- Root cause:
+  - auth still exposed `user.role`, but `MappingStudioApp` no longer consumed it
+  - the tracked sidebar had no persona identity or settings destination
+  - admin/user persona components existed only as quarantined local files and were never integrated into the running app
+- Implemented:
+  - `packages/contracts/types.ts`
+    - added `llm-settings` as a valid `WorkflowStep`
+  - `apps/web/src/MappingStudioApp.tsx`
+    - now reads `user.role` via `useAuth()`
+    - derives admin vs normal-user behavior
+    - restores persona-aware connect workspace panels
+    - adds dedicated `LLM / API Settings` screen
+    - preserves prior workflow context when opening settings from review/export
+  - `apps/web/src/components/Sidebar.tsx`
+    - added signed-in identity card
+    - added visible `Admin persona` vs `Normal user` state
+    - added sidebar entry for `LLM / API Settings`
+  - `apps/web/src/components/AdminControlPanel.tsx`
+    - restored tracked admin console UI
+  - `apps/web/src/components/UserPersonaPanel.tsx`
+    - restored tracked normal-user workspace UI
+  - `apps/web/src/components/LLMSettingsPage.tsx`
+    - added dedicated settings page with admin controls and restricted normal-user view
+  - `apps/web/src/styles.css`
+    - added styling for sidebar persona card, settings page, admin panel, and normal-user panel
+  - `apps/web/src/MappingStudioApp.test.tsx`
+    - added regression coverage for admin settings view and restricted normal-user settings view
+- Validation:
+  - `npm --workspace apps/web run typecheck` → passing
+  - `npm --workspace apps/web run test -- --run src/MappingStudioApp.test.tsx` → passing
+  - `npm --workspace apps/web run test -- --run` → passing (`34/34`)
+  - `npm --workspace apps/web run build` → passing
+
+### 2026-03-15 02:25 IST — Connector dedupe persistence + live branch consolidation
+
+Implemented by Codex.
+
+Scope completed:
+- Cherry-picked the missing KAN-83 and KAN-84 branch work onto the live `codex/KAN-78-schema-intelligence-ui` branch so the active product branch now includes:
+  - persisted Salesforce `recordTypes`
+  - `Field.isUpsertKey` + external ID targeting
+  - MappingProposalAgent record-type and upsert-key scoring
+- Re-integrated the newer persona/settings UI into the tracked app:
+  - added `AdminControlPanel.tsx`
+  - added `UserPersonaPanel.tsx`
+  - added `LLMSettingsPage.tsx`
+  - wired `MappingStudioApp.tsx`, `Sidebar.tsx`, `styles.css`, and `packages/contracts/types.ts`
+- Hardened custom connector persistence:
+  - added startup dedupe and file rewrite coverage in `backend/src/__tests__/custom-connector-persistence.test.ts`
+  - added single delete + bulk delete UI coverage in `apps/web/src/components/ConnectorGrid.test.tsx`
+  - changed connector dedupe identity to ignore description-only drift while still grouping by normalized connector name, vendor/category, connection config, and entity/field shape
+  - added persistent delete and bulk-delete flows in `backend/src/routes/connectorRoutes.ts` and `apps/web/src/components/ConnectorGrid.tsx`
+- Verified the integrated app from the canonical repo only: `AutoMapper/`
+
+Files changed:
+- `apps/web/src/MappingStudioApp.tsx`
+- `apps/web/src/MappingStudioApp.test.tsx`
+- `apps/web/src/components/AdminControlPanel.tsx`
+- `apps/web/src/components/ConnectorGrid.tsx`
+- `apps/web/src/components/ConnectorGrid.test.tsx`
+- `apps/web/src/components/LLMSettingsPage.tsx`
+- `apps/web/src/components/Sidebar.tsx`
+- `apps/web/src/components/UserPersonaPanel.tsx`
+- `apps/web/src/styles.css`
+- `backend/src/routes/connectorRoutes.ts`
+- `backend/src/__tests__/custom-connector-persistence.test.ts`
+- `backend/src/__tests__/custom-connector.test.ts`
+- `backend/src/agents/MappingProposalAgent.ts`
+- `packages/contracts/types.ts`
+
+Validation:
+- `npm --workspace apps/web run test -- --run` → passing (`36/36`)
+- `npm --workspace apps/web run typecheck` → passing
+- `npm --workspace apps/web run build` → passing
+- `npm --prefix backend test -- --run` → passing (`176/176`)
+- `npm --prefix backend run build` → passing

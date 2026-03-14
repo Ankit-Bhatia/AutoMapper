@@ -134,6 +134,12 @@ interface StoredCustomConnector {
   entities: CustomConnectorEntityInput[];
 }
 
+interface StoredCustomConnectorCandidate {
+  id: string;
+  connector: StoredCustomConnector;
+  sortValue: number;
+}
+
 const customConnectorStore = new Map<
   string,
   StoredCustomConnector
@@ -150,6 +156,107 @@ function resolveCustomConnectorStorePath(): string {
 
 const customConnectorStorePath = resolveCustomConnectorStorePath();
 
+function normalizeConnectorText(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function normalizeConnectorNameKey(value: string | null | undefined): string {
+  return normalizeConnectorText(value).replace(/[^a-z0-9]+/g, '');
+}
+
+function customConnectorFamilyKey(connector: StoredCustomConnector): string {
+  return JSON.stringify({
+    name: normalizeConnectorNameKey(connector.definition.name),
+    vendor: normalizeConnectorText(connector.definition.vendor),
+    category: normalizeConnectorText(connector.definition.category),
+  });
+}
+
+function customConnectorQuality(connector: StoredCustomConnector): number {
+  const name = connector.definition.name.trim();
+  const lowerName = name.toLowerCase();
+  const entityCount = connector.entities.length;
+  const fieldCount = connector.entities.reduce((sum, entity) => sum + entity.fields.length, 0);
+
+  let score = (fieldCount * 100) + (entityCount * 20);
+  if (!/\d{6,}/.test(name)) score += 60;
+  if (!/\bqa\b|\btest\b|\bcopy\b|\btemp\b/.test(lowerName)) score += 20;
+  if (/[A-Z]/.test(name.slice(1))) score += 8;
+  score -= Math.max(0, name.length - 28);
+  return score;
+}
+
+function shouldPreferCustomConnector(
+  current: StoredCustomConnectorCandidate,
+  candidate: StoredCustomConnectorCandidate,
+): boolean {
+  const currentQuality = customConnectorQuality(current.connector);
+  const candidateQuality = customConnectorQuality(candidate.connector);
+  if (candidateQuality !== currentQuality) {
+    return candidateQuality > currentQuality;
+  }
+  return candidate.sortValue >= current.sortValue;
+}
+
+function dedupeCustomConnectorCandidates(candidates: StoredCustomConnectorCandidate[]): {
+  representatives: StoredCustomConnectorCandidate[];
+  duplicateIds: string[];
+  familyIdsByRepresentativeId: Map<string, string[]>;
+} {
+  const representativeByFamily = new Map<string, StoredCustomConnectorCandidate>();
+  const idsByFamily = new Map<string, string[]>();
+  const duplicateIds = new Set<string>();
+
+  for (const candidate of candidates) {
+    const familyKey = customConnectorFamilyKey(candidate.connector);
+    const ids = idsByFamily.get(familyKey) ?? [];
+    ids.push(candidate.id);
+    idsByFamily.set(familyKey, ids);
+
+    const existing = representativeByFamily.get(familyKey);
+    if (!existing) {
+      representativeByFamily.set(familyKey, candidate);
+      continue;
+    }
+
+    if (shouldPreferCustomConnector(existing, candidate)) {
+      duplicateIds.add(existing.id);
+      representativeByFamily.set(familyKey, candidate);
+    } else {
+      duplicateIds.add(candidate.id);
+    }
+  }
+
+  const representatives = Array.from(representativeByFamily.values())
+    .sort((left, right) => left.connector.definition.name.localeCompare(right.connector.definition.name));
+
+  const familyIdsByRepresentativeId = new Map<string, string[]>();
+  for (const representative of representatives) {
+    const familyKey = customConnectorFamilyKey(representative.connector);
+    familyIdsByRepresentativeId.set(representative.id, [...(idsByFamily.get(familyKey) ?? [representative.id])]);
+  }
+
+  return {
+    representatives,
+    duplicateIds: [...duplicateIds],
+    familyIdsByRepresentativeId,
+  };
+}
+
+function persistCustomConnectorEntriesToDisk(entries: StoredCustomConnector[]): void {
+  const dirPath = path.dirname(customConnectorStorePath);
+  fs.mkdirSync(dirPath, { recursive: true });
+  fs.writeFileSync(customConnectorStorePath, JSON.stringify(entries, null, 2), 'utf8');
+}
+
+function rewriteInMemoryCustomConnectorStore(candidates: StoredCustomConnectorCandidate[]): void {
+  customConnectorStore.clear();
+  for (const candidate of candidates) {
+    customConnectorStore.set(candidate.id, candidate.connector);
+  }
+  persistCustomConnectorEntriesToDisk(candidates.map((candidate) => candidate.connector));
+}
+
 function loadCustomConnectorStoreFromDisk(): void {
   try {
     if (!fs.existsSync(customConnectorStorePath)) return;
@@ -157,6 +264,8 @@ function loadCustomConnectorStoreFromDisk(): void {
     if (!raw) return;
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return;
+    const loadedCandidates: StoredCustomConnectorCandidate[] = [];
+    let index = 0;
     for (const entry of parsed) {
       if (!entry || typeof entry !== 'object') continue;
       const typed = entry as {
@@ -165,21 +274,177 @@ function loadCustomConnectorStoreFromDisk(): void {
       };
       if (!typed.definition || typeof typed.definition.id !== 'string') continue;
       if (!Array.isArray(typed.entities)) continue;
-      customConnectorStore.set(typed.definition.id, {
-        definition: typed.definition,
-        entities: typed.entities,
+      loadedCandidates.push({
+        id: typed.definition.id,
+        connector: {
+          definition: {
+            ...typed.definition,
+            connectionConfig: sanitizeCustomConnectionConfig(typed.definition.connectionConfig),
+          },
+          entities: normalizeCustomEntities(typed.entities),
+        },
+        sortValue: index,
       });
+      index += 1;
     }
+    const deduped = dedupeCustomConnectorCandidates(loadedCandidates);
+    rewriteInMemoryCustomConnectorStore(deduped.representatives);
   } catch (error) {
     console.error('[custom-connectors] Failed to load persisted connectors:', error);
   }
 }
 
-function persistCustomConnectorStoreToDisk(): void {
-  const dirPath = path.dirname(customConnectorStorePath);
-  fs.mkdirSync(dirPath, { recursive: true });
-  const payload = JSON.stringify(Array.from(customConnectorStore.values()), null, 2);
-  fs.writeFileSync(customConnectorStorePath, payload, 'utf8');
+function listInMemoryCustomConnectorCandidates(): StoredCustomConnectorCandidate[] {
+  return Array.from(customConnectorStore.entries()).map(([id, connector], index) => ({
+    id,
+    connector,
+    sortValue: index,
+  }));
+}
+
+async function listDatabaseCustomConnectorCandidates(): Promise<StoredCustomConnectorCandidate[]> {
+  const rows = await prisma.customConnector.findMany({
+    orderBy: [{ updatedAt: 'asc' }, { createdAt: 'asc' }],
+    select: {
+      id: true,
+      name: true,
+      vendor: true,
+      category: true,
+      description: true,
+      entityNames: true,
+      entities: true,
+      connectionConfig: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  return rows
+    .map((row, index) => {
+      const connector = toStoredCustomConnector({
+        id: row.id,
+        name: row.name,
+        vendor: row.vendor,
+        category: row.category,
+        description: row.description,
+        entityNames: row.entityNames,
+        entities: row.entities,
+        connectionConfig: row.connectionConfig,
+      });
+      if (!connector) return null;
+      return {
+        id: row.id,
+        connector,
+        sortValue: row.updatedAt?.getTime?.() ?? row.createdAt?.getTime?.() ?? index,
+      };
+    })
+    .filter((candidate): candidate is StoredCustomConnectorCandidate => Boolean(candidate));
+}
+
+async function syncCustomConnectorStore(): Promise<{
+  representatives: StoredCustomConnectorCandidate[];
+  familyIdsByRepresentativeId: Map<string, string[]>;
+}> {
+  if (!isPostgresCustomConnectorStoreEnabled()) {
+    const deduped = dedupeCustomConnectorCandidates(listInMemoryCustomConnectorCandidates());
+    rewriteInMemoryCustomConnectorStore(deduped.representatives);
+    return {
+      representatives: deduped.representatives,
+      familyIdsByRepresentativeId: deduped.familyIdsByRepresentativeId,
+    };
+  }
+
+  await ensureCustomConnectorBackfill();
+  const deduped = dedupeCustomConnectorCandidates(await listDatabaseCustomConnectorCandidates());
+  if (deduped.duplicateIds.length > 0) {
+    await prisma.customConnector.deleteMany({
+      where: {
+        id: { in: deduped.duplicateIds },
+      },
+    });
+  }
+  persistCustomConnectorEntriesToDisk(deduped.representatives.map((candidate) => candidate.connector));
+  return {
+    representatives: deduped.representatives,
+    familyIdsByRepresentativeId: deduped.familyIdsByRepresentativeId,
+  };
+}
+
+async function findEquivalentCustomConnector(
+  connector: StoredCustomConnector,
+): Promise<StoredCustomConnectorCandidate | null> {
+  const familyKey = customConnectorFamilyKey(connector);
+  const candidates = isPostgresCustomConnectorStoreEnabled()
+    ? await listDatabaseCustomConnectorCandidates()
+    : listInMemoryCustomConnectorCandidates();
+  return candidates.find((candidate) => customConnectorFamilyKey(candidate.connector) === familyKey) ?? null;
+}
+
+async function updateExistingCustomConnector(
+  existingId: string,
+  connector: StoredCustomConnector,
+): Promise<StoredCustomConnector> {
+  const updatedConnector: StoredCustomConnector = {
+    definition: {
+      ...connector.definition,
+      id: existingId,
+    },
+    entities: connector.entities,
+  };
+
+  if (!isPostgresCustomConnectorStoreEnabled()) {
+    customConnectorStore.set(existingId, updatedConnector);
+    await syncCustomConnectorStore();
+    return updatedConnector;
+  }
+
+  const entitiesJson = updatedConnector.entities as unknown as Prisma.InputJsonValue;
+  const configJson = updatedConnector.definition.connectionConfig as unknown as Prisma.InputJsonValue;
+
+  await prisma.customConnector.update({
+    where: { id: existingId },
+    data: {
+      name: updatedConnector.definition.name,
+      vendor: updatedConnector.definition.vendor,
+      category: updatedConnector.definition.category,
+      description: updatedConnector.definition.description,
+      entityNames: updatedConnector.definition.entities,
+      entities: entitiesJson,
+      connectionConfig: configJson,
+    },
+  });
+  await syncCustomConnectorStore();
+  return updatedConnector;
+}
+
+async function deleteCustomConnectorFamiliesByRepresentativeIds(representativeIds: string[]): Promise<string[]> {
+  if (!representativeIds.length) return [];
+
+  const { familyIdsByRepresentativeId } = await syncCustomConnectorStore();
+  const idsToDelete = new Set<string>();
+  for (const representativeId of representativeIds) {
+    const familyIds = familyIdsByRepresentativeId.get(representativeId) ?? [representativeId];
+    for (const familyId of familyIds) {
+      idsToDelete.add(familyId);
+    }
+  }
+  const deletedIds = [...idsToDelete];
+
+  if (!isPostgresCustomConnectorStoreEnabled()) {
+    for (const id of deletedIds) {
+      customConnectorStore.delete(id);
+    }
+    await syncCustomConnectorStore();
+    return deletedIds;
+  }
+
+  await prisma.customConnector.deleteMany({
+    where: {
+      id: { in: deletedIds },
+    },
+  });
+  await syncCustomConnectorStore();
+  return deletedIds;
 }
 
 loadCustomConnectorStoreFromDisk();
@@ -300,82 +565,36 @@ function toStoredCustomConnector(input: {
 }
 
 async function listCustomConnectors(): Promise<StoredCustomConnector[]> {
-  if (!isPostgresCustomConnectorStoreEnabled()) {
-    return Array.from(customConnectorStore.values());
-  }
-  await ensureCustomConnectorBackfill();
-
-  const rows = await prisma.customConnector.findMany({
-    orderBy: { createdAt: 'asc' },
-    select: {
-      id: true,
-      name: true,
-      vendor: true,
-      category: true,
-      description: true,
-      entityNames: true,
-      entities: true,
-      connectionConfig: true,
-    },
-  });
-
-  return rows
-    .map((row) =>
-      toStoredCustomConnector({
-        id: row.id,
-        name: row.name,
-        vendor: row.vendor,
-        category: row.category,
-        description: row.description,
-        entityNames: row.entityNames,
-        entities: row.entities,
-        connectionConfig: row.connectionConfig,
-      }),
-    )
-    .filter((row): row is StoredCustomConnector => Boolean(row));
+  const { representatives } = await syncCustomConnectorStore();
+  return representatives.map((candidate) => candidate.connector);
 }
 
 async function getCustomConnector(connectorId: string): Promise<StoredCustomConnector | null> {
-  if (!isPostgresCustomConnectorStoreEnabled()) {
-    return customConnectorStore.get(connectorId) ?? null;
-  }
-  await ensureCustomConnectorBackfill();
-
-  const row = await prisma.customConnector.findUnique({
-    where: { id: connectorId },
-    select: {
-      id: true,
-      name: true,
-      vendor: true,
-      category: true,
-      description: true,
-      entityNames: true,
-      entities: true,
-      connectionConfig: true,
-    },
-  });
-  if (!row) return null;
-
-  return toStoredCustomConnector({
-    id: row.id,
-    name: row.name,
-    vendor: row.vendor,
-    category: row.category,
-    description: row.description,
-    entityNames: row.entityNames,
-    entities: row.entities,
-    connectionConfig: row.connectionConfig,
-  });
+  const { representatives } = await syncCustomConnectorStore();
+  return representatives.find((candidate) => candidate.id === connectorId)?.connector ?? null;
 }
 
 async function saveCustomConnector(
   connector: StoredCustomConnector,
   createdByUserId?: string,
-): Promise<void> {
+): Promise<StoredCustomConnector> {
+  const existingEquivalent = await findEquivalentCustomConnector(connector);
+  if (existingEquivalent) {
+    const incomingCandidate: StoredCustomConnectorCandidate = {
+      id: existingEquivalent.id,
+      connector,
+      sortValue: existingEquivalent.sortValue + 1,
+    };
+    if (shouldPreferCustomConnector(existingEquivalent, incomingCandidate)) {
+      return updateExistingCustomConnector(existingEquivalent.id, connector);
+    }
+    return existingEquivalent.connector;
+  }
+
   if (!isPostgresCustomConnectorStoreEnabled()) {
     customConnectorStore.set(connector.definition.id, connector);
-    persistCustomConnectorStoreToDisk();
-    return;
+    await syncCustomConnectorStore();
+    return connector;
   }
   await ensureCustomConnectorBackfill();
 
@@ -395,6 +614,8 @@ async function saveCustomConnector(
       createdByUserId: createdByUserId ?? null,
     },
   });
+  await syncCustomConnectorStore();
+  return connector;
 }
 
 let customConnectorBackfillPromise: Promise<void> | null = null;
@@ -525,18 +746,66 @@ export function setupConnectorRoutes(app: Express, store: DbStore): void {
       entities,
     };
 
+    let persisted: StoredCustomConnector;
     try {
-      await saveCustomConnector(entry, req.user?.userId);
+      persisted = await saveCustomConnector(entry, req.user?.userId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not persist custom connector';
       sendError(req, res, 500, 'CONNECTOR_PERSISTENCE_ERROR', message);
       return;
     }
 
-    res.status(201).json({
-      id,
-      connector: definition,
+    const created = persisted.definition.id === id;
+    res.status(created ? 201 : 200).json({
+      id: persisted.definition.id,
+      connector: persisted.definition,
+      deduped: !created,
     });
+  });
+
+  app.delete('/api/connectors/custom/:id', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+      const connector = await getCustomConnector(id);
+      if (!connector) {
+        sendError(req, res, 404, 'CONNECTOR_NOT_FOUND', `No custom connector found with id "${id}"`);
+        return;
+      }
+
+      const deletedIds = await deleteCustomConnectorFamiliesByRepresentativeIds([id]);
+      res.json({
+        ok: true,
+        deletedIds,
+        deletedCount: deletedIds.length,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete custom connector';
+      sendError(req, res, 500, 'CONNECTOR_PERSISTENCE_ERROR', message);
+    }
+  });
+
+  app.post('/api/connectors/custom/bulk-delete', async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { ids?: unknown };
+    const ids = Array.isArray(body.ids)
+      ? body.ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [];
+
+    if (!ids.length) {
+      sendError(req, res, 400, 'INVALID_INPUT', 'ids must be a non-empty array');
+      return;
+    }
+
+    try {
+      const deletedIds = await deleteCustomConnectorFamiliesByRepresentativeIds(ids);
+      res.json({
+        ok: true,
+        deletedIds,
+        deletedCount: deletedIds.length,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not bulk delete custom connectors';
+      sendError(req, res, 500, 'CONNECTOR_PERSISTENCE_ERROR', message);
+    }
   });
 
   // ─── GET /api/oauth/status ────────────────────────────────────────────────────

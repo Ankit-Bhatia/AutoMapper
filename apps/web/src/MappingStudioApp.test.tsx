@@ -4,6 +4,15 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MappingStudioApp } from './MappingStudioApp';
 
 const apiMock = vi.fn();
+const authState = {
+  user: {
+    id: 'user-1',
+    email: 'admin@example.com',
+    name: 'Admin User',
+    role: 'ADMIN',
+    orgSlug: 'default',
+  },
+};
 
 const project = {
   id: 'project-1',
@@ -74,6 +83,10 @@ vi.mock('./telemetry/errorReporting', () => ({
   setErrorReportingContext: vi.fn(),
 }));
 
+vi.mock('./auth/AuthContext', () => ({
+  useAuth: () => authState,
+}));
+
 vi.mock('./components/LandingPage', () => ({
   LandingPage: ({ onEnterStudio }: { onEnterStudio: () => void }) => (
     <button onClick={onEnterStudio}>Enter Studio</button>
@@ -81,7 +94,18 @@ vi.mock('./components/LandingPage', () => ({
 }));
 
 vi.mock('./components/Sidebar', () => ({
-  Sidebar: ({ currentStep }: { currentStep: string }) => <div data-testid="sidebar-step">{currentStep}</div>,
+  Sidebar: ({
+    currentStep,
+    onStepClick,
+  }: {
+    currentStep: string;
+    onStepClick: (step: string) => void;
+  }) => (
+    <div>
+      <div data-testid="sidebar-step">{currentStep}</div>
+      <button onClick={() => onStepClick('llm-settings')}>Open LLM Settings</button>
+    </div>
+  ),
 }));
 
 vi.mock('./components/ConnectorGrid', () => ({
@@ -154,6 +178,13 @@ vi.mock('./components/SeedSummaryCard', () => ({
 
 describe('MappingStudioApp export gating', () => {
   beforeEach(() => {
+    authState.user = {
+      id: 'user-1',
+      email: 'admin@example.com',
+      name: 'Admin User',
+      role: 'ADMIN',
+      orgSlug: 'default',
+    };
     pipelineFieldMappings = [fieldMapping];
     apiMock.mockReset();
     apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
@@ -319,6 +350,41 @@ describe('MappingStudioApp export gating', () => {
     await waitFor(() => {
       expect(screen.getByText(/acknowledge 1 formula field warning before export/i)).toBeInTheDocument();
       expect(screen.queryByText('Export Panel Visible')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows admin persona settings when an admin opens LLM settings', async () => {
+    const user = userEvent.setup();
+    render(<MappingStudioApp />);
+
+    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
+    await user.click(screen.getByRole('button', { name: 'Open LLM Settings' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('LLM / API Settings')).toBeInTheDocument();
+      expect(screen.getByText('Admin Console')).toBeInTheDocument();
+      expect(screen.getByText(/^Admin persona$/i)).toBeInTheDocument();
+    });
+  });
+
+  it('shows restricted normal-user settings view for non-admin roles', async () => {
+    authState.user = {
+      id: 'user-2',
+      email: 'user@example.com',
+      name: 'Normal User',
+      role: 'EDITOR',
+      orgSlug: 'default',
+    };
+    const user = userEvent.setup();
+    render(<MappingStudioApp />);
+
+    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
+    await user.click(screen.getByRole('button', { name: 'Open LLM Settings' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('LLM / API Settings')).toBeInTheDocument();
+      expect(screen.getByText('Normal User Workspace')).toBeInTheDocument();
+      expect(screen.getByText(/only admin users can change global llm policy/i)).toBeInTheDocument();
     });
   });
 });

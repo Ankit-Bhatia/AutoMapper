@@ -25,20 +25,22 @@ async function closeServer(server: http.Server): Promise<void> {
   });
 }
 
-async function postJson(
+async function sendJson(
   baseUrl: string,
   path: string,
-  payload: Record<string, unknown>,
+  method: 'POST' | 'DELETE',
+  payload?: Record<string, unknown>,
 ): Promise<HttpResult> {
-  const body = JSON.stringify(payload);
   return new Promise((resolve, reject) => {
     const req = http.request(
       new URL(path, baseUrl),
       {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        method,
+        headers: payload
+          ? {
+              'Content-Type': 'application/json',
+            }
+          : undefined,
       },
       (res) => {
         let raw = '';
@@ -63,7 +65,9 @@ async function postJson(
       },
     );
     req.on('error', reject);
-    req.write(body);
+    if (payload) {
+      req.write(JSON.stringify(payload));
+    }
     req.end();
   });
 }
@@ -85,10 +89,12 @@ describe('POST /api/connectors/custom', () => {
 
   it('creates a custom connector and returns 201 with custom-* id', async () => {
     const { server, baseUrl } = createTestServer();
+    const connectorName = `Core API Test ${Date.now()}`;
+    let createdId: string | null = null;
 
     try {
-      const response = await postJson(baseUrl, '/api/connectors/custom', {
-        name: 'Core API',
+      const response = await sendJson(baseUrl, '/api/connectors/custom', 'POST', {
+        name: connectorName,
         vendor: 'Acme',
         category: 'core-banking',
         description: 'Acme core REST',
@@ -115,10 +121,11 @@ describe('POST /api/connectors/custom', () => {
       expect(response.body).toMatchObject({
         id: expect.stringMatching(/^custom-/),
         connector: {
-          name: 'Core API',
+          name: connectorName,
           vendor: 'Acme',
         },
       });
+      createdId = (response.body as { id?: string }).id ?? null;
 
       const connector = (response.body as { connector?: { connectionConfig?: Record<string, unknown> } })
         .connector;
@@ -131,6 +138,9 @@ describe('POST /api/connectors/custom', () => {
       expect(connector?.connectionConfig).not.toHaveProperty('basicPassword');
       expect(connector?.connectionConfig).not.toHaveProperty('apiKey');
     } finally {
+      if (createdId) {
+        await sendJson(baseUrl, `/api/connectors/custom/${createdId}`, 'DELETE');
+      }
       await closeServer(server);
     }
   });
@@ -139,7 +149,7 @@ describe('POST /api/connectors/custom', () => {
     const { server, baseUrl } = createTestServer();
 
     try {
-      const response = await postJson(baseUrl, '/api/connectors/custom', {});
+      const response = await sendJson(baseUrl, '/api/connectors/custom', 'POST', {});
       expect(response.status).toBe(400);
       expect(response.body).toMatchObject({
         error: {
@@ -155,7 +165,7 @@ describe('POST /api/connectors/custom', () => {
     const { server, baseUrl } = createTestServer();
 
     try {
-      const response = await postJson(baseUrl, '/api/connectors/custom', {
+      const response = await sendJson(baseUrl, '/api/connectors/custom', 'POST', {
         name: 'X',
         entities: [],
       });

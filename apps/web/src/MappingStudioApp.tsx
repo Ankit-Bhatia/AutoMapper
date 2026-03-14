@@ -9,13 +9,14 @@ import { ExportPanel } from './components/ExportPanel';
 import { BulkActionBar, type BulkOperationResult } from './components/BulkActionBar';
 import { LandingPage } from './components/LandingPage';
 import { SeedSummaryCard } from './components/SeedSummaryCard';
+import { AdminControlPanel } from './components/AdminControlPanel';
 import { ProjectHistoryPanel } from './components/ProjectHistoryPanel';
-import {
-  LLMSettingsPanel,
-  type LLMConfigUpdatePayload,
-} from './components/LLMSettingsPanel';
+import { LLMSettingsPage } from './components/LLMSettingsPage';
+import { type LLMConfigUpdatePayload } from './components/LLMSettingsPanel';
+import { UserPersonaPanel } from './components/UserPersonaPanel';
 import { getActiveFormulaTargetIds } from './components/schemaIntelligence';
 import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
+import { useAuth } from './auth/AuthContext';
 import type {
   Entity,
   EntityMapping,
@@ -76,10 +77,12 @@ interface PipelineResult {
 }
 
 export function MappingStudioApp() {
+  const { user } = useAuth();
   const demoUiMode = isDemoUiMode();
   const [showLanding, setShowLanding] = useState<boolean>(true);
   // ── Workflow state ──────────────────────────────────────────────────────────
   const [step, setStep] = useState<WorkflowStep>('connect');
+  const [workflowContextStep, setWorkflowContextStep] = useState<Exclude<WorkflowStep, 'llm-settings'>>('connect');
   const [loadingSetup, setLoadingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
 
@@ -134,6 +137,12 @@ export function MappingStudioApp() {
       targetConnectorId,
     });
   }, [project?.id, sourceConnectorId, step, targetConnectorId]);
+
+  useEffect(() => {
+    if (step !== 'llm-settings') {
+      setWorkflowContextStep(step);
+    }
+  }, [step]);
 
   // ── Reload project data from API ────────────────────────────────────────────
   const loadProject = useCallback(async (pid: string) => {
@@ -543,6 +552,9 @@ export function MappingStudioApp() {
     [acknowledgedFormulaMappingIds, activeFormulaTargetIds],
   );
   const formulaExportBlocked = pendingFormulaAcknowledgementIds.length > 0;
+  const normalizedRole = (user?.role ?? '').toUpperCase();
+  const isAdmin = normalizedRole === 'ADMIN' || normalizedRole === 'OWNER';
+  const userName = user?.name || user?.email || undefined;
 
   useEffect(() => {
     const activeIds = new Set(activeFormulaTargetIds);
@@ -606,15 +618,15 @@ export function MappingStudioApp() {
                 onOpenReview={(projectId) => { void openPastProject(projectId, 'review'); }}
                 onOpenExport={(projectId) => { void openPastProject(projectId, 'export'); }}
               />
-              <LLMSettingsPanel
-                config={llmConfig}
-                usage={llmUsage}
-                loading={llmLoading}
-                saving={llmSaving}
-                error={llmError}
-                onRefresh={() => { void refreshLlmTelemetry(); }}
-                onSave={saveLlmConfig}
-              />
+              {isAdmin ? (
+                <AdminControlPanel
+                  userName={userName}
+                  projects={projectHistory}
+                  llmUsage={llmUsage}
+                />
+              ) : (
+                <UserPersonaPanel userName={userName} />
+              )}
             </div>
             <ConnectorGrid
               onProceed={handleConnectorProceed}
@@ -719,6 +731,23 @@ export function MappingStudioApp() {
           </>
         ) : null;
 
+      case 'llm-settings':
+        return (
+          <LLMSettingsPage
+            isAdmin={isAdmin}
+            userName={userName}
+            projects={projectHistory}
+            llmConfig={llmConfig}
+            llmUsage={llmUsage}
+            llmLoading={llmLoading}
+            llmSaving={llmSaving}
+            llmError={llmError}
+            onRefresh={() => { void refreshLlmTelemetry(); }}
+            onSave={saveLlmConfig}
+            onBack={() => setStep(workflowContextStep)}
+          />
+        );
+
       case 'export':
         return project ? (
           <ExportPanel
@@ -742,8 +771,11 @@ export function MappingStudioApp() {
       <div className="app-shell">
         <Sidebar
           currentStep={step}
+          workflowStep={workflowContextStep}
           onStepClick={handleStepClick}
           onReset={handleReset}
+          userName={userName}
+          userRole={user?.role}
           projectName={project?.name}
           sourceConnector={sourceConnectorName}
           targetConnector={targetConnectorName}
