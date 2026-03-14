@@ -89,7 +89,7 @@ const SF_STANDARD_FIELDS: Record<string, Record<string, string>> = {
 };
 
 /** Source field purpose → Salesforce standard field boosts */
-const PURPOSE_BOOSTS: Record<string, Record<string, number>> = {
+const _PURPOSE_BOOSTS: Record<string, Record<string, number>> = {
   primary_name: { Name: 0.15, AccountName: 0.1 },
   email: { Email: 0.18 },
   phone_main: { Phone: 0.15 },

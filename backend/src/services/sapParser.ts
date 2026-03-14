@@ -71,7 +71,7 @@ function parseJsonSchema(schema: JsonSchemaInput, systemId: string): ParsedSchem
         entityId,
         name: fld.name,
         label: fld.label,
-        dataType: (fld.dataType as any) ?? 'unknown',
+        dataType: (fld.dataType as string) ?? 'unknown',
         length: fld.length,
         precision: fld.precision,
         scale: fld.scale,
@@ -180,7 +180,7 @@ function parseCsvSchema(content: string, systemId: string): ParsedSchema {
       entityId: entityMap.get(entityName)!,
       name: cols[idx('field')] ?? 'UnknownField',
       label: cols[idx('label')] || undefined,
-      dataType: ((cols[idx('datatype')] as any) || 'unknown'),
+      dataType: ((cols[idx('datatype')] as string) || 'unknown'),
       required: (cols[idx('required')] || '').toLowerCase() === 'true',
       isKey: (cols[idx('iskey')] || '').toLowerCase() === 'true',
     });

@@ -10,7 +10,7 @@
  */
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
-import type { Field, FieldMapping, EntityMapping } from '../types.js';
+import type { Field, EntityMapping } from '../types.js';
 import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 import {
   buildSafeSchemaDescription,

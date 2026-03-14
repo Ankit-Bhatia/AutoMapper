@@ -10,7 +10,7 @@
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
 import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
-import type { Field, FieldMapping } from '../types.js';
+import type { Field } from '../types.js';
 import * as LLMGateway from './llm/LLMGateway.js';
 import { buildFieldSemanticProfile, isHardIncompatible } from '../services/fieldSemantics.js';
 

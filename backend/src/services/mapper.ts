@@ -296,7 +296,7 @@ const RISKCLAM_ENTITY_NAMES = new Set([
   'riskclam',
 ]);
 
-function isRiskClamToSfPair(sourceEntityName: string, targetEntityName: string): boolean {
+function _isRiskClamToSfPair(sourceEntityName: string, targetEntityName: string): boolean {
   const src = normalize(sourceEntityName);
   const tgt = normalize(targetEntityName);
   return RISKCLAM_ENTITY_NAMES.has(src) && (FSC_OBJECTS.has(tgt) || tgt === 'account' || tgt === 'contact');
