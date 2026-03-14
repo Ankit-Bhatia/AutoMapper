@@ -475,3 +475,19 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
 - [ ] Running `ts-node src/scripts/syncSchemaIntelligence.ts` against a modified markdown prints a clean diff
 - [ ] Script exits non-zero if drift is detected (for CI enforcement)
 - [ ] `tsc --noEmit` passes
+
+---
+
+### Workspace Consolidation — 2026-03-15 00:16:31 IST
+
+- Canonical local repository: `/Users/ankitbhatia/Desktop/AutoMapper Implementation/AutoMapper`
+- Legacy parallel clone: `/Users/ankitbhatia/Desktop/AutoMapper Implementation/AutoMapper-main`
+- Comparison result:
+  - `AutoMapper` contains the newer pushed branch head for `codex/KAN-78-schema-intelligence-ui`
+  - `AutoMapper-main` is a stale local clone and must not be used to run frontend or backend
+  - shared local-only source files already exist byte-identically in both folders
+  - extra files only present in `AutoMapper-main` are local artifacts, not canonical product source (`AutoMapper-UI-Review.docx`, `docs/agent-change-log.jsonl`, `ui-review.js`)
+- Operational rule:
+  - run frontend from `AutoMapper/apps/web`
+  - run backend from `AutoMapper/backend`
+  - do not start localhost services from `AutoMapper-main`
