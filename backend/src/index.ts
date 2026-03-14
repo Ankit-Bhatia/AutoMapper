@@ -29,6 +29,7 @@ import { setupCanonicalRoutes } from './routes/canonicalRoutes.js';
 import { activeProvider } from './agents/llm/LLMGateway.js';
 import { setupOrgRoutes } from './routes/orgRoutes.js';
 import { setupLLMRoutes } from './routes/llmRoutes.js';
+import { setupSchemaIntelligenceRoutes } from './routes/schemaIntelligenceRoutes.js';
 import { createBulkRouter } from './routes/bulkRoutes.js';
 import { authMiddleware } from './auth/authMiddleware.js';
 import { runWithLLMRuntimeContext } from './services/llmRuntimeContext.js';
@@ -245,6 +246,9 @@ setupOrgRoutes(app);
 
 // LLM config/usage routes (BYOL controls and token/call telemetry)
 setupLLMRoutes(app);
+
+// Schema intelligence reference routes
+setupSchemaIntelligenceRoutes(app);
 
 // Protect all project and field-mapping routes
 app.use('/api/projects', authMiddleware);

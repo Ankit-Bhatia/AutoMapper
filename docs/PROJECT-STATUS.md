@@ -465,3 +465,21 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
 - [ ] Running `ts-node src/scripts/syncSchemaIntelligence.ts` against a modified markdown prints a clean diff
 - [ ] Script exits non-zero if drift is detected (for CI enforcement)
 - [ ] `tsc --noEmit` passes
+
+**Implemented by Codex — 2026-03-14 12:50 IST**
+
+- Added authenticated schema intelligence APIs in `backend/src/routes/schemaIntelligenceRoutes.ts`:
+  - `GET /api/schema-intelligence/patterns`
+  - `GET /api/schema-intelligence/patterns?field=AMT_PAYMENT`
+  - `GET /api/schema-intelligence/one-to-many`
+- Registered the new routes in `backend/src/index.ts`.
+- Added report-only sync tooling in `backend/src/services/schemaIntelligenceSync.ts` and `backend/src/scripts/syncSchemaIntelligence.ts`.
+- Added backend package script: `npm run sync:schema-intelligence`.
+- Added workflow documentation in `backend/data/schema-intelligence/README.md`.
+- Added regression coverage in:
+  - `backend/src/__tests__/schemaIntelligenceRoutes.test.ts`
+  - `backend/src/__tests__/schemaIntelligenceSync.test.ts`
+- Validation completed:
+  - `npm test` → `167/167` passing
+  - `npm run build` → passing
+  - `npm run sync:schema-intelligence` → passing, diff JSON emitted to `backend/data/schema-intelligence/schema-intelligence-diff.json`
