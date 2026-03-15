@@ -12,37 +12,26 @@ import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
 import type { Field, EntityMapping } from '../types.js';
 import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
-import {
-  buildSafeSchemaDescription,
-  countRedactedFields,
-} from './llm/PIIGuard.js';
-import { llmComplete, activeProvider, buildMappingPrompt } from './llm/LLMGateway.js';
+import { countRedactedFields } from './llm/PIIGuard.js';
+import { activeProvider } from './llm/LLMGateway.js';
 import {
   DEFAULT_RETRIEVAL_TOP_K,
   retrieveCandidatesForSource,
   retrievalSummary,
   type RetrievalResult,
 } from '../services/candidateRetrieval.js';
-
-interface LLMProposal {
-  sourceField: string;
-  targetField: string;
-  confidence: number;
-  reasoning?: string;
-}
+import {
+  buildRerankerPayload,
+  runStructuredReranker,
+} from '../services/structuredReranker.js';
 
 const RETRIEVAL_TOP_K = DEFAULT_RETRIEVAL_TOP_K;
 const MIN_CONTEXT_AUTOPICK_SCORE = 0.68;
 const MIN_CONTEXT_MARGIN = 0.08;
-const MIN_LLM_CONFIDENCE = 0.72;
-const MIN_LLM_CONTEXT_SCORE = 0.35;
 const MIN_IMPROVEMENT_DELTA = 0.05;
-const CONTEXT_HINT_LIMIT = 16;
-const CONTEXT_HINT_CANDIDATES = 2;
-
-function normalize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
+const MIN_RERANKER_CONFIDENCE = 0.55;
+const RERANKER_TIMEOUT_MS = 2_500;
+const RERANKER_MAX_OUTPUT_TOKENS = 256;
 
 function clamp01(score: number): number {
   return Math.max(0, Math.min(0.99, score));
@@ -62,13 +51,6 @@ function fieldById(id: string, fields: (Field | ConnectorField)[]): Field | Conn
   return fields.find((field) => field.id === id);
 }
 
-function fieldByName(name: string, entityId: string, fields: (Field | ConnectorField)[]): Field | ConnectorField | undefined {
-  const exact = fields.find((field) => field.name === name && field.entityId === entityId);
-  if (exact) return exact;
-  const normalized = normalize(name);
-  return fields.find((field) => field.entityId === entityId && normalize(field.name) === normalized);
-}
-
 function isCandidateDecisive(
   best: RetrievalResult['rankedCandidates'][number] | undefined,
   second: RetrievalResult['rankedCandidates'][number] | undefined,
@@ -78,20 +60,60 @@ function isCandidateDecisive(
   return best.retrievalScore >= MIN_CONTEXT_AUTOPICK_SCORE && margin >= MIN_CONTEXT_MARGIN;
 }
 
-function buildContextHint(
-  sourceField: Field | ConnectorField,
-  retrieval: RetrievalResult,
-): string | null {
-  const top = retrieval.shortlist.candidates.slice(0, CONTEXT_HINT_CANDIDATES);
-  if (!top.length) return null;
-  const detail = top
-    .map((candidate) => `${candidate.targetFieldName}(${candidate.retrievalScore.toFixed(2)})`)
-    .join(', ');
-  return `${sourceField.name}: ${detail}`;
-}
-
 function buildEntityMappingIndex(entityMappings: EntityMapping[]): Map<string, EntityMapping> {
   return new Map(entityMappings.map((mapping) => [mapping.id, mapping]));
+}
+
+function buildEntityFieldIndex(
+  entityIds: string[],
+  fields: (Field | ConnectorField)[],
+): Map<string, (Field | ConnectorField)[]> {
+  const set = new Set(entityIds);
+  const index = new Map<string, (Field | ConnectorField)[]>();
+  for (const field of fields) {
+    if (!set.has(field.entityId)) continue;
+    const bucket = index.get(field.entityId) ?? [];
+    bucket.push(field);
+    index.set(field.entityId, bucket);
+  }
+  return index;
+}
+
+function siblingFieldsFor(
+  sourceField: Field | ConnectorField,
+  sourceFieldsByEntityId: Map<string, (Field | ConnectorField)[]>,
+): Array<{ field: Field | ConnectorField; relation: 'before' | 'after'; offset: number }> {
+  const fields = sourceFieldsByEntityId.get(sourceField.entityId) ?? [];
+  const index = fields.findIndex((field) => field.id === sourceField.id);
+  if (index < 0) return [];
+
+  const siblings: Array<{ field: Field | ConnectorField; relation: 'before' | 'after'; offset: number }> = [];
+  for (let offset = 2; offset >= 1; offset -= 1) {
+    const sibling = fields[index - offset];
+    if (sibling) siblings.push({ field: sibling, relation: 'before', offset });
+  }
+  for (let offset = 1; offset <= 2; offset += 1) {
+    const sibling = fields[index + offset];
+    if (sibling) siblings.push({ field: sibling, relation: 'after', offset });
+  }
+  return siblings;
+}
+
+function shouldUseReranker(
+  retrieval: RetrievalResult,
+  existingTargetFieldId: string,
+): boolean {
+  if (retrieval.shortlist.candidates.length < 2) return false;
+
+  const best = retrieval.rankedCandidates[0];
+  const second = retrieval.rankedCandidates[1];
+  if (!best) return false;
+
+  return (
+    !isCandidateDecisive(best, second)
+    || best.targetField.id !== existingTargetFieldId
+    || best.semanticMode === 'intent'
+  );
 }
 
 export class MappingProposalAgent extends AgentBase {
@@ -112,21 +134,22 @@ export class MappingProposalAgent extends AgentBase {
 
     const entityMappingById = buildEntityMappingIndex(entityMappings);
 
-    const targetFieldsByEntityId = new Map<string, (Field | ConnectorField)[]>();
     const entityNamesById = new Map<string, string>();
-    for (const targetEntity of targetEntities) {
-      entityNamesById.set(targetEntity.id, targetEntity.name);
-      targetFieldsByEntityId.set(
-        targetEntity.id,
-        fields.filter((field) => field.entityId === targetEntity.id),
-      );
-    }
+    for (const targetEntity of targetEntities) entityNamesById.set(targetEntity.id, targetEntity.name);
     for (const sourceEntity of sourceEntities) {
       entityNamesById.set(sourceEntity.id, sourceEntity.name);
     }
 
+    const targetFieldsByEntityId = buildEntityFieldIndex(
+      targetEntities.map((entity) => entity.id),
+      fields,
+    );
+    const sourceFieldsByEntityId = buildEntityFieldIndex(
+      sourceEntities.map((entity) => entity.id),
+      fields,
+    );
+
     const rankingByMappingId = new Map<string, RetrievalResult>();
-    const contextHints: string[] = [];
 
     for (const mapping of fieldMappings) {
       const sourceField = fieldById(mapping.sourceFieldId, fields);
@@ -142,10 +165,6 @@ export class MappingProposalAgent extends AgentBase {
       if (!retrieval.rankedCandidates.length) continue;
 
       rankingByMappingId.set(mapping.id, retrieval);
-      if (contextHints.length < CONTEXT_HINT_LIMIT) {
-        const hint = buildContextHint(sourceField, retrieval);
-        if (hint) contextHints.push(hint);
-      }
     }
 
     this.info(
@@ -158,55 +177,7 @@ export class MappingProposalAgent extends AgentBase {
       },
     );
 
-    // Build safe schema descriptions (PII stripped)
-    const srcDesc = buildSafeSchemaDescription(sourceEntities, fields.filter((field) =>
-      sourceEntities.some((entity) => entity.id === field.entityId),
-    ));
-    const tgtDesc = buildSafeSchemaDescription(targetEntities, fields.filter((field) =>
-      targetEntities.some((entity) => entity.id === field.entityId),
-    ));
-
-    const highConfidenceHints: string[] = fieldMappings
-      .filter((mapping) => mapping.confidence >= 0.85)
-      .slice(0, 5)
-      .map((mapping) => {
-        const sourceName = fieldById(mapping.sourceFieldId, fields)?.name ?? '?';
-        const targetName = fieldById(mapping.targetFieldId, fields)?.name ?? '?';
-        return `${sourceName} → ${targetName} (${mapping.confidence.toFixed(2)})`;
-      });
-
-    let proposals: LLMProposal[] = [];
-    if (provider !== 'heuristic') {
-      const messages = buildMappingPrompt(
-        srcDesc,
-        tgtDesc,
-        [...highConfidenceHints, ...contextHints].slice(0, 32),
-      );
-
-      this.info(context, 'llm_call', `Sending PII-safe schema to ${provider}...`);
-
-      try {
-        const response = await llmComplete(messages);
-        if (response) {
-          const jsonMatch = response.content.match(/\[[\s\S]*\]/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]) as unknown;
-            if (Array.isArray(parsed)) {
-              proposals = parsed as LLMProposal[];
-            }
-          }
-
-          this.info(
-            context,
-            'llm_response',
-            `Received ${proposals.length} mapping proposals from ${response.provider} (${response.tokensUsed ?? '?'} tokens)`,
-            { provider: response.provider, tokensUsed: response.tokensUsed },
-          );
-        }
-      } catch (error) {
-        this.info(context, 'llm_error', `LLM call failed: ${String(error)} — using context ranker only`);
-      }
-    } else {
+    if (provider === 'heuristic') {
       this.info(
         context,
         'context_mode',
@@ -225,6 +196,7 @@ export class MappingProposalAgent extends AgentBase {
       };
     });
     let improved = 0;
+    let reranked = 0;
     const steps: AgentStep[] = [];
 
     // Pass 1: deterministic context ranker.
@@ -303,79 +275,110 @@ export class MappingProposalAgent extends AgentBase {
       }
     }
 
-    // Pass 2: LLM suggestions gated by context quality.
-    for (const proposal of proposals) {
-      if (proposal.confidence < MIN_LLM_CONFIDENCE) continue;
-
-      for (const entityMapping of entityMappings) {
-        const sourceField = fieldByName(proposal.sourceField, entityMapping.sourceEntityId, fields);
-        const targetField = fieldByName(proposal.targetField, entityMapping.targetEntityId, fields);
-        if (!sourceField || !targetField) continue;
-
-        const existingIndex = updatedMappings.findIndex(
-          (mapping) => mapping.entityMappingId === entityMapping.id && mapping.sourceFieldId === sourceField.id,
-        );
-        if (existingIndex < 0) continue;
-
-        const existing = updatedMappings[existingIndex];
+    // Pass 2: shortlist-only structured reranker.
+    if (provider !== 'heuristic') {
+      for (let index = 0; index < updatedMappings.length; index += 1) {
+        const existing = updatedMappings[index];
         if (existing.status === 'accepted' || existing.status === 'rejected') continue;
 
         const retrieval = rankingByMappingId.get(existing.id);
-        const contextCandidate = retrieval?.rankedCandidates.find((candidate) => candidate.targetField.id === targetField.id);
-        const contextScore = contextCandidate?.retrievalScore
-          ?? retrieveCandidatesForSource(sourceField, [targetField], {
-            embeddingCache: context.embeddingCache,
-            entityNamesById,
-            topK: 1,
-          }).rankedCandidates[0]?.retrievalScore
-          ?? 0;
-        if (contextScore < MIN_LLM_CONTEXT_SCORE) continue;
+        if (!retrieval || !shouldUseReranker(retrieval, existing.targetFieldId)) continue;
 
-        const mergedConfidence = clamp01((0.6 * proposal.confidence) + (0.4 * contextScore));
-        const changesTarget = existing.targetFieldId !== targetField.id;
-        const improvesConfidence = mergedConfidence >= existing.confidence + MIN_IMPROVEMENT_DELTA;
-        if (!changesTarget && !improvesConfidence) continue;
+        const sourceField = fieldById(existing.sourceFieldId, fields);
+        const entityMapping = entityMappingById.get(existing.entityMappingId);
+        if (!sourceField || !entityMapping) continue;
 
-        const stepAction = changesTarget ? 'llm_retarget' : 'llm_rescore';
-        const step: Omit<AgentStep, 'agentName'> = {
-          action: stepAction,
-          detail: `LLM proposed ${proposal.sourceField} → ${proposal.targetField} (${proposal.confidence.toFixed(2)}), gated score ${mergedConfidence.toFixed(2)}`,
-          fieldMappingId: existing.id,
-          before: { targetFieldId: existing.targetFieldId, confidence: existing.confidence },
-          after: { targetFieldId: targetField.id, confidence: mergedConfidence },
-          durationMs: 0,
-          metadata: {
-            provider,
-            reasoning: proposal.reasoning,
-            llmConfidence: proposal.confidence,
-            contextScore,
-          },
-        };
-        this.emit(context, step);
-        steps.push({ agentName: this.name, ...step });
+        const candidateFields = retrieval.shortlist.candidates
+          .map((candidate) => fieldById(candidate.targetFieldId, fields))
+          .filter((candidate): candidate is Field | ConnectorField => Boolean(candidate));
+        if (candidateFields.length < 2) continue;
 
-        updatedMappings[existingIndex] = {
-          ...existing,
-          targetFieldId: targetField.id,
-          confidence: Math.max(existing.confidence, mergedConfidence),
-          retrievalShortlist: retrieval?.shortlist ?? existing.retrievalShortlist,
-          rationale: appendRationaleOnce(
-            existing.rationale,
-            proposal.reasoning ? `llm-gated(${proposal.reasoning})` : 'llm-gated suggestion',
-          ),
-        };
+        const payload = buildRerankerPayload({
+          sourceField,
+          siblingFields: siblingFieldsFor(sourceField, sourceFieldsByEntityId),
+          candidateFields,
+          shortlist: retrieval.shortlist,
+          currentTargetFieldId: existing.targetFieldId,
+          sourceSystemType: context.sourceSystemType,
+          targetSystemType: context.targetSystemType,
+          sourceEntityName: entityNamesById.get(entityMapping.sourceEntityId) ?? entityMapping.sourceEntityId,
+          targetEntityName: entityNamesById.get(entityMapping.targetEntityId) ?? entityMapping.targetEntityId,
+          entityConfidence: entityMapping.confidence,
+        });
 
-        improved += 1;
+        try {
+          const rerankResult = await runStructuredReranker(payload, {
+            timeoutMs: RERANKER_TIMEOUT_MS,
+            retries: 1,
+            maxOutputTokens: RERANKER_MAX_OUTPUT_TOKENS,
+          });
+          if (!rerankResult) continue;
+
+          const { decision, provider: rerankerProvider } = rerankResult;
+          if (!decision || decision.confidence < MIN_RERANKER_CONFIDENCE) continue;
+
+          const selectedTargetField = fieldById(decision.selectedTargetFieldId, fields);
+          const selectedCandidate = retrieval.rankedCandidates.find(
+            (candidate) => candidate.targetField.id === decision.selectedTargetFieldId,
+          );
+          if (!selectedTargetField || !selectedCandidate) continue;
+
+          const combinedConfidence = clamp01((0.65 * decision.confidence) + (0.35 * selectedCandidate.retrievalScore));
+          const changesTarget = existing.targetFieldId !== selectedTargetField.id;
+          const improvesConfidence = combinedConfidence >= existing.confidence + MIN_IMPROVEMENT_DELTA;
+          const nextConfidence = changesTarget ? combinedConfidence : Math.max(existing.confidence, combinedConfidence);
+          const step: Omit<AgentStep, 'agentName'> = {
+            action: 'reranker_complete',
+            detail: `Structured reranker selected ${selectedTargetField.name} for ${sourceField.name} (${decision.confidence.toFixed(2)})`,
+            fieldMappingId: existing.id,
+            before: { targetFieldId: existing.targetFieldId, confidence: existing.confidence },
+            after: { targetFieldId: selectedTargetField.id, confidence: nextConfidence },
+            durationMs: 0,
+            metadata: {
+              provider: rerankerProvider,
+              candidateCount: payload.candidates.length,
+              top1Confidence: decision.confidence,
+              evidenceSignals: decision.evidenceSignals,
+              reasoning: decision.reasoning,
+            },
+          };
+          this.emit(context, step);
+          steps.push({ agentName: this.name, ...step });
+
+          updatedMappings[index] = {
+            ...existing,
+            targetFieldId: selectedTargetField.id,
+            confidence: nextConfidence,
+            retrievalShortlist: retrieval.shortlist,
+            rerankerDecision: decision,
+            rationale: appendRationaleOnce(
+              existing.rationale,
+              `reranker(${decision.evidenceSignals.join(', ') || 'retrieval'}${decision.reasoning ? `: ${decision.reasoning}` : ''})`,
+            ),
+          };
+
+          reranked += 1;
+          if (changesTarget || improvesConfidence) {
+            improved += 1;
+          }
+        } catch (error) {
+          this.info(
+            context,
+            'reranker_error',
+            `Structured reranker failed for ${sourceField.name}: ${String(error)} — keeping retrieval result`,
+            { fieldMappingId: existing.id, provider },
+          );
+        }
       }
     }
 
     const summary: Omit<AgentStep, 'agentName'> = {
       action: 'mapping_proposal_complete',
-      detail: `${provider === 'heuristic' ? 'Context ranker' : 'LLM + context ranker'} applied — ${improved} mappings improved`,
+      detail: `${provider === 'heuristic' ? 'Context ranker' : 'Context ranker + shortlist reranker'} applied — ${improved} mappings improved`,
       durationMs: Date.now() - start,
       metadata: {
-        proposalCount: proposals.length,
         improved,
+        reranked,
         provider,
         shortlistsBuilt: rankingByMappingId.size,
         topK: RETRIEVAL_TOP_K,
