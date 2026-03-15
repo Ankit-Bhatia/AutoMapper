@@ -42,6 +42,22 @@ export interface EntityMapping {
   rationale: string;
 }
 
+export type RetrievalSemanticMode = 'embedding' | 'alias' | 'intent';
+
+export interface RetrievalShortlistCandidate {
+  targetFieldId: string;
+  targetFieldName: string;
+  retrievalScore: number;
+  semanticMode: RetrievalSemanticMode;
+  evidence: string[];
+}
+
+export interface RetrievalShortlist {
+  sourceFieldId: string;
+  topK: number;
+  candidates: RetrievalShortlistCandidate[];
+}
+
 export interface FieldMapping {
   id: string;
   entityMappingId: string;
@@ -52,6 +68,7 @@ export interface FieldMapping {
   rationale: string;
   status: 'suggested' | 'accepted' | 'rejected' | 'modified';
   seedSource?: 'derived' | 'canonical' | 'agent';
+  retrievalShortlist?: RetrievalShortlist;
 }
 
 export interface SeedSummary {

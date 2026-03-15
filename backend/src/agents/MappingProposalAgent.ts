@@ -17,14 +17,12 @@ import {
   countRedactedFields,
 } from './llm/PIIGuard.js';
 import { llmComplete, activeProvider, buildMappingPrompt } from './llm/LLMGateway.js';
-import { jaccard } from '../utils/stringSim.js';
 import {
-  buildFieldSemanticProfile,
-  hybridSemanticSimilarity,
-  isHardIncompatible,
-  semanticTypeScore,
-} from '../services/fieldSemantics.js';
-import { cosineSimilarity, type EmbeddingCache } from '../services/EmbeddingService.js';
+  DEFAULT_RETRIEVAL_TOP_K,
+  retrieveCandidatesForSource,
+  retrievalSummary,
+  type RetrievalResult,
+} from '../services/candidateRetrieval.js';
 
 interface LLMProposal {
   sourceField: string;
@@ -33,14 +31,7 @@ interface LLMProposal {
   reasoning?: string;
 }
 
-interface RankedCandidate {
-  targetField: Field | ConnectorField;
-  score: number;
-  semanticScore: number;
-  semanticMode: 'embed' | 'concept' | 'intent';
-  reasons: string[];
-}
-
+const RETRIEVAL_TOP_K = DEFAULT_RETRIEVAL_TOP_K;
 const MIN_CONTEXT_AUTOPICK_SCORE = 0.68;
 const MIN_CONTEXT_MARGIN = 0.08;
 const MIN_LLM_CONFIDENCE = 0.72;
@@ -57,8 +48,14 @@ function clamp01(score: number): number {
   return Math.max(0, Math.min(0.99, score));
 }
 
-function appendRationale(existing: string, detail: string): string {
+function appendRationale(existing: string | undefined, detail: string): string {
   return existing ? `${existing} | ${detail}` : detail;
+}
+
+function appendRationaleOnce(existing: string | undefined, detail: string | null): string {
+  const current = existing ?? '';
+  if (!detail) return current;
+  return current.includes(detail) ? current : appendRationale(current, detail);
 }
 
 function fieldById(id: string, fields: (Field | ConnectorField)[]): Field | ConnectorField | undefined {
@@ -72,120 +69,23 @@ function fieldByName(name: string, entityId: string, fields: (Field | ConnectorF
   return fields.find((field) => field.entityId === entityId && normalize(field.name) === normalized);
 }
 
-function complianceIntersectionScore(source: Field | ConnectorField, target: Field | ConnectorField): number {
-  const sourceTags = source.complianceTags ?? [];
-  const targetTags = target.complianceTags ?? [];
-
-  if (!sourceTags.length && !targetTags.length) return 0.7;
-  if (!sourceTags.length || !targetTags.length) return 0.4;
-
-  const sourceSet = new Set(sourceTags);
-  const shared = targetTags.filter((tag) => sourceSet.has(tag));
-  if (shared.length > 0) return 1;
-  return 0.15;
-}
-
-function scoreTargetCandidate(
-  sourceField: Field | ConnectorField,
-  targetField: Field | ConnectorField,
-  embeddingCache?: EmbeddingCache,
-): RankedCandidate {
-  const sourceProfile = buildFieldSemanticProfile(sourceField);
-  const targetProfile = buildFieldSemanticProfile(targetField);
-  const sourceText = sourceProfile.text;
-  const targetText = targetProfile.text;
-
-  const nameScore = jaccard(sourceText, targetText);
-  const typeScore = semanticTypeScore(sourceProfile, targetField.dataType);
-  let embeddingScore: number | undefined;
-  if (embeddingCache) {
-    const sourceVector = embeddingCache.get(sourceField.id);
-    const targetVector = embeddingCache.get(targetField.id);
-    if (sourceVector && targetVector) {
-      embeddingScore = cosineSimilarity(sourceVector, targetVector);
-    }
-  }
-  const semanticBlend = hybridSemanticSimilarity(sourceProfile, targetProfile, embeddingScore);
-  const complianceScore = complianceIntersectionScore(sourceField, targetField);
-  const canonicalScore =
-    sourceField.iso20022Name && targetField.iso20022Name && sourceField.iso20022Name === targetField.iso20022Name
-      ? 1
-      : 0;
-  const incompatible = isHardIncompatible(sourceProfile, targetProfile);
-  const typeWeight = sourceProfile.typeReliability >= 0.8 ? 0.16 : 0.08;
-
-  const sourceTags = sourceField.complianceTags ?? [];
-  const targetTags = targetField.complianceTags ?? [];
-  const sourceGlba = sourceTags.includes('GLBA_NPI');
-  const sourcePci = sourceTags.includes('PCI_CARD');
-  const targetGlba = targetTags.includes('GLBA_NPI');
-  const targetPci = targetTags.includes('PCI_CARD');
-
-  const compliancePenalty =
-    (sourceGlba && !targetGlba ? 0.16 : 0) +
-    (sourcePci && !targetPci ? 0.22 : 0);
-
-  let score =
-    (0.30 * semanticBlend.score) +
-    (0.22 * nameScore) +
-    (typeWeight * typeScore) +
-    (0.16 * canonicalScore) +
-    (0.12 * complianceScore) -
-    compliancePenalty;
-
-  if (canonicalScore === 1 && typeScore >= 0.75 && semanticBlend.score >= 0.6) {
-    score = Math.max(score, 0.8);
-  }
-  if (semanticBlend.score >= 0.8 && typeScore >= 0.75) {
-    score += 0.08;
-  }
-  if (incompatible) {
-    score -= 0.45;
-  }
-
-  const reasons: string[] = [];
-  if (semanticBlend.score >= 0.6) reasons.push(`semantic ${semanticBlend.score.toFixed(2)} (${semanticBlend.mode})`);
-  if (nameScore >= 0.45) reasons.push(`name ${nameScore.toFixed(2)}`);
-  if (typeScore >= 0.75) reasons.push(`type ${typeScore.toFixed(2)}`);
-  if (canonicalScore === 1) reasons.push('iso20022 match');
-  if (complianceScore >= 0.8) reasons.push('compliance aligned');
-  if (semanticBlend.mode === 'embed' && typeof embeddingScore === 'number') reasons.push(`embedding ${embeddingScore.toFixed(2)}`);
-  if (compliancePenalty > 0) reasons.push('compliance mismatch penalty');
-  if (incompatible) reasons.push('hard incompatibility gate');
-
-  return {
-    targetField,
-    score: clamp01(score),
-    semanticScore: semanticBlend.score,
-    semanticMode: semanticBlend.mode,
-    reasons,
-  };
-}
-
-function rankTargetsForSource(
-  sourceField: Field | ConnectorField,
-  targetFields: (Field | ConnectorField)[],
-  embeddingCache?: EmbeddingCache,
-): RankedCandidate[] {
-  return targetFields
-    .map((targetField) => scoreTargetCandidate(sourceField, targetField, embeddingCache))
-    .sort((a, b) => b.score - a.score);
-}
-
-function isCandidateDecisive(best: RankedCandidate | undefined, second: RankedCandidate | undefined): boolean {
+function isCandidateDecisive(
+  best: RetrievalResult['rankedCandidates'][number] | undefined,
+  second: RetrievalResult['rankedCandidates'][number] | undefined,
+): boolean {
   if (!best) return false;
-  const margin = best.score - (second?.score ?? 0);
-  return best.score >= MIN_CONTEXT_AUTOPICK_SCORE && margin >= MIN_CONTEXT_MARGIN;
+  const margin = best.retrievalScore - (second?.retrievalScore ?? 0);
+  return best.retrievalScore >= MIN_CONTEXT_AUTOPICK_SCORE && margin >= MIN_CONTEXT_MARGIN;
 }
 
 function buildContextHint(
   sourceField: Field | ConnectorField,
-  candidates: RankedCandidate[],
+  retrieval: RetrievalResult,
 ): string | null {
-  const top = candidates.slice(0, CONTEXT_HINT_CANDIDATES);
+  const top = retrieval.shortlist.candidates.slice(0, CONTEXT_HINT_CANDIDATES);
   if (!top.length) return null;
   const detail = top
-    .map((candidate) => `${candidate.targetField.name}(${candidate.score.toFixed(2)})`)
+    .map((candidate) => `${candidate.targetFieldName}(${candidate.retrievalScore.toFixed(2)})`)
     .join(', ');
   return `${sourceField.name}: ${detail}`;
 }
@@ -213,14 +113,19 @@ export class MappingProposalAgent extends AgentBase {
     const entityMappingById = buildEntityMappingIndex(entityMappings);
 
     const targetFieldsByEntityId = new Map<string, (Field | ConnectorField)[]>();
+    const entityNamesById = new Map<string, string>();
     for (const targetEntity of targetEntities) {
+      entityNamesById.set(targetEntity.id, targetEntity.name);
       targetFieldsByEntityId.set(
         targetEntity.id,
         fields.filter((field) => field.entityId === targetEntity.id),
       );
     }
+    for (const sourceEntity of sourceEntities) {
+      entityNamesById.set(sourceEntity.id, sourceEntity.name);
+    }
 
-    const rankingByMappingId = new Map<string, RankedCandidate[]>();
+    const rankingByMappingId = new Map<string, RetrievalResult>();
     const contextHints: string[] = [];
 
     for (const mapping of fieldMappings) {
@@ -229,15 +134,29 @@ export class MappingProposalAgent extends AgentBase {
       if (!sourceField || !entityMapping) continue;
 
       const targetFields = targetFieldsByEntityId.get(entityMapping.targetEntityId) ?? [];
-      const ranked = rankTargetsForSource(sourceField, targetFields, context.embeddingCache);
-      if (!ranked.length) continue;
+      const retrieval = retrieveCandidatesForSource(sourceField, targetFields, {
+        embeddingCache: context.embeddingCache,
+        entityNamesById,
+        topK: RETRIEVAL_TOP_K,
+      });
+      if (!retrieval.rankedCandidates.length) continue;
 
-      rankingByMappingId.set(mapping.id, ranked);
+      rankingByMappingId.set(mapping.id, retrieval);
       if (contextHints.length < CONTEXT_HINT_LIMIT) {
-        const hint = buildContextHint(sourceField, ranked);
+        const hint = buildContextHint(sourceField, retrieval);
         if (hint) contextHints.push(hint);
       }
     }
+
+    this.info(
+      context,
+      'retrieval_ready',
+      `Built top-${RETRIEVAL_TOP_K} candidate shortlists for ${rankingByMappingId.size} source fields`,
+      {
+        shortlistsBuilt: rankingByMappingId.size,
+        topK: RETRIEVAL_TOP_K,
+      },
+    );
 
     // Build safe schema descriptions (PII stripped)
     const srcDesc = buildSafeSchemaDescription(sourceEntities, fields.filter((field) =>
@@ -296,7 +215,15 @@ export class MappingProposalAgent extends AgentBase {
       );
     }
 
-    const updatedMappings = [...fieldMappings];
+    const updatedMappings = fieldMappings.map((mapping) => {
+      const retrieval = rankingByMappingId.get(mapping.id);
+      if (!retrieval) return mapping;
+      return {
+        ...mapping,
+        retrievalShortlist: retrieval.shortlist,
+        rationale: appendRationaleOnce(mapping.rationale, retrievalSummary(retrieval)),
+      };
+    });
     let improved = 0;
     const steps: AgentStep[] = [];
 
@@ -305,29 +232,29 @@ export class MappingProposalAgent extends AgentBase {
       const existing = updatedMappings[index];
       if (existing.status === 'accepted' || existing.status === 'rejected') continue;
 
-      const ranked = rankingByMappingId.get(existing.id);
-      if (!ranked || !ranked.length) continue;
+      const retrieval = rankingByMappingId.get(existing.id);
+      if (!retrieval || !retrieval.rankedCandidates.length) continue;
 
-      const best = ranked[0];
-      const second = ranked[1];
-      const current = ranked.find((candidate) => candidate.targetField.id === existing.targetFieldId);
+      const best = retrieval.rankedCandidates[0];
+      const second = retrieval.rankedCandidates[1];
+      const current = retrieval.rankedCandidates.find((candidate) => candidate.targetField.id === existing.targetFieldId);
 
       const shouldRetarget =
         isCandidateDecisive(best, second) &&
         best !== undefined &&
         best.targetField.id !== existing.targetFieldId &&
-        (best.score >= existing.confidence + MIN_IMPROVEMENT_DELTA || existing.confidence < 0.62);
+        (best.retrievalScore >= existing.confidence + MIN_IMPROVEMENT_DELTA || existing.confidence < 0.62);
 
       if (shouldRetarget && best) {
         const sourceName = fieldById(existing.sourceFieldId, fields)?.name ?? existing.sourceFieldId;
         const step: Omit<AgentStep, 'agentName'> = {
-          action: 'context_retarget',
-          detail: `Context ranker selected ${best.targetField.name} for ${sourceName} (${best.score.toFixed(2)})`,
+          action: 'retrieval_retarget',
+          detail: `Retrieval layer selected ${best.targetField.name} for ${sourceName} (${best.retrievalScore.toFixed(2)})`,
           fieldMappingId: existing.id,
           before: { targetFieldId: existing.targetFieldId, confidence: existing.confidence },
-          after: { targetFieldId: best.targetField.id, confidence: best.score },
+          after: { targetFieldId: best.targetField.id, confidence: best.retrievalScore },
           durationMs: 0,
-          metadata: { reasons: best.reasons },
+          metadata: { reasons: best.evidence },
         };
         this.emit(context, step);
         steps.push({ agentName: this.name, ...step });
@@ -335,25 +262,29 @@ export class MappingProposalAgent extends AgentBase {
         updatedMappings[index] = {
           ...existing,
           targetFieldId: best.targetField.id,
-          confidence: Math.max(existing.confidence, best.score),
-          rationale: appendRationale(existing.rationale, `context-ranker(${best.reasons.join(', ') || 'schema signal'})`),
+          confidence: Math.max(existing.confidence, best.retrievalScore),
+          retrievalShortlist: retrieval.shortlist,
+          rationale: appendRationaleOnce(
+            existing.rationale,
+            `retrieval-ranker(${best.evidence.join(', ') || 'schema signal'})`,
+          ),
         };
 
         improved += 1;
         continue;
       }
 
-      const currentScore = current?.score ?? 0;
+      const currentScore = current?.retrievalScore ?? 0;
       if (currentScore >= existing.confidence + MIN_IMPROVEMENT_DELTA) {
         const sourceName = fieldById(existing.sourceFieldId, fields)?.name ?? existing.sourceFieldId;
         const step: Omit<AgentStep, 'agentName'> = {
-          action: 'context_rescore',
-          detail: `Context ranker improved confidence for ${sourceName} to ${currentScore.toFixed(2)}`,
+          action: 'retrieval_rescore',
+          detail: `Retrieval layer improved confidence for ${sourceName} to ${currentScore.toFixed(2)}`,
           fieldMappingId: existing.id,
           before: { confidence: existing.confidence },
           after: { confidence: currentScore },
           durationMs: 0,
-          metadata: { reasons: current?.reasons ?? [] },
+          metadata: { reasons: current?.evidence ?? [] },
         };
         this.emit(context, step);
         steps.push({ agentName: this.name, ...step });
@@ -361,7 +292,11 @@ export class MappingProposalAgent extends AgentBase {
         updatedMappings[index] = {
           ...existing,
           confidence: currentScore,
-          rationale: appendRationale(existing.rationale, `context-ranker(${(current?.reasons ?? []).join(', ') || 'schema signal'})`),
+          retrievalShortlist: retrieval.shortlist,
+          rationale: appendRationaleOnce(
+            existing.rationale,
+            `retrieval-ranker(${(current?.evidence ?? []).join(', ') || 'schema signal'})`,
+          ),
         };
 
         improved += 1;
@@ -385,9 +320,15 @@ export class MappingProposalAgent extends AgentBase {
         const existing = updatedMappings[existingIndex];
         if (existing.status === 'accepted' || existing.status === 'rejected') continue;
 
-        const ranked = rankingByMappingId.get(existing.id) ?? [];
-        const contextCandidate = ranked.find((candidate) => candidate.targetField.id === targetField.id);
-        const contextScore = contextCandidate?.score ?? scoreTargetCandidate(sourceField, targetField, context.embeddingCache).score;
+        const retrieval = rankingByMappingId.get(existing.id);
+        const contextCandidate = retrieval?.rankedCandidates.find((candidate) => candidate.targetField.id === targetField.id);
+        const contextScore = contextCandidate?.retrievalScore
+          ?? retrieveCandidatesForSource(sourceField, [targetField], {
+            embeddingCache: context.embeddingCache,
+            entityNamesById,
+            topK: 1,
+          }).rankedCandidates[0]?.retrievalScore
+          ?? 0;
         if (contextScore < MIN_LLM_CONTEXT_SCORE) continue;
 
         const mergedConfidence = clamp01((0.6 * proposal.confidence) + (0.4 * contextScore));
@@ -417,7 +358,8 @@ export class MappingProposalAgent extends AgentBase {
           ...existing,
           targetFieldId: targetField.id,
           confidence: Math.max(existing.confidence, mergedConfidence),
-          rationale: appendRationale(
+          retrievalShortlist: retrieval?.shortlist ?? existing.retrievalShortlist,
+          rationale: appendRationaleOnce(
             existing.rationale,
             proposal.reasoning ? `llm-gated(${proposal.reasoning})` : 'llm-gated suggestion',
           ),
@@ -435,7 +377,8 @@ export class MappingProposalAgent extends AgentBase {
         proposalCount: proposals.length,
         improved,
         provider,
-        rankedMappings: rankingByMappingId.size,
+        shortlistsBuilt: rankingByMappingId.size,
+        topK: RETRIEVAL_TOP_K,
       },
     };
     this.emit(context, summary);
