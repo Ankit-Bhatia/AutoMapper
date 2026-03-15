@@ -37,6 +37,13 @@ interface CandidateScore {
   sourceProfile: FieldSemanticProfile;
 }
 
+function retrievalShortlistContainsTarget(
+  targetFieldId: string,
+  shortlist: FieldMapping['retrievalShortlist'] | undefined,
+): boolean {
+  return Boolean(shortlist?.candidates.some((candidate) => candidate.targetFieldId === targetFieldId));
+}
+
 export async function suggestMappings(input: {
   project: MappingProject;
   sourceEntities: Entity[];
@@ -124,15 +131,16 @@ export async function suggestMappings(input: {
       let usedAiCandidate = false;
       if (aiField) {
         const aiTarget = targetFields.find((t) => normalize(t.name) === normalize(aiField.targetFieldName));
-        if (aiTarget) {
-          const aiCandidate = scoreTargetCandidate(
-            sourceEntity.name,
-            targetEntity.name,
-            sourceField,
-            aiTarget,
-            sourceProfile,
-            entityNamesById,
-          );
+        if (aiTarget && retrievalShortlistContainsTarget(aiTarget.id, retrieval.shortlist)) {
+          const aiCandidate = candidateScores.find((candidate) => candidate.targetField.id === aiTarget.id)
+            ?? scoreTargetCandidate(
+              sourceEntity.name,
+              targetEntity.name,
+              sourceField,
+              aiTarget,
+              sourceProfile,
+              entityNamesById,
+            );
           if (!aiCandidate.incompatible && aiCandidate.base >= minThreshold * 0.85) {
             chosen = aiCandidate;
             usedAiCandidate = true;

@@ -63,7 +63,6 @@ function isCandidateDecisive(
 function buildEntityMappingIndex(entityMappings: EntityMapping[]): Map<string, EntityMapping> {
   return new Map(entityMappings.map((mapping) => [mapping.id, mapping]));
 }
-
 function buildEntityFieldIndex(
   entityIds: string[],
   fields: (Field | ConnectorField)[],
