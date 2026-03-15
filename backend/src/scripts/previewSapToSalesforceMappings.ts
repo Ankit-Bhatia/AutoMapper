@@ -127,7 +127,7 @@ function groupMappingsForPreview(
   fieldMappings: FieldMapping[],
   entities: Entity[],
   fields: Field[],
-  validation: ValidationReport,
+  _validation: ValidationReport,
 ) {
   const entityById = new Map(entities.map((e) => [e.id, e]));
   const fieldById = new Map(fields.map((f) => [f.id, f]));
@@ -247,4 +247,3 @@ main().catch((err) => {
   console.error('Failed to generate SAP → Salesforce mapping preview:', err);
   process.exitCode = 1;
 });
-

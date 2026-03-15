@@ -11,7 +11,7 @@
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep, ComplianceIssue, ComplianceReport } from './types.js';
 import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
-import type { Field, FieldMapping } from '../types.js';
+import type { Field } from '../types.js';
 
 const PCI_SECURE_TARGET_PATTERNS = /encrypted|vault|token|pci/i;
 const AUDIT_REQUIRING_TAGS: ComplianceTag[] = ['BSA_AML', 'FFIEC_AUDIT'];
