@@ -51,9 +51,15 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: |
+            backend/package-lock.json
+            package-lock.json
 
-      - name: Install dependencies
+      - name: Install monorepo workspace dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Install backend dependencies
         run: npm ci
 
       - name: Generate Prisma client
