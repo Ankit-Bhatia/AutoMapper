@@ -492,3 +492,44 @@ Validation:
 - `cd backend && ../node_modules/.bin/tsc --noEmit` -> passing
 - `cd backend && ./node_modules/.bin/vitest run src/__tests__/embeddingService.test.ts src/__tests__/mapper.test.ts src/__tests__/agents.test.ts` -> passing (`58/58`)
 - `cd backend && ./node_modules/.bin/vitest run --run` -> passing (`167/167`)
+
+### 2026-03-16 02:20 IST — KAN-86 rebuilt cleanly from merged KAN-85 baseline
+
+Implemented by Codex.
+
+Scope completed:
+- Added a dedicated top-K retrieval layer in `backend/src/services/candidateRetrieval.ts`.
+- Fixed `K = 5` for this ticket and exposed it only as an optional test override at call sites.
+- Persisted structured retrieval evidence directly on `FieldMapping.retrievalShortlist` in the shared contracts, backend types, Prisma schema, DB store, and FS store.
+- Reworked `MappingProposalAgent` to build retrieval shortlists once, emit a single `retrieval_ready` event, and reuse the structured shortlist through deterministic ranking and LLM-gated refinement.
+- Reworked the initial `suggestMappings` path to seed every suggested field mapping with the same structured retrieval shortlist.
+- Added regression coverage for top-K boundary, descending ranking order, unknown-intent promotion via alias evidence, event emission, and persistence reload.
+
+Files changed:
+- `backend/src/services/candidateRetrieval.ts`
+- `backend/src/services/mapper.ts`
+- `backend/src/agents/MappingProposalAgent.ts`
+- `backend/src/db/dbStore.ts`
+- `backend/src/utils/fsStore.ts`
+- `backend/src/types.ts`
+- `packages/contracts/types.ts`
+- `backend/prisma/schema.prisma`
+- `backend/prisma/migrations/20260315211500_add_field_mapping_retrieval_shortlist/migration.sql`
+- `backend/src/__tests__/candidateRetrieval.test.ts`
+- `backend/src/__tests__/retrievalPersistence.test.ts`
+- `backend/src/__tests__/agents.test.ts`
+- `backend/src/__tests__/mapper.test.ts`
+
+Validation:
+- `cd backend && npm run typecheck` -> passing
+- `cd backend && npm run lint` -> passing
+- `cd backend && npm test -- --run src/__tests__/candidateRetrieval.test.ts src/__tests__/mapper.test.ts src/__tests__/agents.test.ts src/__tests__/retrievalPersistence.test.ts` -> passing (`60/60`)
+- `cd backend && npm run build` -> passing
+- `npm --workspace apps/web run build` -> passing
+- `cd backend && DATABASE_URL='postgresql://postgres:password@localhost:5432/automapper_kan86_test' npx prisma db push --skip-generate` -> passing
+- `cd backend && DATABASE_URL='postgresql://postgres:password@localhost:5432/automapper_kan86_test' npm test -- --run` -> passing (`172/172`)
+
+RiskClam -> Salesforce comparison (same XML + same mock target object set, deterministic/no-LLM run):
+- Baseline `main`: `121` field mappings, `9` entity mappings, `0` persisted retrieval shortlists
+- KAN-86 rebuild: `130` field mappings, `9` entity mappings, `130` persisted retrieval shortlists
+- Workbook-aligned hit count against the current mock target schema remained `0` in both runs because the workbook’s custom FSC target fields are not present in the current mock schema. KAN-86 improves retrieval structure and coverage, but not workbook parity on its own.

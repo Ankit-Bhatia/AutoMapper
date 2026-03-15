@@ -1,11 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import type {
   AppState,
   Entity,
   Field,
   FieldMapping,
   MappingProject,
+  RetrievalShortlist,
   Relationship,
   System,
   TransformType,
@@ -90,6 +91,7 @@ function toFieldMapping(fm: {
   rationale: string;
   status: string;
   seedSource: string | null;
+  retrievalShortlist: unknown | null;
 }): FieldMapping {
   const transform = (fm.transform ?? { type: 'direct', config: {} }) as {
     type: TransformType;
@@ -105,6 +107,7 @@ function toFieldMapping(fm: {
     rationale: fm.rationale,
     status: fm.status as FieldMapping['status'],
     seedSource: (fm.seedSource ?? undefined) as FieldMapping['seedSource'],
+    retrievalShortlist: (fm.retrievalShortlist ?? undefined) as RetrievalShortlist | undefined,
   };
 }
 
@@ -314,6 +317,7 @@ export class DbStore {
           confidence: fm.confidence,
           rationale: fm.rationale,
           status: fm.status,
+          retrievalShortlist: (fm.retrievalShortlist ?? null) as unknown as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
         })),
       });
     }
@@ -323,7 +327,7 @@ export class DbStore {
 
   async patchFieldMapping(
     fieldMappingId: string,
-    patch: Partial<Pick<FieldMapping, 'status' | 'confidence' | 'rationale' | 'targetFieldId' | 'sourceFieldId' | 'transform'>>,
+    patch: Partial<Pick<FieldMapping, 'status' | 'confidence' | 'rationale' | 'targetFieldId' | 'sourceFieldId' | 'transform' | 'retrievalShortlist'>>,
   ): Promise<FieldMapping | undefined> {
     try {
       const updated = await this.prisma.fieldMapping.update({
@@ -335,6 +339,9 @@ export class DbStore {
           ...(patch.sourceFieldId !== undefined && { sourceFieldId: patch.sourceFieldId }),
           ...(patch.targetFieldId !== undefined && { targetFieldId: patch.targetFieldId }),
           ...(patch.transform !== undefined && { transform: patch.transform as object }),
+          ...(patch.retrievalShortlist !== undefined && {
+            retrievalShortlist: (patch.retrievalShortlist ?? null) as unknown as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
+          }),
         },
       });
       return toFieldMapping(updated);

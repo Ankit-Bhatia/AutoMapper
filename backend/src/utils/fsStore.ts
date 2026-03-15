@@ -126,7 +126,7 @@ export class FsStore {
 
   patchFieldMapping(
     fieldMappingId: string,
-    patch: Partial<Pick<FieldMapping, 'status' | 'confidence' | 'rationale' | 'targetFieldId' | 'sourceFieldId' | 'transform'>>,
+    patch: Partial<Pick<FieldMapping, 'status' | 'confidence' | 'rationale' | 'targetFieldId' | 'sourceFieldId' | 'transform' | 'retrievalShortlist'>>,
   ): FieldMapping | undefined {
     const mapping = this.state.fieldMappings.find((m) => m.id === fieldMappingId);
     if (!mapping) return undefined;

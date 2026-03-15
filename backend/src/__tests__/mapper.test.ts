@@ -279,5 +279,7 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     const mapping = fieldMappings.find((candidate) => candidate.sourceFieldId === 'sf-tenure');
     expect(mapping?.targetFieldId).toBe('tf-years');
     expect(mapping?.rationale ?? '').toContain('semantic');
+    expect(mapping?.retrievalShortlist?.topK).toBe(5);
+    expect(mapping?.retrievalShortlist?.candidates[0]?.targetFieldId).toBe('tf-years');
   });
 });

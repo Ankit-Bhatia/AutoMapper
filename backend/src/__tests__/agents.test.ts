@@ -528,13 +528,71 @@ describe('MappingProposalAgent', () => {
 
     expect(result.updatedFieldMappings[0]?.targetFieldId).toBe('tgt-tenure');
     expect(result.updatedFieldMappings[0]?.confidence ?? 0).toBeGreaterThan(0.42);
-    expect(result.updatedFieldMappings[0]?.rationale ?? '').toContain('(embed)');
+    expect(result.updatedFieldMappings[0]?.rationale ?? '').toContain('embedding');
+    expect(result.updatedFieldMappings[0]?.retrievalShortlist?.topK).toBe(5);
+    expect(result.updatedFieldMappings[0]?.retrievalShortlist?.candidates[0]?.targetFieldId).toBe('tgt-tenure');
 
     if (original.openai) process.env.OPENAI_API_KEY = original.openai;
     if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
     if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
     if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
     if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
+
+  it('emits one retrieval_ready event with shortlistsBuilt and topK', async () => {
+    const agent = new MappingProposalAgent();
+    const steps: Array<{ action: string; metadata?: Record<string, unknown> }> = [];
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'PartyProfile' });
+    const srcField = makeField({
+      id: 'src-tenure',
+      entityId: 'src-ent',
+      name: 'CUST_TENURE_MONTHS',
+      label: 'Customer Tenure Months',
+      dataType: 'integer',
+    });
+    const tgtField = makeField({
+      id: 'tgt-tenure',
+      entityId: 'tgt-ent',
+      name: 'YearsWithFirm__c',
+      label: 'Years With Firm',
+      dataType: 'integer',
+    });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-1',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-tenure',
+      targetFieldId: 'tgt-tenure',
+      confidence: 0.42,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [srcField, tgtField],
+      entityMappings: [em],
+      fieldMappings: [fm],
+      onStep: (step) => steps.push(step),
+    });
+
+    const retrievalReady = steps.filter((step) => step.action === 'retrieval_ready');
+    expect(retrievalReady).toHaveLength(1);
+    expect(retrievalReady[0]?.metadata).toMatchObject({
+      shortlistsBuilt: 1,
+      topK: 5,
+    });
   });
 });
 

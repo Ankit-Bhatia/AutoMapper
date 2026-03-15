@@ -5,29 +5,35 @@ import type {
   Field,
   FieldMapping,
   MappingProject,
+  RetrievalSemanticMode,
   TransformType,
 } from '../types.js';
 import { bestStringMatch, jaccard } from '../utils/stringSim.js';
 import { getAiSuggestions } from './llmAdapter.js';
 import {
   buildFieldSemanticProfile,
-  hybridSemanticSimilarity,
-  isHardIncompatible,
-  semanticTypeScore,
   type FieldSemanticProfile,
 } from './fieldSemantics.js';
+import {
+  DEFAULT_RETRIEVAL_TOP_K,
+  retrieveCandidatesForSource,
+  retrievalSummary,
+  scoreRetrievalCandidate,
+} from './candidateRetrieval.js';
 
 const LOS_TYPE_PREFIX_RE = /^(AMT|NBR|DT|TYP|IND|CD|PCT|YN|NAME|DESC|CODE|PERC|DATE|ADDR|PHONE|EMAIL|Y)_/i;
 
 interface CandidateScore {
   targetField: Field;
   base: number;
+  retrievalScore: number;
   lexicalScore: number;
   semanticScore: number;
-  semanticMode: 'embed' | 'concept' | 'intent';
+  semanticMode: RetrievalSemanticMode;
   typeScore: number;
   domainBoost: number;
   incompatible: boolean;
+  evidence: string[];
   sourceProfile: FieldSemanticProfile;
 }
 
@@ -39,6 +45,10 @@ export async function suggestMappings(input: {
 }): Promise<{ entityMappings: EntityMapping[]; fieldMappings: FieldMapping[] }> {
   const entityMappings: EntityMapping[] = [];
   const fieldMappings: FieldMapping[] = [];
+  const entityNamesById = new Map<string, string>([
+    ...input.sourceEntities.map((entity) => [entity.id, entity.name] as const),
+    ...input.targetEntities.map((entity) => [entity.id, entity.name] as const),
+  ]);
 
   for (const sourceEntity of input.sourceEntities) {
     const targetMatch = chooseTargetEntity(sourceEntity, input.targetEntities);
@@ -46,7 +56,6 @@ export async function suggestMappings(input: {
     const targetEntity = targetMatch.target;
     const sourceFields = input.fields.filter((f) => f.entityId === sourceEntity.id);
     const targetFields = input.fields.filter((f) => f.entityId === targetEntity.id);
-    const targetProfiles = new Map(targetFields.map((field) => [field.id, buildFieldSemanticProfile(field)]));
 
     const ai = await getAiSuggestions(sourceEntity, sourceFields, targetEntity, targetFields);
 
@@ -68,16 +77,31 @@ export async function suggestMappings(input: {
 
     for (const sourceField of sourceFields) {
       const sourceProfile = buildFieldSemanticProfile(sourceField);
-      const candidateScores: CandidateScore[] = targetFields.map((targetField) =>
-        scoreTargetCandidate(
+      const retrieval = retrieveCandidatesForSource(sourceField, targetFields, {
+        entityNamesById,
+        topK: DEFAULT_RETRIEVAL_TOP_K,
+      });
+      const candidateScores: CandidateScore[] = retrieval.rankedCandidates.map((candidate) => {
+        const domainBoost = domainFieldBoost(
           sourceEntity.name,
           targetEntity.name,
-          sourceField,
-          targetField,
+          sourceField.name,
+          candidate.targetField.name,
+        );
+        return {
+          targetField: candidate.targetField as Field,
+          base: clamp(candidate.retrievalScore + domainBoost),
+          retrievalScore: candidate.retrievalScore,
+          lexicalScore: candidate.lexicalScore,
+          semanticScore: candidate.semanticScore,
+          semanticMode: candidate.semanticMode,
+          typeScore: candidate.typeScore,
+          domainBoost,
+          incompatible: candidate.incompatible,
+          evidence: candidate.evidence,
           sourceProfile,
-          targetProfiles.get(targetField.id) ?? buildFieldSemanticProfile(targetField),
-        ),
-      );
+        };
+      });
 
       candidateScores.sort((a, b) => b.base - a.base);
       const best = candidateScores[0];
@@ -107,7 +131,7 @@ export async function suggestMappings(input: {
             sourceField,
             aiTarget,
             sourceProfile,
-            targetProfiles.get(aiTarget.id) ?? buildFieldSemanticProfile(aiTarget),
+            entityNamesById,
           );
           if (!aiCandidate.incompatible && aiCandidate.base >= minThreshold * 0.85) {
             chosen = aiCandidate;
@@ -133,9 +157,10 @@ export async function suggestMappings(input: {
         confidence: finalConfidence,
         rationale:
           aiField && usedAiCandidate && aiField.rationale
-            ? aiField.rationale
-            : buildCandidateRationale(chosen),
+            ? `${aiField.rationale} | ${retrievalSummary(retrieval)}`
+            : `${buildCandidateRationale(chosen)} | ${retrievalSummary(retrieval)}`,
         status: 'suggested',
+        retrievalShortlist: retrieval.shortlist,
       });
     }
   }
@@ -427,42 +452,29 @@ function scoreTargetCandidate(
   sourceField: Field,
   targetField: Field,
   sourceProfile: FieldSemanticProfile,
-  targetProfile: FieldSemanticProfile,
+  entityNamesById: Map<string, string>,
 ): CandidateScore {
-  const lexicalScore = jaccard(sourceProfile.text, targetProfile.text);
-  const semanticBlend = hybridSemanticSimilarity(sourceProfile, targetProfile);
-  const semanticScore = semanticBlend.score;
-  const typeScore = semanticTypeScore(sourceProfile, targetField.dataType);
+  const retrievalCandidate = scoreRetrievalCandidate(sourceField, targetField, { entityNamesById });
   const domainBoost = domainFieldBoost(
     sourceEntityName,
     targetEntityName,
     sourceField.name,
     targetField.name,
   );
-  const incompatible = isHardIncompatible(sourceProfile, targetProfile);
-
-  const typeWeight = sourceProfile.typeReliability >= 0.8 ? 0.16 : 0.08;
-  const semanticWeight = sourceProfile.strongSignal ? 0.46 : 0.34;
-  const lexicalWeight = sourceProfile.strongSignal ? 0.22 : 0.30;
-
-  let base =
-    (semanticWeight * semanticScore) +
-    (lexicalWeight * lexicalScore) +
-    (typeWeight * typeScore) +
-    domainBoost;
-
-  if (semanticScore >= 0.8 && typeScore >= 0.75) base += 0.1;
-  if (incompatible) base -= 0.45;
+  const incompatible = retrievalCandidate.incompatible;
+  const base = clamp(retrievalCandidate.retrievalScore + domainBoost);
 
   return {
     targetField,
-    base: clamp(base),
-    lexicalScore,
-    semanticScore,
-    semanticMode: semanticBlend.mode,
-    typeScore,
+    base,
+    retrievalScore: retrievalCandidate.retrievalScore,
+    lexicalScore: retrievalCandidate.lexicalScore,
+    semanticScore: retrievalCandidate.semanticScore,
+    semanticMode: retrievalCandidate.semanticMode,
+    typeScore: retrievalCandidate.typeScore,
     domainBoost,
     incompatible,
+    evidence: retrievalCandidate.evidence,
     sourceProfile,
   };
 }
@@ -477,11 +489,14 @@ function buildCandidateRationale(candidate: CandidateScore): string {
   if (candidate.domainBoost !== 0) {
     segments.push(`domain ${candidate.domainBoost.toFixed(2)}`);
   }
-  if (candidate.semanticMode === 'concept' && candidate.semanticScore >= 0.6) {
+  if (candidate.semanticMode === 'alias' && candidate.semanticScore >= 0.6) {
     segments.push('concept-aligned');
   }
   if (candidate.incompatible) {
     segments.push('compatibility gate: borderline');
+  }
+  for (const evidence of candidate.evidence) {
+    if (!segments.includes(evidence)) segments.push(evidence);
   }
 
   return segments.join(', ');
