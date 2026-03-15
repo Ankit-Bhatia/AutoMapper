@@ -252,4 +252,32 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     expect(mapping?.targetFieldId).not.toBe('tf-fin-name3');
     expect(['tf-fin-bal3', 'tf-fin-loan3']).toContain(mapping?.targetFieldId);
   });
+
+  it('promotes unfamiliar tenure fields via concept-aware semantic scoring', async () => {
+    const srcEntity = makeEntity('se-tenure', 'src-sys', 'Borrower', 'Borrower');
+    const tgtEntity = makeEntity('te-tenure', 'tgt-sys', 'PartyProfile', 'Party Profile');
+
+    const fields: Field[] = [
+      makeField('sf-tenure', 'se-tenure', 'CUST_TENURE_MONTHS', 'integer', {
+        label: 'Customer Tenure Months',
+        description: 'How long the borrower has been with the institution',
+      }),
+      makeField('tf-years', 'te-tenure', 'YearsWithFirm__c', 'integer', {
+        label: 'Years With Firm',
+        description: 'Length of customer relationship with institution',
+      }),
+      makeField('tf-name', 'te-tenure', 'Name', 'string'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcEntity],
+      targetEntities: [tgtEntity],
+      fields,
+    });
+
+    const mapping = fieldMappings.find((candidate) => candidate.sourceFieldId === 'sf-tenure');
+    expect(mapping?.targetFieldId).toBe('tf-years');
+    expect(mapping?.rationale ?? '').toContain('semantic');
+  });
 });

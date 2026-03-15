@@ -465,3 +465,30 @@ Currently `LLMSettingsPanel` is only reachable from the Connect step. It should 
 - [ ] Running `ts-node src/scripts/syncSchemaIntelligence.ts` against a modified markdown prints a clean diff
 - [ ] Script exits non-zero if drift is detected (for CI enforcement)
 - [ ] `tsc --noEmit` passes
+
+### 2026-03-16 01:45 IST — KAN-85 embedding semantic scoring branch raised from main
+
+Implemented by Codex.
+
+Scope completed:
+- Added `EmbeddingService` with enriched field text, OpenAI-first embedding fetch, Gemini fallback, and graceful disabled/failed outcomes.
+- Added `embeddingCache` to `AgentContext` and wired `OrchestratorAgent` to build embeddings once per pipeline run.
+- Emitted truthful orchestration events: `embeddings_ready`, `embeddings_skipped`, and `embeddings_failed`.
+- Updated `MappingProposalAgent` to use embedding-assisted hybrid semantic scoring and expose `(embed)` in rationale when embeddings participate.
+- Updated the initial `suggestMappings` path to use concept-aware hybrid semantic scoring instead of flat intent-only scoring.
+
+Files changed:
+- `backend/src/services/EmbeddingService.ts`
+- `backend/src/services/fieldSemantics.ts`
+- `backend/src/agents/types.ts`
+- `backend/src/agents/OrchestratorAgent.ts`
+- `backend/src/agents/MappingProposalAgent.ts`
+- `backend/src/services/mapper.ts`
+- `backend/src/__tests__/embeddingService.test.ts`
+- `backend/src/__tests__/agents.test.ts`
+- `backend/src/__tests__/mapper.test.ts`
+
+Validation:
+- `cd backend && ../node_modules/.bin/tsc --noEmit` -> passing
+- `cd backend && ./node_modules/.bin/vitest run src/__tests__/embeddingService.test.ts src/__tests__/mapper.test.ts src/__tests__/agents.test.ts` -> passing (`58/58`)
+- `cd backend && ./node_modules/.bin/vitest run --run` -> passing (`167/167`)

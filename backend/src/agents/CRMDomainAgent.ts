@@ -88,15 +88,6 @@ const SF_STANDARD_FIELDS: Record<string, Record<string, string>> = {
   },
 };
 
-/** Source field purpose → Salesforce standard field boosts */
-const PURPOSE_BOOSTS: Record<string, Record<string, number>> = {
-  primary_name: { Name: 0.15, AccountName: 0.1 },
-  email: { Email: 0.18 },
-  phone_main: { Phone: 0.15 },
-  financial: { Amount: 0.12, AnnualRevenue: 0.1 },
-  address_street: { BillingStreet: 0.15, MailingStreet: 0.12 },
-};
-
 function fieldById(id: string, fields: (Field | ConnectorField)[]): Field | ConnectorField | undefined {
   return fields.find((f) => f.id === id);
 }

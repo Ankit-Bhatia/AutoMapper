@@ -30,6 +30,7 @@ import { MappingRationaleAgent } from './MappingRationaleAgent.js';
 import { ValidationAgent } from './ValidationAgent.js';
 import type { AgentContext, AgentResult, AgentStep, ComplianceReport } from './types.js';
 import type { FieldMapping } from '../types.js';
+import { buildEmbeddingCache } from '../services/EmbeddingService.js';
 
 export interface OrchestratorResult {
   updatedFieldMappings: FieldMapping[];
@@ -64,14 +65,58 @@ export class OrchestratorAgent extends AgentBase {
     const agentsRun: string[] = [];
     let totalImproved = 0;
 
+    // ── Pre-compute field embeddings ─────────────────────────────────────────
+    // Batch-fetch once before the pipeline so MappingProposalAgent can blend
+    // embedding cosine similarity into its semantic score without extra API calls.
+    // Falls back to null (intent-only scoring) if no embedding provider key exists.
+    const embedStart = Date.now();
+    const entityNamesById = new Map([
+      ...context.sourceEntities.map((entity) => [entity.id, entity.name] as const),
+      ...context.targetEntities.map((entity) => [entity.id, entity.name] as const),
+    ]);
+    const embeddingResult = await buildEmbeddingCache(context.fields, { entityNamesById });
+    const embedMs = Date.now() - embedStart;
+
     // Wrap onStep to collect all steps
     const wrappedContext: AgentContext = {
       ...context,
+      embeddingCache: embeddingResult.cache ?? undefined,
       onStep: (step) => {
         allSteps.push(step);
         context.onStep?.(step);
       },
     };
+
+    if (embeddingResult.status === 'ready' && embeddingResult.cache) {
+      this.info(
+        wrappedContext,
+        'embeddings_ready',
+        `Embedding cache built via ${embeddingResult.provider}${embeddingResult.fallbackFrom ? ` (fallback from ${embeddingResult.fallbackFrom})` : ''}: ${embeddingResult.cache.size} field vectors in ${embedMs}ms`,
+        {
+          fieldCount: embeddingResult.cache.size,
+          durationMs: embedMs,
+          provider: embeddingResult.provider,
+          fallbackFrom: embeddingResult.fallbackFrom,
+        },
+      );
+    } else if (embeddingResult.status === 'disabled') {
+      this.info(
+        wrappedContext,
+        'embeddings_skipped',
+        `${embeddingResult.reason ?? 'Embeddings disabled'} — using concept + intent semantic scoring`,
+        { reason: embeddingResult.reason },
+      );
+    } else {
+      this.info(
+        wrappedContext,
+        'embeddings_failed',
+        `${embeddingResult.reason ?? 'Embedding provider failed'} — continuing with concept + intent semantic scoring`,
+        {
+          reason: embeddingResult.reason,
+          attemptedProviders: embeddingResult.attemptedProviders,
+        },
+      );
+    }
 
     this.info(wrappedContext, 'orchestrate_start',
       `Starting pipeline: source=${context.sourceSystemType}, target=${context.targetSystemType}, mappings=${context.fieldMappings.length}`);

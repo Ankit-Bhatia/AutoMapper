@@ -10,7 +10,7 @@
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
 import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
-import type { Field, FieldMapping } from '../types.js';
+import type { Field } from '../types.js';
 import * as LLMGateway from './llm/LLMGateway.js';
 import { buildFieldSemanticProfile, isHardIncompatible } from '../services/fieldSemantics.js';
 
@@ -47,10 +47,6 @@ function getComplianceTags(field: Field | ConnectorField): ComplianceTag[] {
   return (field as ConnectorField).complianceTags ?? [];
 }
 
-function hasTag(field: Field | ConnectorField, tag: ComplianceTag): boolean {
-  return getComplianceTags(field).includes(tag);
-}
-
 function fieldById(
   id: string,
   fields: (Field | ConnectorField)[],
@@ -67,8 +63,8 @@ function getIso20022Name(field: Field | ConnectorField): string | undefined {
  * Returns a score 0–1 based on shared tokens (case-insensitive).
  */
 function calculateNameSimilarity(name1: string, name2: string): number {
-  const tokens1 = name1.toLowerCase().split(/[\s_\-]+/).filter(Boolean);
-  const tokens2 = name2.toLowerCase().split(/[\s_\-]+/).filter(Boolean);
+  const tokens1 = name1.toLowerCase().split(/[\s_-]+/).filter(Boolean);
+  const tokens2 = name2.toLowerCase().split(/[\s_-]+/).filter(Boolean);
 
   if (tokens1.length === 0 || tokens2.length === 0) return 0;
 

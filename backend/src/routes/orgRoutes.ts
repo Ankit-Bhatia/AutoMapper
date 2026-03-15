@@ -25,8 +25,6 @@ const MappingEventSchema = z.object({
   transformType: z.enum(TRANSFORM_TYPES),
 });
 
-type MappingEventInput = z.infer<typeof MappingEventSchema>;
-
 function sendError(
   req: Request,
   res: Response,

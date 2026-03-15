@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { v4 as uuidv4 } from 'uuid';
-import type { Entity, Field, Relationship } from '../types.js';
+import type { DataType, Entity, Field, Relationship } from '../types.js';
 import { normalizeODataType } from '../utils/typeUtils.js';
 
 interface ParsedSchema {
@@ -48,6 +48,29 @@ export function parseSapSchema(content: string, filename: string, systemId: stri
   throw new Error('Unsupported SAP schema file. Allowed: .xml, .json, .csv');
 }
 
+function normalizeSchemaDataType(value: string | undefined): DataType {
+  switch ((value ?? '').toLowerCase()) {
+    case 'string':
+    case 'text':
+    case 'number':
+    case 'integer':
+    case 'decimal':
+    case 'boolean':
+    case 'date':
+    case 'datetime':
+    case 'time':
+    case 'picklist':
+    case 'email':
+    case 'phone':
+    case 'id':
+    case 'reference':
+    case 'unknown':
+      return value as DataType;
+    default:
+      return 'unknown';
+  }
+}
+
 function parseJsonSchema(schema: JsonSchemaInput, systemId: string): ParsedSchema {
   const entities: Entity[] = [];
   const fields: Field[] = [];
@@ -71,7 +94,7 @@ function parseJsonSchema(schema: JsonSchemaInput, systemId: string): ParsedSchem
         entityId,
         name: fld.name,
         label: fld.label,
-        dataType: (fld.dataType as any) ?? 'unknown',
+        dataType: normalizeSchemaDataType(fld.dataType),
         length: fld.length,
         precision: fld.precision,
         scale: fld.scale,
@@ -180,7 +203,7 @@ function parseCsvSchema(content: string, systemId: string): ParsedSchema {
       entityId: entityMap.get(entityName)!,
       name: cols[idx('field')] ?? 'UnknownField',
       label: cols[idx('label')] || undefined,
-      dataType: ((cols[idx('datatype')] as any) || 'unknown'),
+      dataType: normalizeSchemaDataType(cols[idx('datatype')]),
       required: (cols[idx('required')] || '').toLowerCase() === 'true',
       isKey: (cols[idx('iskey')] || '').toLowerCase() === 'true',
     });

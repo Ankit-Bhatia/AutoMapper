@@ -19,6 +19,7 @@ import { OrchestratorAgent } from '../agents/OrchestratorAgent.js';
 import { sanitizeFields, countRedactedFields, buildSafeSchemaDescription } from '../agents/llm/PIIGuard.js';
 import { activeProvider } from '../agents/llm/LLMGateway.js';
 import * as LLMGateway from '../agents/llm/LLMGateway.js';
+import * as EmbeddingService from '../services/EmbeddingService.js';
 
 import type { AgentContext } from '../agents/types.js';
 import type { Entity, Field, EntityMapping, FieldMapping } from '../types.js';
@@ -473,6 +474,68 @@ describe('MappingProposalAgent', () => {
     if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
     if (original.google) process.env.GOOGLE_API_KEY = original.google;
   });
+
+  it('tags rationale with embed when embedding cache improves the semantic score', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+
+    const agent = new MappingProposalAgent();
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'PartyProfile' });
+    const srcField = makeField({ id: 'src-tenure', entityId: 'src-ent', name: 'CUST_TENURE_MONTHS', label: 'Customer Tenure Months', dataType: 'integer' });
+    const bestTgt = makeField({ id: 'tgt-tenure', entityId: 'tgt-ent', name: 'YearsWithFirm__c', label: 'Years With Firm', dataType: 'integer' });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-1',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-tenure',
+      targetFieldId: 'tgt-tenure',
+      confidence: 0.42,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [srcField, bestTgt],
+      entityMappings: [em],
+      fieldMappings: [fm],
+      embeddingCache: new Map([
+        ['src-tenure', [1, 0, 0]],
+        ['tgt-tenure', [1, 0, 0]],
+      ]),
+    });
+
+    expect(result.updatedFieldMappings[0]?.targetFieldId).toBe('tgt-tenure');
+    expect(result.updatedFieldMappings[0]?.confidence ?? 0).toBeGreaterThan(0.42);
+    expect(result.updatedFieldMappings[0]?.rationale ?? '').toContain('(embed)');
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
 });
 
 // ─── MappingRationaleAgent ───────────────────────────────────────────────────
@@ -726,5 +789,38 @@ describe('OrchestratorAgent', () => {
     const agentNames = new Set(result.allSteps.map((s) => s.agentName));
     expect(agentNames.has('SchemaDiscoveryAgent')).toBe(true);
     expect(agentNames.has('ComplianceAgent')).toBe(true);
+  });
+
+  it('emits embeddings_skipped when no embedding provider key is configured', async () => {
+    const spy = vi.spyOn(EmbeddingService, 'buildEmbeddingCache').mockResolvedValue({
+      status: 'disabled',
+      cache: null,
+      attemptedProviders: [],
+      reason: 'no embedding provider key found',
+    });
+
+    const orchestrator = new OrchestratorAgent();
+    const result = await orchestrator.orchestrate(makeContext());
+
+    expect(result.allSteps.some((step) => step.action === 'embeddings_skipped')).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('emits embeddings_ready when embedding cache builds successfully', async () => {
+    const spy = vi.spyOn(EmbeddingService, 'buildEmbeddingCache').mockResolvedValue({
+      status: 'ready',
+      cache: new Map([
+        ['src-fld-1', [1, 0]],
+        ['tgt-fld-1', [1, 0]],
+      ]),
+      attemptedProviders: ['openai'],
+      provider: 'openai',
+    });
+
+    const orchestrator = new OrchestratorAgent();
+    const result = await orchestrator.orchestrate(makeContext());
+
+    expect(result.allSteps.some((step) => step.action === 'embeddings_ready')).toBe(true);
+    spy.mockRestore();
   });
 });

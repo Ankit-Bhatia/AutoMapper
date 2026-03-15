@@ -154,8 +154,6 @@ export class DbStore {
     sourceSystemName = 'SAP',
     targetSystemName = 'Salesforce',
   ): Promise<MappingProject> {
-    const now = new Date();
-
     const [sourceSystem, targetSystem, project] = await this.prisma.$transaction(async (tx) => {
       const src = await tx.system.create({
         data: { id: uuidv4(), name: sourceSystemName, type: inferSystemType(sourceSystemName) },
