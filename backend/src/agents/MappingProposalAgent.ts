@@ -94,6 +94,13 @@ function buildEntityMappingIndex(entityMappings: EntityMapping[]): Map<string, E
   return new Map(entityMappings.map((mapping) => [mapping.id, mapping]));
 }
 
+function shortlistContainsTarget(
+  retrieval: RetrievalResult | undefined,
+  targetFieldId: string,
+): boolean {
+  return Boolean(retrieval?.shortlist.candidates.some((candidate) => candidate.targetFieldId === targetFieldId));
+}
+
 export class MappingProposalAgent extends AgentBase {
   readonly name = 'MappingProposalAgent';
 
@@ -321,14 +328,10 @@ export class MappingProposalAgent extends AgentBase {
         if (existing.status === 'accepted' || existing.status === 'rejected') continue;
 
         const retrieval = rankingByMappingId.get(existing.id);
+        if (!shortlistContainsTarget(retrieval, targetField.id)) continue;
+
         const contextCandidate = retrieval?.rankedCandidates.find((candidate) => candidate.targetField.id === targetField.id);
-        const contextScore = contextCandidate?.retrievalScore
-          ?? retrieveCandidatesForSource(sourceField, [targetField], {
-            embeddingCache: context.embeddingCache,
-            entityNamesById,
-            topK: 1,
-          }).rankedCandidates[0]?.retrievalScore
-          ?? 0;
+        const contextScore = contextCandidate?.retrievalScore ?? 0;
         if (contextScore < MIN_LLM_CONTEXT_SCORE) continue;
 
         const mergedConfidence = clamp01((0.6 * proposal.confidence) + (0.4 * contextScore));

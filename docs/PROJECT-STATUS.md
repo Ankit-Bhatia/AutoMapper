@@ -533,3 +533,34 @@ RiskClam -> Salesforce comparison (same XML + same mock target object set, deter
 - Baseline `main`: `121` field mappings, `9` entity mappings, `0` persisted retrieval shortlists
 - KAN-86 rebuild: `130` field mappings, `9` entity mappings, `130` persisted retrieval shortlists
 - Workbook-aligned hit count against the current mock target schema remained `0` in both runs because the workbook’s custom FSC target fields are not present in the current mock schema. KAN-86 improves retrieval structure and coverage, but not workbook parity on its own.
+
+### 2026-03-16 03:15 IST — KAN-86 shortlist consistency fix after review
+
+Implemented by Codex.
+
+Scope completed:
+- Closed the two review gaps where `MappingProposalAgent` Pass 2 and `suggestMappings` seeding could select a target that was not present in the persisted top-K `retrievalShortlist`.
+- Restricted LLM-gated retargets in `backend/src/agents/MappingProposalAgent.ts` to shortlisted targets only.
+- Restricted AI seeding overrides in `backend/src/services/mapper.ts` to shortlisted targets only, so newly created mapping artifacts cannot point outside their own structured shortlist.
+- Added regression coverage for both failure modes.
+- Fixed the plain `cd backend && npm test` review DoD by adding Vitest test bootstrap that provisions an isolated PostgreSQL database and pushes the current schema before the suite runs.
+
+Files changed:
+- `backend/src/agents/MappingProposalAgent.ts`
+- `backend/src/services/mapper.ts`
+- `backend/src/__tests__/agents.test.ts`
+- `backend/src/__tests__/mapper.test.ts`
+- `backend/vitest.config.ts`
+- `backend/src/__tests__/setupEnv.ts`
+- `backend/src/__tests__/globalSetup.ts`
+
+Validation:
+- `cd backend && npm run typecheck` -> passing
+- `cd backend && npm run lint` -> passing
+- `cd backend && npm test -- --run src/__tests__/agents.test.ts src/__tests__/mapper.test.ts src/__tests__/candidateRetrieval.test.ts src/__tests__/retrievalPersistence.test.ts` -> passing (`62/62`)
+- `cd backend && npm test -- --run` -> passing (`174/174`)
+- `npm --workspace apps/web run build` -> passing
+
+Review-fix result:
+- `FieldMapping.targetFieldId` now remains consistent with `FieldMapping.retrievalShortlist` in both the agent orchestration path and the initial project seeding path.
+- The backend test suite now runs from a dedicated `automapper_vitest` database instead of depending on whatever local application database state already exists.
