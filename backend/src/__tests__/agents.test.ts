@@ -406,6 +406,7 @@ describe('MappingProposalAgent', () => {
 
     expect(result.updatedFieldMappings.length).toBe(ctx.fieldMappings.length);
     expect((steps as { action: string }[]).some((step) => step.action === 'context_mode')).toBe(true);
+    expect((steps as { action: string }[]).some((step) => step.action === 'retrieval_ready')).toBe(true);
     expect((steps as { action: string }[]).some((step) => step.action === 'mapping_proposal_complete')).toBe(true);
 
     if (original.openai) process.env.OPENAI_API_KEY = original.openai;
@@ -466,6 +467,7 @@ describe('MappingProposalAgent', () => {
     expect(result.totalImproved).toBeGreaterThan(0);
     expect(result.updatedFieldMappings[0]?.targetFieldId).toBe('tgt-tax-id');
     expect(result.updatedFieldMappings[0]?.confidence).toBeGreaterThan(0.42);
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('retrieval top-');
 
     if (original.openai) process.env.OPENAI_API_KEY = original.openai;
     if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
@@ -636,6 +638,184 @@ describe('MappingProposalAgent', () => {
     if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
     if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
     if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
+
+  it('improves unfamiliar tenure mappings in heuristic mode via concept-aware semantics', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+      provider: process.env.LLM_PROVIDER,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    process.env.LLM_PROVIDER = 'heuristic';
+
+    const agent = new MappingProposalAgent();
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'PartyProfile' });
+    const sourceField = makeField({
+      id: 'src-tenure',
+      entityId: 'src-ent',
+      name: 'CUST_TENURE_MONTHS',
+      label: 'Customer Tenure Months',
+      dataType: 'string',
+    });
+    const wrongTarget = makeField({
+      id: 'tgt-name',
+      entityId: 'tgt-ent',
+      name: 'Name',
+      dataType: 'string',
+    });
+    const betterTarget = makeField({
+      id: 'tgt-years',
+      entityId: 'tgt-ent',
+      name: 'FinServ__YearsWithFirm__c',
+      label: 'Years With Firm',
+      description: 'Number of years customer has been with the institution',
+      dataType: 'integer',
+    });
+    const em: EntityMapping = {
+      id: 'em-tenure',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-tenure',
+      entityMappingId: 'em-tenure',
+      sourceFieldId: 'src-tenure',
+      targetFieldId: 'tgt-name',
+      confidence: 0.32,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [sourceField, wrongTarget, betterTarget],
+      entityMappings: [em],
+      fieldMappings: [fm],
+    });
+
+    expect(result.updatedFieldMappings[0]?.targetFieldId).toBe('tgt-years');
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('(concept)');
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('retrieval top-');
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    else delete process.env.OPENAI_API_KEY;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    else delete process.env.ANTHROPIC_API_KEY;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    else delete process.env.GEMINI_API_KEY;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    else delete process.env.GEMINI_KEY;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+    else delete process.env.GOOGLE_API_KEY;
+    if (original.provider) process.env.LLM_PROVIDER = original.provider;
+    else delete process.env.LLM_PROVIDER;
+  });
+
+  it('annotates rationale with embed when embedding-assisted semantic score is used', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+      provider: process.env.LLM_PROVIDER,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    process.env.LLM_PROVIDER = 'heuristic';
+
+    const agent = new MappingProposalAgent();
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' });
+    const sourceField = makeField({
+      id: 'src-tenure',
+      entityId: 'src-ent',
+      name: 'CUST_TENURE_MONTHS',
+      label: 'Customer Tenure Months',
+      dataType: 'string',
+    });
+    const wrongTarget = makeField({
+      id: 'tgt-name',
+      entityId: 'tgt-ent',
+      name: 'Name',
+      label: 'Name',
+      dataType: 'string',
+    });
+    const betterTarget = makeField({
+      id: 'tgt-years',
+      entityId: 'tgt-ent',
+      name: 'FinServ__YearsWithFirm__c',
+      label: 'Years With Firm',
+      description: 'Number of years customer has been with the institution',
+      dataType: 'integer',
+    });
+    const em: EntityMapping = {
+      id: 'em-embed',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-embed',
+      entityMappingId: 'em-embed',
+      sourceFieldId: 'src-tenure',
+      targetFieldId: 'tgt-name',
+      confidence: 0.31,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [sourceField, wrongTarget, betterTarget],
+      entityMappings: [em],
+      fieldMappings: [fm],
+      embeddingCache: new Map([
+        ['src-tenure', [1, 0]],
+        ['tgt-name', [0, 1]],
+        ['tgt-years', [1, 0]],
+      ]),
+    });
+
+    expect(result.updatedFieldMappings[0]?.targetFieldId).toBe('tgt-years');
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('(embed)');
+    expect(result.updatedFieldMappings[0]?.rationale).toContain('retrieval top-');
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    else delete process.env.OPENAI_API_KEY;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    else delete process.env.ANTHROPIC_API_KEY;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    else delete process.env.GEMINI_API_KEY;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    else delete process.env.GEMINI_KEY;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+    else delete process.env.GOOGLE_API_KEY;
+    if (original.provider) process.env.LLM_PROVIDER = original.provider;
+    else delete process.env.LLM_PROVIDER;
   });
 });
 
@@ -983,5 +1163,77 @@ describe('OrchestratorAgent', () => {
     if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
     if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
     if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
+
+  it('emits embeddings_skipped when no embedding provider key is configured', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+      provider: process.env.LLM_PROVIDER,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    process.env.LLM_PROVIDER = 'heuristic';
+
+    const orchestrator = new OrchestratorAgent();
+    const result = await orchestrator.orchestrate(makeContext());
+
+    expect(result.allSteps.some((step) => step.action === 'embeddings_skipped')).toBe(true);
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    else delete process.env.OPENAI_API_KEY;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    else delete process.env.GEMINI_API_KEY;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    else delete process.env.GEMINI_KEY;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+    else delete process.env.GOOGLE_API_KEY;
+    if (original.provider) process.env.LLM_PROVIDER = original.provider;
+    else delete process.env.LLM_PROVIDER;
+  });
+
+  it('emits embeddings_failed when provider keys exist but embedding fetch fails', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+      provider: process.env.LLM_PROVIDER,
+    };
+    const originalFetch = global.fetch;
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    process.env.LLM_PROVIDER = 'heuristic';
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => 'rate limited',
+      json: async () => ({}),
+    }));
+
+    const orchestrator = new OrchestratorAgent();
+    const result = await orchestrator.orchestrate(makeContext());
+
+    expect(result.allSteps.some((step) => step.action === 'embeddings_failed')).toBe(true);
+
+    vi.unstubAllGlobals();
+    global.fetch = originalFetch;
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    else delete process.env.OPENAI_API_KEY;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    else delete process.env.GEMINI_API_KEY;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    else delete process.env.GEMINI_KEY;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+    else delete process.env.GOOGLE_API_KEY;
+    if (original.provider) process.env.LLM_PROVIDER = original.provider;
+    else delete process.env.LLM_PROVIDER;
   });
 });

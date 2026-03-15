@@ -252,4 +252,62 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     expect(mapping?.targetFieldId).not.toBe('tf-fin-name3');
     expect(['tf-fin-bal3', 'tf-fin-loan3']).toContain(mapping?.targetFieldId);
   });
+
+  it('fans RiskClam corpus fields across multiple Salesforce target objects', async () => {
+    const srcLoan = makeEntity('se-riskclam-loan', 'src-sys', 'LOAN', 'Loan');
+    const tgtFinancialAccount = makeEntity('te-riskclam-fa', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+    const tgtLoan = makeEntity('te-riskclam-loan', 'tgt-sys', 'Loan', 'Loan');
+    const tgtAccount = makeEntity('te-riskclam-account', 'tgt-sys', 'Account', 'Account');
+
+    const fields: Field[] = [
+      makeField('sf-riskclam-payment', 'se-riskclam-loan', 'AMT_PAYMENT', 'decimal'),
+      makeField('sf-riskclam-assets', 'se-riskclam-loan', 'AMT_TOTAL_ASSETS', 'decimal'),
+      makeField('sf-riskclam-approval', 'se-riskclam-loan', 'DATE_APPROVAL', 'date'),
+      makeField('tf-riskclam-payment', 'te-riskclam-fa', 'FinServ__PaymentAmount__c', 'decimal'),
+      makeField('tf-riskclam-loan-date', 'te-riskclam-loan', 'Date_Credit_Approved__c', 'date'),
+      makeField('tf-riskclam-assets', 'te-riskclam-account', 'Total_Assets__c', 'decimal'),
+      makeField('tf-riskclam-name', 'te-riskclam-fa', 'Name', 'string'),
+    ];
+
+    const { entityMappings, fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcLoan],
+      targetEntities: [tgtFinancialAccount, tgtLoan, tgtAccount],
+      fields,
+    });
+
+    expect(fieldMappings).toHaveLength(3);
+    expect(fieldMappings.find((mapping) => mapping.sourceFieldId === 'sf-riskclam-payment')?.targetFieldId).toBe('tf-riskclam-payment');
+    expect(fieldMappings.find((mapping) => mapping.sourceFieldId === 'sf-riskclam-assets')?.targetFieldId).toBe('tf-riskclam-assets');
+    expect(fieldMappings.find((mapping) => mapping.sourceFieldId === 'sf-riskclam-approval')?.targetFieldId).toBe('tf-riskclam-loan-date');
+
+    const targetEntityIds = new Set(entityMappings.map((mapping) => mapping.targetEntityId));
+    expect(targetEntityIds).toEqual(new Set(['te-riskclam-fa', 'te-riskclam-loan', 'te-riskclam-account']));
+
+    const paymentRationale = fieldMappings.find((mapping) => mapping.sourceFieldId === 'sf-riskclam-payment')?.rationale ?? '';
+    expect(paymentRationale).toContain('Confirmed BOSL→FSC pattern');
+    expect(paymentRationale).toContain('One-to-Many field');
+  });
+
+  it('persists retrieval shortlist rationale for heuristic RiskClam mappings', async () => {
+    const srcLoan = makeEntity('se-riskclam-loan-heuristic', 'src-sys', 'LOAN', 'Loan');
+    const tgtAccount = makeEntity('te-riskclam-account-heuristic', 'tgt-sys', 'Account', 'Account');
+
+    const fields: Field[] = [
+      makeField('sf-riskclam-notes', 'se-riskclam-loan-heuristic', 'DESC_LIQUIDITY_NOTES', 'string'),
+      makeField('tf-riskclam-notes', 'te-riskclam-account-heuristic', 'Liquidity_Notes__c', 'string'),
+      makeField('tf-riskclam-name-sink', 'te-riskclam-account-heuristic', 'Name', 'string'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcLoan],
+      targetEntities: [tgtAccount],
+      fields,
+    });
+
+    expect(fieldMappings).toHaveLength(1);
+    expect(fieldMappings[0]?.targetFieldId).toBe('tf-riskclam-notes');
+    expect(fieldMappings[0]?.rationale).toContain('retrieval top-');
+  });
 });

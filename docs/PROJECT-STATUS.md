@@ -702,3 +702,190 @@ Validation:
 - `npm --workspace apps/web run build` → passing
 - `npm --prefix backend test -- --run` → passing (`176/176`)
 - `npm --prefix backend run build` → passing
+
+### 2026-03-15 02:35 IST — Theme switcher restored in live UI
+
+Implemented by Codex.
+
+Scope completed:
+- Added a visible light/dark theme switcher to the live sidebar.
+- Persisted theme selection in browser storage under `automapper-theme`.
+- Applied theme at the document level via `data-theme` so the full app shell switches consistently.
+- Added light-theme token overrides for the shared CSS variables and sidebar-specific surfaces.
+
+Files changed:
+- `apps/web/src/MappingStudioApp.tsx`
+- `apps/web/src/MappingStudioApp.test.tsx`
+- `apps/web/src/components/Sidebar.tsx`
+- `apps/web/src/styles.css`
+
+Validation:
+- `npm --workspace apps/web run test -- --run src/MappingStudioApp.test.tsx` → passing
+- `npm --workspace apps/web run test -- --run` → passing (`37/37`)
+- `npm --workspace apps/web run typecheck` → passing
+- `npm --workspace apps/web run build` → passing
+
+### 2026-03-15 03:04 IST — RiskClam XML ingestion and BOSL→Salesforce mapping path corrected
+
+Implemented by Codex.
+
+Scope completed:
+- Routed custom-connector schema file uploads through the backend parser instead of the shallow frontend XML walker for live mode.
+- Fixed project creation to persist real connector display names, so custom connectors such as RiskClam no longer get stored as generic `custom-*` systems.
+- Added a backend custom schema preview endpoint at `/api/connectors/custom/parse-file`.
+- Augmented mock Salesforce target schemas for RiskClam/BOSL projects with workbook-aligned FSC objects and fields (`Loan`, `LoanPackage`, `PIT`, `Collateral`, `FEE`) using the confirmed schema-intelligence corpus.
+- Replaced the RiskClam→Salesforce initial mapping path with pattern-aware, cross-entity field matching seeded from the BOSL/FSC corpus instead of a single-source-entity-to-single-target-entity heuristic.
+- Patched the checked-in runtime JS mirror in `packages/connectors/salesforceMockCatalog.js` so live runtime and test/runtime behavior match.
+
+Observed impact:
+- The local RiskClam XML sample at `/Users/ankitbhatia/Desktop/LOS Riskclam.xml` parses to `9` entities and `163` fields.
+- Before the Salesforce mock/runtime fix, the same RiskClam→Salesforce suggest-mappings path could collapse to effectively unusable output.
+- After the fix, the same path now produces `19` entity mappings and `42` field mappings, including confirmed BOSL/FSC matches such as `AMT_PAYMENT -> FinServ__PaymentAmount__c`, `AMT_TOTAL_ASSETS -> Total_Assets__c`, `DATE_APPROVAL -> Date_Credit_Approved__c`.
+
+Files changed:
+- `apps/web/src/MappingStudioApp.tsx`
+- `apps/web/src/components/ConnectorGrid.tsx`
+- `apps/web/src/components/ConnectorGrid.test.tsx`
+- `backend/src/routes/connectorRoutes.ts`
+- `backend/src/services/mapper.ts`
+- `backend/src/services/riskClamSalesforceSchema.ts`
+- `backend/src/__tests__/custom-connector.test.ts`
+- `backend/src/__tests__/mapper.test.ts`
+- `backend/src/__tests__/riskClamSalesforceSchema.test.ts`
+- `packages/connectors/__tests__/connectors.test.ts`
+- `packages/connectors/salesforceMockCatalog.js`
+- `packages/connectors/salesforceMockCatalog.ts`
+
+Validation:
+- `npm --prefix backend run test -- --run` → passing (`180/180`)
+- `npm --workspace apps/web run test -- --run` → passing (`37/37`)
+- `npm --prefix backend run build` → passing
+- `npm --workspace apps/web run build` → passing
+
+### 2026-03-15 00:06 IST — Existing-project resume no longer falls into blind orchestration SSE failure
+
+Implemented by Codex.
+
+Scope completed:
+- Fixed the saved-project resume flow so projects that still have schemas but no persisted field mappings now regenerate initial suggestions via `POST /api/projects/:id/suggest-mappings` before opening review/export.
+- Added orchestration readiness checks in the frontend pipeline component before opening `EventSource`, so missing schemas or missing initial mappings now surface as explicit user-facing errors instead of the generic `Lost connection to orchestration pipeline.` message.
+- Preserved the current orchestration path for valid saved projects; this only changes the historical/stale project branch.
+
+Root cause:
+- Reopening a saved project with zero field mappings was routing directly into `AgentPipeline`.
+- The backend correctly rejects `/api/projects/:id/orchestrate` when initial mappings do not exist yet (`NO_MAPPINGS`).
+- Browser `EventSource` exposes that rejection as a socket error, which the UI was reducing to `Lost connection to orchestration pipeline.`.
+
+Files changed:
+- `apps/web/src/MappingStudioApp.tsx`
+- `apps/web/src/components/AgentPipeline.tsx`
+- `apps/web/src/MappingStudioApp.test.tsx`
+- `apps/web/src/components/AgentPipeline.test.tsx`
+
+Validation:
+- `npm --workspace apps/web run test -- --run src/components/AgentPipeline.test.tsx src/MappingStudioApp.test.tsx` → passing (`13/13`)
+- `npm --workspace apps/web run test -- --run` → passing (`39/39`)
+- `npm --workspace apps/web run typecheck` → passing
+- `npm --workspace apps/web run build` → passing
+
+### 2026-03-16 00:17 IST — Saved-project review/export actions restored and authenticated export downloads fixed
+
+Implemented by Codex.
+
+Scope completed:
+- Restored explicit `Review` and `Export` actions on Command Center recent-project cards instead of a single ambiguous row click.
+- Kept review as the default main-card action while adding a distinct export action for saved projects.
+- Fixed export downloads to send auth cookies with `credentials: 'include'`.
+- Added a user-facing error panel in Export when the download request fails instead of only logging to console.
+
+Files changed:
+- `apps/web/src/components/CommandCenter.tsx`
+- `apps/web/src/components/CommandCenter.test.tsx`
+- `apps/web/src/components/ExportPanel.tsx`
+- `apps/web/src/components/ExportPanel.test.tsx`
+- `apps/web/src/styles.css`
+
+Validation:
+- `npm --workspace apps/web run test -- --run` → passing (`42/42`)
+- `npm --workspace apps/web run typecheck` → passing
+- `npm --workspace apps/web run build` → passing
+
+### 2026-03-16 00:23 IST — Existing project review now opens review directly and exposes rerun orchestration action
+
+Implemented by Codex.
+
+Scope completed:
+- Existing project `Review` from Command Center now opens directly into the mappings review step instead of falling back to Connect.
+- Incomplete saved projects no longer bounce to Connect when schemas or regenerated suggestions are unavailable; they stay in review with an explanatory gate message.
+- Added `Run Orchestration Again` action to the review header so reruns are explicit and user-driven.
+
+Files changed:
+- `apps/web/src/MappingStudioApp.tsx`
+- `apps/web/src/MappingStudioApp.test.tsx`
+- `apps/web/src/components/MappingTable.tsx`
+
+Validation:
+- `npm --workspace apps/web run test -- --run` → passing (`43/43`)
+- `npm --workspace apps/web run typecheck` → passing
+- `npm --workspace apps/web run build` → passing
+
+### 2026-03-16 00:49 IST — Hybrid semantic matcher phase 1 implemented and KAN-85 embedding path corrected
+
+Implemented by Codex.
+
+Scope completed:
+- Fixed the `KAN-85` embedding service so OpenAI failures now fall back to Gemini when a Gemini key is available.
+- Split embedding outcomes into truthful orchestration events: `embeddings_ready`, `embeddings_skipped`, and `embeddings_failed`.
+- Upgraded semantic matching from intent-only scoring to a hybrid model that blends intent, concept aliases, and embeddings.
+- Enriched field embedding text with entity context, datatype, path, compliance, and key/upsert hints.
+- Extended the initial `suggestMappings` path with the same concept-aware semantic logic so early review output also benefits.
+
+Files changed:
+- `backend/src/services/fieldSemantics.ts`
+- `backend/src/services/EmbeddingService.ts`
+- `backend/src/agents/MappingProposalAgent.ts`
+- `backend/src/agents/OrchestratorAgent.ts`
+- `backend/src/services/mapper.ts`
+- `backend/src/__tests__/embeddingService.test.ts`
+- `backend/src/__tests__/agents.test.ts`
+
+Validation:
+- `cd backend && npx tsc --noEmit` → passing
+- `cd backend && npm test -- --run` → passing (`187/187`)
+
+### 2026-03-16 01:23 IST — KAN-86 top-K hybrid retrieval layer implemented
+
+Implemented by Codex.
+
+Scope completed:
+- Added an explicit top-K candidate retrieval service so field matching now builds reusable shortlists instead of making a single opaque best-pick pass.
+- Wired retrieval shortlists into `MappingProposalAgent`, including persisted retrieval metadata and rationale evidence for downstream review/debugging.
+- Wired the same retrieval layer into the initial mapper, including the RiskClam-specific Salesforce strategy so RiskClam live runs now exercise the same shortlist logic.
+- Added regression coverage for retrieval scoring, shortlist persistence, and heuristic RiskClam rationale output.
+- Re-ran a live RiskClam -> Salesforce project against the running backend to compare pre/post KAN-86 behavior.
+
+Files changed:
+- `backend/src/services/candidateRetrieval.ts`
+- `backend/src/services/EmbeddingService.ts`
+- `backend/src/services/fieldSemantics.ts`
+- `backend/src/services/mapper.ts`
+- `backend/src/agents/OrchestratorAgent.ts`
+- `backend/src/agents/MappingProposalAgent.ts`
+- `backend/src/__tests__/candidateRetrieval.test.ts`
+- `backend/src/__tests__/embeddingService.test.ts`
+- `backend/src/__tests__/agents.test.ts`
+- `backend/src/__tests__/mapper.test.ts`
+
+Validation:
+- `cd backend && npm test -- --run src/__tests__/candidateRetrieval.test.ts src/__tests__/embeddingService.test.ts src/__tests__/mapper.test.ts src/__tests__/agents.test.ts` -> passing (`65/65`)
+- `cd backend && npm test -- --run` -> passing (`190/190`)
+- Live RiskClam -> Salesforce comparison via API:
+  - field mappings: `38 -> 39` (`+1`)
+  - entity mappings: `17 -> 18` (`+1`)
+  - source coverage: `23.31% -> 23.93%` (`+0.62`)
+  - retrieval rationale evidence count: `0 -> 13`
+  - descriptor misfires in top 15: `0 -> 0`
+
+Residual quality gaps observed live:
+- Explicit shortlist evidence is now present, but there are still incorrect heuristic winners such as `NAME_FIRST -> Name` and `NAME_LAST -> Name`.
+- KAN-86 improves candidate recall/traceability, but KAN-87/KAN-88 are still required for reranking and global assignment quality.

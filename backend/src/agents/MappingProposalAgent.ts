@@ -17,13 +17,12 @@ import {
   countRedactedFields,
 } from './llm/PIIGuard.js';
 import { llmComplete, activeProvider, buildMappingPrompt } from './llm/LLMGateway.js';
-import { jaccard } from '../utils/stringSim.js';
 import {
-  buildFieldSemanticProfile,
-  intentSimilarity,
-  isHardIncompatible,
-  semanticTypeScore,
-} from '../services/fieldSemantics.js';
+  retrieveCandidatesForSource,
+  retrievalMetadata,
+  retrievalSummary,
+  type RetrievalResult,
+} from '../services/candidateRetrieval.js';
 
 interface LLMProposal {
   sourceField: string;
@@ -38,8 +37,9 @@ interface RankedCandidate {
   reasons: string[];
 }
 
-const MIN_CONTEXT_AUTOPICK_SCORE = 0.68;
-const MIN_CONTEXT_MARGIN = 0.08;
+const RETRIEVAL_TOP_K = 5;
+const MIN_CONTEXT_AUTOPICK_SCORE = 0.60;
+const MIN_CONTEXT_MARGIN = 0.06;
 const MIN_LLM_CONFIDENCE = 0.72;
 const MIN_LLM_CONTEXT_SCORE = 0.35;
 const MIN_IMPROVEMENT_DELTA = 0.05;
@@ -74,105 +74,6 @@ function fieldByName(name: string, entityId: string, fields: (Field | ConnectorF
   return fields.find((field) => field.entityId === entityId && normalize(field.name) === normalized);
 }
 
-function complianceIntersectionScore(source: Field | ConnectorField, target: Field | ConnectorField): number {
-  const sourceTags = source.complianceTags ?? [];
-  const targetTags = target.complianceTags ?? [];
-
-  if (!sourceTags.length && !targetTags.length) return 0.7;
-  if (!sourceTags.length || !targetTags.length) return 0.4;
-
-  const sourceSet = new Set(sourceTags);
-  const shared = targetTags.filter((tag) => sourceSet.has(tag));
-  if (shared.length > 0) return 1;
-  return 0.15;
-}
-
-function scoreTargetCandidate(
-  sourceField: Field | ConnectorField,
-  targetField: Field | ConnectorField,
-): RankedCandidate {
-  const sourceProfile = buildFieldSemanticProfile(sourceField);
-  const targetProfile = buildFieldSemanticProfile(targetField);
-  const sourceText = sourceProfile.text;
-  const targetText = targetProfile.text;
-
-  const nameScore = jaccard(sourceText, targetText);
-  const typeScore = semanticTypeScore(sourceProfile, targetField.dataType);
-  const semanticScore = intentSimilarity(sourceProfile, targetProfile);
-  const complianceScore = complianceIntersectionScore(sourceField, targetField);
-  const canonicalScore =
-    sourceField.iso20022Name && targetField.iso20022Name && sourceField.iso20022Name === targetField.iso20022Name
-      ? 1
-      : 0;
-  const incompatible = isHardIncompatible(sourceProfile, targetProfile);
-  const typeWeight = sourceProfile.typeReliability >= 0.8 ? 0.16 : 0.08;
-
-  const sourceTags = sourceField.complianceTags ?? [];
-  const targetTags = targetField.complianceTags ?? [];
-  const sourceGlba = sourceTags.includes('GLBA_NPI');
-  const sourcePci = sourceTags.includes('PCI_CARD');
-  const targetGlba = targetTags.includes('GLBA_NPI');
-  const targetPci = targetTags.includes('PCI_CARD');
-
-  const compliancePenalty =
-    (sourceGlba && !targetGlba ? 0.16 : 0) +
-    (sourcePci && !targetPci ? 0.22 : 0);
-  const sourceIsKey = Boolean(sourceField.isKey || sourceField.isExternalId);
-  const targetIsUpsertKey = Boolean((targetField as ConnectorField).isUpsertKey);
-  const externalIdScore = (() => {
-    if (sourceIsKey && targetIsUpsertKey) return 0.25;
-    if (sourceIsKey && targetField.isExternalId) return 0.15;
-    if (!sourceIsKey && targetIsUpsertKey) return -0.10;
-    return 0;
-  })();
-
-  let score =
-    (0.30 * semanticScore) +
-    (0.22 * nameScore) +
-    (typeWeight * typeScore) +
-    (0.16 * canonicalScore) +
-    (0.12 * complianceScore) +
-    externalIdScore -
-    compliancePenalty;
-
-  if (canonicalScore === 1 && typeScore >= 0.75 && semanticScore >= 0.6) {
-    score = Math.max(score, 0.8);
-  }
-  if (semanticScore >= 0.8 && typeScore >= 0.75) {
-    score += 0.08;
-  }
-  if (incompatible) {
-    score -= 0.45;
-  }
-
-  const reasons: string[] = [];
-  if (semanticScore >= 0.6) reasons.push(`semantic ${semanticScore.toFixed(2)}`);
-  if (nameScore >= 0.45) reasons.push(`name ${nameScore.toFixed(2)}`);
-  if (typeScore >= 0.75) reasons.push(`type ${typeScore.toFixed(2)}`);
-  if (canonicalScore === 1) reasons.push('iso20022 match');
-  if (complianceScore >= 0.8) reasons.push('compliance aligned');
-  if (sourceIsKey && targetIsUpsertKey) reasons.push('maps to SF upsert key — preferred for deduplication');
-  else if (sourceIsKey && targetField.isExternalId) reasons.push('maps to SF external ID field');
-  else if (!sourceIsKey && targetIsUpsertKey) reasons.push('penalty: non-key source to SF upsert key');
-  if (compliancePenalty > 0) reasons.push('compliance mismatch penalty');
-  if (incompatible) reasons.push('hard incompatibility gate');
-
-  return {
-    targetField,
-    score: clamp01(score),
-    reasons,
-  };
-}
-
-function rankTargetsForSource(
-  sourceField: Field | ConnectorField,
-  targetFields: (Field | ConnectorField)[],
-): RankedCandidate[] {
-  return targetFields
-    .map((targetField) => scoreTargetCandidate(sourceField, targetField))
-    .sort((a, b) => b.score - a.score);
-}
-
 function isCandidateDecisive(best: RankedCandidate | undefined, second: RankedCandidate | undefined): boolean {
   if (!best) return false;
   const margin = best.score - (second?.score ?? 0);
@@ -181,12 +82,12 @@ function isCandidateDecisive(best: RankedCandidate | undefined, second: RankedCa
 
 function buildContextHint(
   sourceField: Field | ConnectorField,
-  candidates: RankedCandidate[],
+  retrieval: RetrievalResult,
 ): string | null {
-  const top = candidates.slice(0, CONTEXT_HINT_CANDIDATES);
+  const top = retrieval.topCandidates.slice(0, CONTEXT_HINT_CANDIDATES);
   if (!top.length) return null;
   const detail = top
-    .map((candidate) => `${candidate.targetField.name}(${candidate.score.toFixed(2)})`)
+    .map((candidate) => `${candidate.targetField.name}(${candidate.retrievalScore.toFixed(2)})`)
     .join(', ');
   return `${sourceField.name}: ${detail}`;
 }
@@ -243,14 +144,19 @@ export class MappingProposalAgent extends AgentBase {
     };
 
     const targetFieldsByEntityId = new Map<string, (Field | ConnectorField)[]>();
+    const entityNamesById = new Map<string, string>();
     for (const targetEntity of targetEntities) {
+      entityNamesById.set(targetEntity.id, targetEntity.name);
       targetFieldsByEntityId.set(
         targetEntity.id,
         fields.filter((field) => field.entityId === targetEntity.id),
       );
     }
+    for (const sourceEntity of sourceEntities) {
+      entityNamesById.set(sourceEntity.id, sourceEntity.name);
+    }
 
-    const rankingByMappingId = new Map<string, RankedCandidate[]>();
+    const rankingByMappingId = new Map<string, RetrievalResult>();
     const contextHints: string[] = [];
 
     for (const mapping of fieldMappings) {
@@ -259,15 +165,29 @@ export class MappingProposalAgent extends AgentBase {
       if (!sourceField || !entityMapping) continue;
 
       const targetFields = targetFieldsByEntityId.get(entityMapping.targetEntityId) ?? [];
-      const ranked = rankTargetsForSource(sourceField, targetFields);
-      if (!ranked.length) continue;
+      const retrieval = retrieveCandidatesForSource(sourceField, targetFields, {
+        embeddingCache: context.embeddingCache,
+        entityNamesById,
+        topK: RETRIEVAL_TOP_K,
+      });
+      if (!retrieval.rankedCandidates.length) continue;
 
-      rankingByMappingId.set(mapping.id, ranked);
+      rankingByMappingId.set(mapping.id, retrieval);
       if (contextHints.length < CONTEXT_HINT_LIMIT) {
-        const hint = buildContextHint(sourceField, ranked);
+        const hint = buildContextHint(sourceField, retrieval);
         if (hint) contextHints.push(hint);
       }
     }
+
+    this.info(
+      context,
+      'retrieval_ready',
+      `Built top-${RETRIEVAL_TOP_K} candidate shortlists for ${rankingByMappingId.size} source fields`,
+      {
+        shortlists: rankingByMappingId.size,
+        topK: RETRIEVAL_TOP_K,
+      },
+    );
 
     // Build safe schema descriptions (PII stripped)
     const srcDesc = buildSafeSchemaDescription(sourceEntities, fields.filter((field) =>
@@ -335,12 +255,17 @@ export class MappingProposalAgent extends AgentBase {
       const existing = updatedMappings[index];
       if (existing.status === 'accepted' || existing.status === 'rejected') continue;
 
-      const ranked = rankingByMappingId.get(existing.id);
-      if (!ranked || !ranked.length) continue;
+      const retrieval = rankingByMappingId.get(existing.id);
+      if (!retrieval || !retrieval.rankedCandidates.length) continue;
 
+      const ranked: RankedCandidate[] = retrieval.rankedCandidates.map((candidate) => ({
+        targetField: candidate.targetField,
+        score: candidate.retrievalScore,
+        reasons: candidate.evidence,
+      }));
       const best = ranked[0];
       const second = ranked[1];
-      const current = ranked.find((candidate) => candidate.targetField.id === existing.targetFieldId);
+      const current = retrieval.rankedCandidates.find((candidate) => candidate.targetField.id === existing.targetFieldId);
 
       const shouldRetarget =
         isCandidateDecisive(best, second) &&
@@ -357,7 +282,11 @@ export class MappingProposalAgent extends AgentBase {
           before: { targetFieldId: existing.targetFieldId, confidence: existing.confidence },
           after: { targetFieldId: best.targetField.id, confidence: best.score },
           durationMs: 0,
-          metadata: { reasons: best.reasons },
+          metadata: {
+            reasons: best.reasons,
+            retrievalTopCandidates: retrievalMetadata(retrieval),
+            retrievalStrategy: 'top-k-hybrid',
+          },
         };
         this.emit(context, step);
         steps.push({ agentName: this.name, ...step });
@@ -367,7 +296,10 @@ export class MappingProposalAgent extends AgentBase {
           targetFieldId: best.targetField.id,
           confidence: Math.max(existing.confidence, best.score),
           rationale: appendRationaleOnce(
-            appendRationale(existing.rationale, `context-ranker(${best.reasons.join(', ') || 'schema signal'})`),
+            appendRationaleOnce(
+              appendRationale(existing.rationale, `context-ranker(${best.reasons.join(', ') || 'schema signal'})`),
+              retrievalSummary(retrieval),
+            ),
             buildAnnotationForMapping({ ...existing, targetFieldId: best.targetField.id }),
           ),
         };
@@ -376,7 +308,7 @@ export class MappingProposalAgent extends AgentBase {
         continue;
       }
 
-      const currentScore = current?.score ?? 0;
+      const currentScore = current?.retrievalScore ?? 0;
       if (currentScore >= existing.confidence + MIN_IMPROVEMENT_DELTA) {
         const sourceName = fieldById(existing.sourceFieldId, fields)?.name ?? existing.sourceFieldId;
         const step: Omit<AgentStep, 'agentName'> = {
@@ -386,7 +318,11 @@ export class MappingProposalAgent extends AgentBase {
           before: { confidence: existing.confidence },
           after: { confidence: currentScore },
           durationMs: 0,
-          metadata: { reasons: current?.reasons ?? [] },
+          metadata: {
+            reasons: current?.evidence ?? [],
+            retrievalTopCandidates: retrievalMetadata(retrieval),
+            retrievalStrategy: 'top-k-hybrid',
+          },
         };
         this.emit(context, step);
         steps.push({ agentName: this.name, ...step });
@@ -395,7 +331,10 @@ export class MappingProposalAgent extends AgentBase {
           ...existing,
           confidence: currentScore,
           rationale: appendRationaleOnce(
-            appendRationale(existing.rationale, `context-ranker(${(current?.reasons ?? []).join(', ') || 'schema signal'})`),
+            appendRationaleOnce(
+              appendRationale(existing.rationale, `context-ranker(${(current?.evidence ?? []).join(', ') || 'schema signal'})`),
+              retrievalSummary(retrieval),
+            ),
             buildAnnotationForMapping(existing),
           ),
         };
@@ -421,9 +360,15 @@ export class MappingProposalAgent extends AgentBase {
         const existing = updatedMappings[existingIndex];
         if (existing.status === 'accepted' || existing.status === 'rejected') continue;
 
-        const ranked = rankingByMappingId.get(existing.id) ?? [];
-        const contextCandidate = ranked.find((candidate) => candidate.targetField.id === targetField.id);
-        const contextScore = contextCandidate?.score ?? scoreTargetCandidate(sourceField, targetField).score;
+        const retrieval = rankingByMappingId.get(existing.id);
+        const contextCandidate = retrieval?.rankedCandidates.find((candidate) => candidate.targetField.id === targetField.id);
+        const contextScore = contextCandidate?.retrievalScore
+          ?? retrieveCandidatesForSource(sourceField, [targetField], {
+            embeddingCache: context.embeddingCache,
+            entityNamesById,
+            topK: 1,
+          }).rankedCandidates[0]?.retrievalScore
+          ?? 0;
         if (contextScore < MIN_LLM_CONTEXT_SCORE) continue;
 
         const mergedConfidence = clamp01((0.6 * proposal.confidence) + (0.4 * contextScore));
@@ -444,6 +389,8 @@ export class MappingProposalAgent extends AgentBase {
             reasoning: proposal.reasoning,
             llmConfidence: proposal.confidence,
             contextScore,
+            retrievalTopCandidates: retrieval ? retrievalMetadata(retrieval) : [],
+            retrievalStrategy: 'top-k-hybrid',
           },
         };
         this.emit(context, step);
@@ -461,7 +408,10 @@ export class MappingProposalAgent extends AgentBase {
               ),
               buildUpsertKeyRationale(sourceField, targetField),
             ),
-            buildAnnotationForMapping({ ...existing, targetFieldId: targetField.id }),
+            appendRationaleOnce(
+              retrieval ? retrievalSummary(retrieval) : '',
+              buildAnnotationForMapping({ ...existing, targetFieldId: targetField.id }),
+            ),
           ),
         };
 
@@ -503,6 +453,8 @@ export class MappingProposalAgent extends AgentBase {
         improved,
         provider,
         rankedMappings: rankingByMappingId.size,
+        retrievalShortlists: rankingByMappingId.size,
+        retrievalTopK: RETRIEVAL_TOP_K,
         upsertKeyMappings,
         recordTypeAnnotations,
       },
