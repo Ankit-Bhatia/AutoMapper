@@ -23,6 +23,7 @@ export type FieldIntent =
 export interface SemanticFieldLike {
   name: string;
   label?: string;
+  description?: string;
   dataType: DataType;
 }
 
@@ -32,6 +33,7 @@ export interface FieldSemanticProfile {
   typeReliability: number;
   strongSignal: boolean;
   tokens: Set<string>;
+  concepts: Set<string>;
   text: string;
 }
 
@@ -99,6 +101,115 @@ const RELATED_INTENTS: Array<[FieldIntent, FieldIntent]> = [
   ['name', 'last_name'],
 ];
 
+const TOKEN_CONCEPTS: Record<string, string[]> = {
+  acct: ['account'],
+  account: ['account'],
+  accounts: ['account'],
+  addr: ['address'],
+  address: ['address'],
+  amount: ['amount'],
+  amt: ['amount'],
+  applicant: ['borrower'],
+  approval: ['approval'],
+  approved: ['approval'],
+  apr: ['rate'],
+  apy: ['rate'],
+  bal: ['balance'],
+  balance: ['balance'],
+  bank: ['institution'],
+  birthdate: ['date'],
+  borrower: ['borrower'],
+  city: ['address'],
+  class: ['classification'],
+  client: ['customer'],
+  closedate: ['date'],
+  code: ['code'],
+  collateral: ['collateral'],
+  contact: ['contact'],
+  country: ['address'],
+  currentbalance: ['balance'],
+  cust: ['customer'],
+  customer: ['customer'],
+  date: ['date'],
+  debt: ['debt'],
+  desc: ['description'],
+  description: ['description'],
+  displayname: ['name'],
+  dob: ['date'],
+  email: ['email'],
+  employer: ['employment'],
+  ext: ['external'],
+  external: ['external'],
+  fee: ['fee'],
+  firm: ['relationship'],
+  firstname: ['name', 'first_name'],
+  fullname: ['name'],
+  gl: ['ledger'],
+  goal: ['goal'],
+  identifier: ['identifier'],
+  id: ['identifier'],
+  individual: ['person'],
+  institution: ['institution'],
+  interest: ['rate'],
+  lastname: ['name', 'last_name'],
+  legalname: ['name'],
+  lender: ['institution'],
+  loan: ['loan'],
+  maturity: ['term'],
+  member: ['customer'],
+  mobile: ['phone'],
+  month: ['tenure'],
+  months: ['tenure'],
+  name: ['name'],
+  nbr: ['identifier'],
+  number: ['identifier'],
+  openbalance: ['balance'],
+  opendate: ['date'],
+  origination: ['origination'],
+  party: ['party'],
+  payment: ['payment'],
+  pct: ['rate'],
+  perc: ['rate'],
+  percent: ['rate'],
+  phone: ['phone'],
+  postal: ['address'],
+  principal: ['amount'],
+  profile: ['profile'],
+  rate: ['rate'],
+  relationship: ['relationship'],
+  signer: ['borrower'],
+  ssn: ['tax_id'],
+  state: ['status', 'address'],
+  status: ['status'],
+  street: ['address'],
+  surname: ['name', 'last_name'],
+  tax: ['tax_id'],
+  taxid: ['tax_id'],
+  taxidentifier: ['tax_id'],
+  tenure: ['tenure'],
+  term: ['term'],
+  tin: ['tax_id'],
+  total: ['amount'],
+  type: ['classification'],
+  typ: ['classification'],
+  upsert: ['external'],
+  with: [],
+  years: ['tenure'],
+  year: ['tenure'],
+  yearswithfirm: ['tenure', 'relationship'],
+  yn: ['boolean'],
+  zip: ['address'],
+};
+
+const PHRASE_CONCEPT_PATTERNS: Array<{ pattern: RegExp; concepts: string[] }> = [
+  { pattern: /(yearswithfirm|yearswithinstitution|monthswithfirm|monthswithinstitution|relationshiplength|tenure)/i, concepts: ['tenure', 'relationship'] },
+  { pattern: /(taxid|taxidentifier|tin|ssn)/i, concepts: ['tax_id', 'identifier'] },
+  { pattern: /(legalname|fullname|displayname)/i, concepts: ['name'] },
+  { pattern: /(currentbalance|availablebalance|openbalance)/i, concepts: ['balance'] },
+  { pattern: /(paymentamount|monthlypayment|loanpayment)/i, concepts: ['payment', 'amount'] },
+  { pattern: /(externalid|externalkey|upsertkey)/i, concepts: ['external', 'identifier'] },
+];
+
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -124,6 +235,36 @@ function expandLosPrefix(name: string): string {
     .replace(/^DT_/i, 'Date_')
     .replace(/^CD_/i, 'Code_')
     .replace(/^TYP_/i, 'Type_');
+}
+
+function addConcepts(target: Set<string>, values: string[]): void {
+  for (const value of values) {
+    if (value) target.add(value);
+  }
+}
+
+function buildConceptSet(field: SemanticFieldLike, tokens: Set<string>, expandedName: string): Set<string> {
+  const concepts = new Set<string>();
+  const normalizedText = normalize(`${expandedName} ${field.label ?? ''} ${field.description ?? ''}`);
+
+  for (const token of tokens) {
+    const mapped = TOKEN_CONCEPTS[token];
+    if (mapped) {
+      addConcepts(concepts, mapped);
+      continue;
+    }
+    if (token.length >= 4 && !['true', 'false'].includes(token)) {
+      concepts.add(token);
+    }
+  }
+
+  for (const { pattern, concepts: mapped } of PHRASE_CONCEPT_PATTERNS) {
+    if (pattern.test(normalizedText)) {
+      addConcepts(concepts, mapped);
+    }
+  }
+
+  return concepts;
 }
 
 function hasAnyIntent(profile: FieldSemanticProfile, intents: FieldIntent[]): boolean {
@@ -173,7 +314,7 @@ function inferType(
 }
 
 export function buildFieldSemanticProfile(field: SemanticFieldLike): FieldSemanticProfile {
-  const fullText = `${field.name} ${field.label ?? ''}`.trim();
+  const fullText = `${field.name} ${field.label ?? ''} ${field.description ?? ''}`.trim();
   const expandedName = expandLosPrefix(field.name);
   const tokens = new Set([
     ...tokenize(fullText),
@@ -181,6 +322,7 @@ export function buildFieldSemanticProfile(field: SemanticFieldLike): FieldSemant
     normalize(field.name),
     normalize(expandedName),
   ].filter(Boolean));
+  const concepts = buildConceptSet(field, tokens, expandedName);
 
   const intents = new Set<FieldIntent>();
   let prefixSignal = false;
@@ -205,7 +347,7 @@ export function buildFieldSemanticProfile(field: SemanticFieldLike): FieldSemant
   }
 
   const { inferredType, typeReliability, strongSignal } = inferType(field, intents, prefixSignal);
-  const comparableText = `${expandedName} ${field.label ?? ''}`.trim();
+  const comparableText = `${expandedName} ${field.label ?? ''} ${field.description ?? ''}`.trim();
 
   return {
     intents,
@@ -213,6 +355,7 @@ export function buildFieldSemanticProfile(field: SemanticFieldLike): FieldSemant
     typeReliability,
     strongSignal,
     tokens,
+    concepts,
     text: comparableText,
   };
 }
@@ -239,6 +382,61 @@ export function intentSimilarity(source: FieldSemanticProfile, target: FieldSema
   return 0.1;
 }
 
+export function conceptSimilarity(source: FieldSemanticProfile, target: FieldSemanticProfile): number {
+  if (source.concepts.size === 0 || target.concepts.size === 0) {
+    return 0.18;
+  }
+
+  let shared = 0;
+  for (const concept of source.concepts) {
+    if (target.concepts.has(concept)) shared += 1;
+  }
+
+  if (shared === 0) return 0.18;
+
+  const overlap = (2 * shared) / (source.concepts.size + target.concepts.size);
+  return Math.max(0.25, Math.min(1, 0.30 + (0.70 * overlap)));
+}
+
+export function hybridSemanticSimilarity(
+  source: FieldSemanticProfile,
+  target: FieldSemanticProfile,
+  embeddingScore?: number,
+): {
+  score: number;
+  mode: 'embed' | 'concept' | 'intent';
+  intentScore: number;
+  conceptScore: number;
+} {
+  const intentScore = intentSimilarity(source, target);
+  const conceptScore = conceptSimilarity(source, target);
+
+  if (typeof embeddingScore === 'number') {
+    return {
+      score: Math.max(
+        intentScore,
+        conceptScore,
+        Math.max(0, Math.min(1, (0.55 * embeddingScore) + (0.25 * conceptScore) + (0.20 * intentScore))),
+      ),
+      mode: 'embed',
+      intentScore,
+      conceptScore,
+    };
+  }
+
+  const score = Math.max(
+    intentScore,
+    conceptScore,
+    Math.max(0, Math.min(1, (0.65 * conceptScore) + (0.35 * intentScore))),
+  );
+  return {
+    score,
+    mode: conceptScore > intentScore ? 'concept' : 'intent',
+    intentScore,
+    conceptScore,
+  };
+}
+
 export function isHardIncompatible(
   source: FieldSemanticProfile,
   target: FieldSemanticProfile,
@@ -259,4 +457,3 @@ export function isHardIncompatible(
 
   return false;
 }
-

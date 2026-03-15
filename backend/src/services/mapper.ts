@@ -11,7 +11,7 @@ import { bestStringMatch, jaccard } from '../utils/stringSim.js';
 import { getAiSuggestions } from './llmAdapter.js';
 import {
   buildFieldSemanticProfile,
-  intentSimilarity,
+  hybridSemanticSimilarity,
   isHardIncompatible,
   semanticTypeScore,
   type FieldSemanticProfile,
@@ -24,6 +24,7 @@ interface CandidateScore {
   base: number;
   lexicalScore: number;
   semanticScore: number;
+  semanticMode: 'embed' | 'concept' | 'intent';
   typeScore: number;
   domainBoost: number;
   incompatible: boolean;
@@ -435,7 +436,8 @@ function scoreTargetCandidate(
   targetProfile: FieldSemanticProfile,
 ): CandidateScore {
   const lexicalScore = jaccard(sourceProfile.text, targetProfile.text);
-  const semanticScore = intentSimilarity(sourceProfile, targetProfile);
+  const semanticBlend = hybridSemanticSimilarity(sourceProfile, targetProfile);
+  const semanticScore = semanticBlend.score;
   const typeScore = semanticTypeScore(sourceProfile, targetField.dataType);
   const domainBoost = domainFieldBoost(
     sourceEntityName,
@@ -463,6 +465,7 @@ function scoreTargetCandidate(
     base: clamp(base),
     lexicalScore,
     semanticScore,
+    semanticMode: semanticBlend.mode,
     typeScore,
     domainBoost,
     incompatible,
@@ -472,13 +475,16 @@ function scoreTargetCandidate(
 
 function buildCandidateRationale(candidate: CandidateScore): string {
   const segments = [
-    `semantic ${candidate.semanticScore.toFixed(2)}`,
+    `semantic ${candidate.semanticScore.toFixed(2)} (${candidate.semanticMode})`,
     `lexical ${candidate.lexicalScore.toFixed(2)}`,
     `type ${candidate.typeScore.toFixed(2)} (${candidate.sourceProfile.inferredType}→${candidate.targetField.dataType})`,
   ];
 
   if (candidate.domainBoost !== 0) {
     segments.push(`domain ${candidate.domainBoost.toFixed(2)}`);
+  }
+  if (candidate.semanticMode === 'concept' && candidate.semanticScore >= 0.6) {
+    segments.push('concept-aligned');
   }
   if (candidate.incompatible) {
     segments.push('compatibility gate: borderline');

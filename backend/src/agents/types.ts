@@ -13,8 +13,7 @@
  */
 import type { SystemType, Entity, Field, EntityMapping, FieldMapping } from '../types.js';
 import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
-
-// ─── Context ──────────────────────────────────────────────────────────────────
+import type { EmbeddingCache } from '../services/EmbeddingService.js';
 
 /**
  * Context passed to every agent.run() call.
@@ -32,6 +31,13 @@ export interface AgentContext {
   fields: (Field | ConnectorField)[];
   entityMappings: EntityMapping[];
   fieldMappings: FieldMapping[];
+  /**
+   * Pre-computed embedding vectors for all fields (source + target).
+   * Built once per pipeline run by OrchestratorAgent before the pipeline starts.
+   * Null when no embedding provider key is present — agents fall back to
+   * intent-based semantic scoring transparently.
+   */
+  embeddingCache?: EmbeddingCache;
   /** Called by agents to emit progress events (used for SSE streaming) */
   onStep?: (step: AgentStep) => void;
 }

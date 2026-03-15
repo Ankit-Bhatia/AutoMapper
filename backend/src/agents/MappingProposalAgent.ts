@@ -20,10 +20,11 @@ import { llmComplete, activeProvider, buildMappingPrompt } from './llm/LLMGatewa
 import { jaccard } from '../utils/stringSim.js';
 import {
   buildFieldSemanticProfile,
-  intentSimilarity,
+  hybridSemanticSimilarity,
   isHardIncompatible,
   semanticTypeScore,
 } from '../services/fieldSemantics.js';
+import { cosineSimilarity, type EmbeddingCache } from '../services/EmbeddingService.js';
 
 interface LLMProposal {
   sourceField: string;
@@ -35,6 +36,8 @@ interface LLMProposal {
 interface RankedCandidate {
   targetField: Field | ConnectorField;
   score: number;
+  semanticScore: number;
+  semanticMode: 'embed' | 'concept' | 'intent';
   reasons: string[];
 }
 
@@ -85,6 +88,7 @@ function complianceIntersectionScore(source: Field | ConnectorField, target: Fie
 function scoreTargetCandidate(
   sourceField: Field | ConnectorField,
   targetField: Field | ConnectorField,
+  embeddingCache?: EmbeddingCache,
 ): RankedCandidate {
   const sourceProfile = buildFieldSemanticProfile(sourceField);
   const targetProfile = buildFieldSemanticProfile(targetField);
@@ -93,7 +97,15 @@ function scoreTargetCandidate(
 
   const nameScore = jaccard(sourceText, targetText);
   const typeScore = semanticTypeScore(sourceProfile, targetField.dataType);
-  const semanticScore = intentSimilarity(sourceProfile, targetProfile);
+  let embeddingScore: number | undefined;
+  if (embeddingCache) {
+    const sourceVector = embeddingCache.get(sourceField.id);
+    const targetVector = embeddingCache.get(targetField.id);
+    if (sourceVector && targetVector) {
+      embeddingScore = cosineSimilarity(sourceVector, targetVector);
+    }
+  }
+  const semanticBlend = hybridSemanticSimilarity(sourceProfile, targetProfile, embeddingScore);
   const complianceScore = complianceIntersectionScore(sourceField, targetField);
   const canonicalScore =
     sourceField.iso20022Name && targetField.iso20022Name && sourceField.iso20022Name === targetField.iso20022Name
@@ -114,17 +126,17 @@ function scoreTargetCandidate(
     (sourcePci && !targetPci ? 0.22 : 0);
 
   let score =
-    (0.30 * semanticScore) +
+    (0.30 * semanticBlend.score) +
     (0.22 * nameScore) +
     (typeWeight * typeScore) +
     (0.16 * canonicalScore) +
     (0.12 * complianceScore) -
     compliancePenalty;
 
-  if (canonicalScore === 1 && typeScore >= 0.75 && semanticScore >= 0.6) {
+  if (canonicalScore === 1 && typeScore >= 0.75 && semanticBlend.score >= 0.6) {
     score = Math.max(score, 0.8);
   }
-  if (semanticScore >= 0.8 && typeScore >= 0.75) {
+  if (semanticBlend.score >= 0.8 && typeScore >= 0.75) {
     score += 0.08;
   }
   if (incompatible) {
@@ -132,17 +144,20 @@ function scoreTargetCandidate(
   }
 
   const reasons: string[] = [];
-  if (semanticScore >= 0.6) reasons.push(`semantic ${semanticScore.toFixed(2)}`);
+  if (semanticBlend.score >= 0.6) reasons.push(`semantic ${semanticBlend.score.toFixed(2)} (${semanticBlend.mode})`);
   if (nameScore >= 0.45) reasons.push(`name ${nameScore.toFixed(2)}`);
   if (typeScore >= 0.75) reasons.push(`type ${typeScore.toFixed(2)}`);
   if (canonicalScore === 1) reasons.push('iso20022 match');
   if (complianceScore >= 0.8) reasons.push('compliance aligned');
+  if (semanticBlend.mode === 'embed' && typeof embeddingScore === 'number') reasons.push(`embedding ${embeddingScore.toFixed(2)}`);
   if (compliancePenalty > 0) reasons.push('compliance mismatch penalty');
   if (incompatible) reasons.push('hard incompatibility gate');
 
   return {
     targetField,
     score: clamp01(score),
+    semanticScore: semanticBlend.score,
+    semanticMode: semanticBlend.mode,
     reasons,
   };
 }
@@ -150,9 +165,10 @@ function scoreTargetCandidate(
 function rankTargetsForSource(
   sourceField: Field | ConnectorField,
   targetFields: (Field | ConnectorField)[],
+  embeddingCache?: EmbeddingCache,
 ): RankedCandidate[] {
   return targetFields
-    .map((targetField) => scoreTargetCandidate(sourceField, targetField))
+    .map((targetField) => scoreTargetCandidate(sourceField, targetField, embeddingCache))
     .sort((a, b) => b.score - a.score);
 }
 
@@ -213,7 +229,7 @@ export class MappingProposalAgent extends AgentBase {
       if (!sourceField || !entityMapping) continue;
 
       const targetFields = targetFieldsByEntityId.get(entityMapping.targetEntityId) ?? [];
-      const ranked = rankTargetsForSource(sourceField, targetFields);
+      const ranked = rankTargetsForSource(sourceField, targetFields, context.embeddingCache);
       if (!ranked.length) continue;
 
       rankingByMappingId.set(mapping.id, ranked);
@@ -371,7 +387,7 @@ export class MappingProposalAgent extends AgentBase {
 
         const ranked = rankingByMappingId.get(existing.id) ?? [];
         const contextCandidate = ranked.find((candidate) => candidate.targetField.id === targetField.id);
-        const contextScore = contextCandidate?.score ?? scoreTargetCandidate(sourceField, targetField).score;
+        const contextScore = contextCandidate?.score ?? scoreTargetCandidate(sourceField, targetField, context.embeddingCache).score;
         if (contextScore < MIN_LLM_CONTEXT_SCORE) continue;
 
         const mergedConfidence = clamp01((0.6 * proposal.confidence) + (0.4 * contextScore));
