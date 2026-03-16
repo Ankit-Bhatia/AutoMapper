@@ -105,9 +105,11 @@ export function ExportPanel({
     const targetFieldIds = new Set(targetFields.map((field) => field.id));
     const targetFieldById = new Map(targetFields.map((field) => [field.id, field]));
     const scopedMappings = fieldMappings.filter((mapping) => targetFieldIds.has(mapping.targetFieldId));
-    const nonRejectedMappings = scopedMappings.filter((mapping) => mapping.status !== 'rejected');
+    const activeMappings = scopedMappings.filter(
+      (mapping) => mapping.status !== 'rejected' && mapping.status !== 'unmatched',
+    );
     const mappingsByTargetField = new Map<string, FieldMapping[]>();
-    for (const mapping of nonRejectedMappings) {
+    for (const mapping of activeMappings) {
       const existing = mappingsByTargetField.get(mapping.targetFieldId) ?? [];
       existing.push(mapping);
       mappingsByTargetField.set(mapping.targetFieldId, existing);
@@ -118,6 +120,7 @@ export function ExportPanel({
       modified: 1,
       suggested: 2,
       rejected: 3,
+      unmatched: 4,
     };
 
     const pickPrimaryMapping = (mappings: FieldMapping[]): FieldMapping | null => {
@@ -142,7 +145,7 @@ export function ExportPanel({
       })
       .filter((item): item is { field: Field; mapping: FieldMapping } => item !== null);
 
-    const mappedTargetFieldIds = new Set(nonRejectedMappings.map((mapping) => mapping.targetFieldId));
+    const mappedTargetFieldIds = new Set(activeMappings.map((mapping) => mapping.targetFieldId));
     const mappedTargetCount = targetFields.filter((field) => mappedTargetFieldIds.has(field.id)).length;
     const acceptedMappingsCount = scopedMappings.filter((mapping) => mapping.status === 'accepted').length;
     const suggestedMappingsCount = scopedMappings.filter(
