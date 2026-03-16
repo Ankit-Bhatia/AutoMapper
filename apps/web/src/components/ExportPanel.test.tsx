@@ -1,11 +1,18 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExportPanel } from './ExportPanel';
 import type { Entity, Field, FieldMapping } from '@contracts';
 
+const { mockApi, mockIsDemoUiMode } = vi.hoisted(() => ({
+  mockApi: vi.fn(),
+  mockIsDemoUiMode: vi.fn(() => false),
+}));
+
 vi.mock('@core/api-client', () => ({
-  apiBase: () => 'http://localhost:4000',
+  api: mockApi,
+  API_BASE: 'http://localhost:4000',
+  isDemoUiMode: mockIsDemoUiMode,
 }));
 
 const targetEntity: Entity = {
@@ -61,6 +68,22 @@ function renderPanel(fields: Field[], fieldMappings: FieldMapping[]) {
     />,
   );
 }
+
+beforeEach(() => {
+  mockApi.mockReset();
+  mockIsDemoUiMode.mockReset();
+  mockIsDemoUiMode.mockReturnValue(false);
+  vi.restoreAllMocks();
+  vi.stubGlobal('fetch', vi.fn());
+  vi.stubGlobal(
+    'URL',
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => 'blob:mock-download'),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+});
 
 describe('ExportPanel pre-flight checks', () => {
   it('blocks export when required target fields are unmapped and allows override', async () => {
@@ -149,5 +172,68 @@ describe('ExportPanel pre-flight checks', () => {
     expect(bsaChip).toHaveTextContent('1');
 
     expect(screen.getAllByRole('button', { name: /download \.json/i })[0]).toBeEnabled();
+  });
+
+  it('downloads through the live API with credentials included', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      blob: vi.fn().mockResolvedValue(new Blob(['live export'])),
+    } as unknown as Response);
+
+    renderPanel([makeField({ id: 'target-name', name: 'Name' })], [makeMapping({ targetFieldId: 'target-name' })]);
+
+    await user.click(screen.getAllByRole('button', { name: /download \.json/i })[0]);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:4000/api/projects/project-1/export?format=json',
+        { credentials: 'include' },
+      );
+    });
+    expect(mockApi).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('downloads through the standalone mock API without making a backend request', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    mockIsDemoUiMode.mockReturnValue(true);
+    mockApi.mockResolvedValue('mock export payload');
+
+    renderPanel([makeField({ id: 'target-name', name: 'Name' })], [makeMapping({ targetFieldId: 'target-name' })]);
+
+    await user.click(screen.getAllByRole('button', { name: /download \.json/i })[0]);
+
+    await waitFor(() => {
+      expect(mockApi).toHaveBeenCalledWith('/api/projects/project-1/export?format=json');
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an inline error on failure and clears it on the next successful download', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new Error('Network down'));
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      blob: vi.fn().mockResolvedValue(new Blob(['recovered export'])),
+    } as unknown as Response);
+
+    renderPanel([makeField({ id: 'target-name', name: 'Name' })], [makeMapping({ targetFieldId: 'target-name' })]);
+
+    const downloadButton = screen.getAllByRole('button', { name: /download \.json/i })[0];
+    await user.click(downloadButton);
+
+    expect(await screen.findByText('Network down')).toBeInTheDocument();
+
+    await user.click(downloadButton);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Network down')).not.toBeInTheDocument();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

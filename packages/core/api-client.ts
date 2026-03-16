@@ -22,7 +22,7 @@ function inferApiBase(): string {
   return 'http://localhost:4000';
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE || inferApiBase();
+export const API_BASE = import.meta.env.VITE_API_BASE || inferApiBase();
 
 // ── In-memory mutable state for standalone demo ──────────────────────────────
 // Cloned on first use so optimistic updates (accept/reject) persist within session

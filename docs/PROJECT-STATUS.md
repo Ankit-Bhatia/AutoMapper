@@ -704,3 +704,19 @@ Acceptance notes:
 - Hard-banned targets do not survive the optimizer when a valid alternative exists.
 - `optimizer_complete` is emitted from `MappingProposalAgent` with the required metadata shape, including the Jira-specified `aiFailbackFlagged` key.
 - Relationship scope checks remain gated behind the future `KAN-90` graph implementation.
+
+## 2026-03-17 KAN-77 Export Download Fix (Implemented by Codex)
+
+Summary:
+- Fixed export downloads in `apps/web/src/components/ExportPanel.tsx` so live mode now uses `fetch(..., { credentials: 'include' })` against `API_BASE`, standalone/demo mode routes through `api<string>()`, and users see inline error feedback instead of silent failures.
+- Exported `API_BASE` from `packages/core/api-client.ts` for absolute live download URLs.
+- Added frontend regression coverage for live downloads, standalone downloads, and inline error clearing in `apps/web/src/components/ExportPanel.test.tsx`.
+- Added `export-error` styling in `apps/web/src/styles.css`.
+- Fixed the Vitest web harness so `localStorage.clear()` is always available in `apps/web/src/test/setup.ts`, and updated `apps/web/src/MappingStudioApp.test.tsx` to match the current LLM settings UI text structure.
+
+Validation:
+- `cd backend && npx tsc --noEmit` -> passing
+- `cd backend && npm test -- --run` -> passing (`179/179`)
+- `npm --workspace apps/web run typecheck` -> passing
+- `npm --workspace apps/web run test -- --run` -> passing (`40/40`)
+- `npm --workspace apps/web run build` -> passing
