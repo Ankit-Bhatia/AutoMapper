@@ -9,12 +9,12 @@ import { ExportPanel } from './components/ExportPanel';
 import { BulkActionBar, type BulkOperationResult } from './components/BulkActionBar';
 import { LandingPage } from './components/LandingPage';
 import { SeedSummaryCard } from './components/SeedSummaryCard';
-import { ProjectHistoryPanel } from './components/ProjectHistoryPanel';
-import {
-  LLMSettingsPanel,
-  type LLMConfigUpdatePayload,
-} from './components/LLMSettingsPanel';
+import { CommandCenter } from './components/CommandCenter';
+import { LLMSettingsPage } from './components/LLMSettingsPage';
+import { type LLMConfigUpdatePayload } from './components/LLMSettingsPanel';
+import { getActiveFormulaTargetIds } from './components/schemaIntelligence';
 import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
+import { useAuth } from './auth/AuthContext';
 import type {
   Entity,
   EntityMapping,
@@ -74,11 +74,25 @@ interface PipelineResult {
   processingMs: number;
 }
 
+type UiTheme = 'dark' | 'light';
+
+const UI_THEME_STORAGE_KEY = 'automapper-ui-theme';
+
 export function MappingStudioApp() {
+  const { user } = useAuth();
   const demoUiMode = isDemoUiMode();
   const [showLanding, setShowLanding] = useState<boolean>(true);
+  const [theme, setTheme] = useState<UiTheme>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    const savedTheme = window.localStorage.getItem(UI_THEME_STORAGE_KEY);
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      return savedTheme;
+    }
+    return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  });
   // ── Workflow state ──────────────────────────────────────────────────────────
-  const [step, setStep] = useState<WorkflowStep>('connect');
+  const [step, setStep] = useState<WorkflowStep>('command-center');
+  const [workflowContextStep, setWorkflowContextStep] = useState<Exclude<WorkflowStep, 'llm-settings'>>('command-center');
   const [loadingSetup, setLoadingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
 
@@ -105,6 +119,7 @@ export function MappingStudioApp() {
   const [preflight, setPreflight] = useState<ProjectPreflight | null>(null);
   const [reviewGateMessage, setReviewGateMessage] = useState<string | null>(null);
   const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(new Set());
+  const [acknowledgedFormulaMappingIds, setAcknowledgedFormulaMappingIds] = useState<Set<string>>(new Set());
   const [validation, setValidation] = useState<ValidationReport>({
     warnings: [],
     summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
@@ -132,6 +147,17 @@ export function MappingStudioApp() {
       targetConnectorId,
     });
   }, [project?.id, sourceConnectorId, step, targetConnectorId]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem(UI_THEME_STORAGE_KEY, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (step !== 'llm-settings') {
+      setWorkflowContextStep(step);
+    }
+  }, [step]);
 
   // ── Reload project data from API ────────────────────────────────────────────
   const loadProject = useCallback(async (pid: string) => {
@@ -252,6 +278,7 @@ export function MappingStudioApp() {
     setSourceSchemaMode(null);
     setTargetSchemaMode(null);
     setSelectedMappingIds(new Set());
+    setAcknowledgedFormulaMappingIds(new Set());
 
     try {
       const payload = await loadProject(projectId);
@@ -273,6 +300,7 @@ export function MappingStudioApp() {
         refreshPreflight(projectId),
         refreshConflicts(projectId),
       ]);
+      const formulaTargetIds = getActiveFormulaTargetIds(payload.fieldMappings);
 
       const hasMappings = payload.fieldMappings.length > 0;
       setIsOrchestrated(hasMappings);
@@ -284,6 +312,13 @@ export function MappingStudioApp() {
       }
 
       if (destination === 'export') {
+        if (formulaTargetIds.length > 0) {
+          setStep('review');
+          setReviewGateMessage(
+            `Acknowledge ${formulaTargetIds.length} formula field warning${formulaTargetIds.length === 1 ? '' : 's'} before export.`,
+          );
+          return;
+        }
         if (preflightData?.canExport) {
           setStep('export');
         } else {
@@ -468,6 +503,7 @@ export function MappingStudioApp() {
     setPreflight(null);
     setReviewGateMessage(null);
     setSelectedMappingIds(new Set());
+    setAcknowledgedFormulaMappingIds(new Set());
     void loadProjectHistory();
   }
 
@@ -475,6 +511,15 @@ export function MappingStudioApp() {
   function handleMappingUpdate(updated: FieldMapping) {
     setReviewGateMessage(null);
     setFieldMappings((prev) => prev.map((fm) => (fm.id === updated.id ? updated : fm)));
+  }
+
+  function handleAcknowledgeFormulaWarning(mappingId: string) {
+    setAcknowledgedFormulaMappingIds((prev) => {
+      const next = new Set(prev);
+      next.add(mappingId);
+      return next;
+    });
+    setReviewGateMessage(null);
   }
 
   function handleSelectionChange(mappingId: string, selected: boolean) {
@@ -513,36 +558,121 @@ export function MappingStudioApp() {
     () => fieldMappings.filter((fm) => fm.status === 'accepted').length,
     [fieldMappings],
   );
+  const activeFormulaTargetIds = useMemo(
+    () => getActiveFormulaTargetIds(fieldMappings),
+    [fieldMappings],
+  );
+  const pendingFormulaAcknowledgementIds = useMemo(
+    () => activeFormulaTargetIds.filter((mappingId) => !acknowledgedFormulaMappingIds.has(mappingId)),
+    [acknowledgedFormulaMappingIds, activeFormulaTargetIds],
+  );
+  const formulaExportBlocked = pendingFormulaAcknowledgementIds.length > 0;
+  const normalizedRole = (user?.role ?? '').toUpperCase();
+  const isAdmin = normalizedRole === 'ADMIN' || normalizedRole === 'OWNER';
+  const userName = user?.name || user?.email || undefined;
+
+  useEffect(() => {
+    const activeIds = new Set(activeFormulaTargetIds);
+    setAcknowledgedFormulaMappingIds((prev) => {
+      const next = new Set([...prev].filter((mappingId) => activeIds.has(mappingId)));
+      if (next.size === prev.size) {
+        return prev;
+      }
+      return next;
+    });
+  }, [activeFormulaTargetIds]);
 
   const sourceConnectorName = sourceConnectorId ? CONNECTOR_NAMES[sourceConnectorId] ?? sourceConnectorId : undefined;
   const targetConnectorName = targetConnectorId ? CONNECTOR_NAMES[targetConnectorId] ?? targetConnectorId : undefined;
 
+  function attemptOpenExport() {
+    const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
+    if (unresolved > 0) {
+      setReviewGateMessage(
+        `Resolve ${unresolved} unresolved conflict${unresolved === 1 ? '' : 's'} before export.`,
+      );
+      setConflictDrawerOpen(true);
+      setStep('review');
+      return;
+    }
+
+    if (formulaExportBlocked) {
+      setReviewGateMessage(
+        `Acknowledge ${pendingFormulaAcknowledgementIds.length} formula field warning${pendingFormulaAcknowledgementIds.length === 1 ? '' : 's'} before export.`,
+      );
+      setStep('review');
+      return;
+    }
+
+    setReviewGateMessage(null);
+    setStep('export');
+  }
+
+  function handleStepClick(nextStep: WorkflowStep) {
+    if (nextStep === 'export') {
+      attemptOpenExport();
+      return;
+    }
+    setReviewGateMessage(null);
+    setStep(nextStep);
+  }
+
+  function handleEnterCommandCenter() {
+    setShowLanding(false);
+    setStep('command-center');
+    setWorkflowContextStep('command-center');
+  }
+
+  function handleNewProject() {
+    resetMockState();
+    setProject(null);
+    setSourceConnectorId(null);
+    setTargetConnectorId(null);
+    setSourceSchemaMode(null);
+    setTargetSchemaMode(null);
+    setSourceEntities([]);
+    setTargetEntities([]);
+    setFields([]);
+    setEntityMappings([]);
+    setFieldMappings([]);
+    setValidation({ warnings: [], summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 } });
+    setIsOrchestrated(false);
+    setSetupError(null);
+    setSeedSummary(null);
+    setSeedSummaryAcknowledged(true);
+    setConflicts([]);
+    setConflictDrawerOpen(false);
+    setPreflight(null);
+    setReviewGateMessage(null);
+    setSelectedMappingIds(new Set());
+    setAcknowledgedFormulaMappingIds(new Set());
+    setStep('connect');
+  }
+
   // ── Render main content by step ─────────────────────────────────────────────
   function renderContent() {
     switch (step) {
+      case 'command-center':
+        return (
+          <CommandCenter
+            userName={userName}
+            userRole={user?.role}
+            projects={projectHistory}
+            llmUsage={llmUsage}
+            isDemoMode={demoUiMode}
+            loading={projectHistoryLoading}
+            error={projectHistoryError}
+            onNewProject={handleNewProject}
+            onOpenReview={(projectId) => { void openPastProject(projectId, 'review'); }}
+            onOpenExport={(projectId) => { void openPastProject(projectId, 'export'); }}
+            onOpenLLMSettings={() => setStep('llm-settings')}
+            onRefresh={() => { void loadProjectHistory(); }}
+          />
+        );
+
       case 'connect':
         return (
           <div className="connect-workspace">
-            <div className="connect-top-panels">
-              <ProjectHistoryPanel
-                projects={projectHistory}
-                loading={projectHistoryLoading}
-                error={projectHistoryError}
-                activeProjectId={project?.id ?? null}
-                onRefresh={() => { void loadProjectHistory(); }}
-                onOpenReview={(projectId) => { void openPastProject(projectId, 'review'); }}
-                onOpenExport={(projectId) => { void openPastProject(projectId, 'export'); }}
-              />
-              <LLMSettingsPanel
-                config={llmConfig}
-                usage={llmUsage}
-                loading={llmLoading}
-                saving={llmSaving}
-                error={llmError}
-                onRefresh={() => { void refreshLlmTelemetry(); }}
-                onSave={saveLlmConfig}
-              />
-            </div>
             <ConnectorGrid
               onProceed={handleConnectorProceed}
               loading={loadingSetup}
@@ -621,18 +751,9 @@ export function MappingStudioApp() {
               onSelectionChange={handleSelectionChange}
               selectionCap={200}
               onMappingUpdate={handleMappingUpdate}
-              onProceedToExport={() => {
-                const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
-                if (unresolved > 0) {
-                  setReviewGateMessage(
-                    `Resolve ${unresolved} unresolved conflict${unresolved === 1 ? '' : 's'} before export.`,
-                  );
-                  setConflictDrawerOpen(true);
-                  return;
-                }
-                setReviewGateMessage(null);
-                setStep('export');
-              }}
+              acknowledgedFormulaMappingIds={acknowledgedFormulaMappingIds}
+              onAcknowledgeFormulaWarning={handleAcknowledgeFormulaWarning}
+              onProceedToExport={attemptOpenExport}
             />
             <ConflictDrawer
               projectId={project.id}
@@ -655,6 +776,23 @@ export function MappingStudioApp() {
           </>
         ) : null;
 
+      case 'llm-settings':
+        return (
+          <LLMSettingsPage
+            isAdmin={isAdmin}
+            userName={userName}
+            projects={projectHistory}
+            llmConfig={llmConfig}
+            llmUsage={llmUsage}
+            llmLoading={llmLoading}
+            llmSaving={llmSaving}
+            llmError={llmError}
+            onRefresh={() => { void refreshLlmTelemetry(); }}
+            onSave={saveLlmConfig}
+            onBack={() => setStep(workflowContextStep)}
+          />
+        );
+
       case 'export':
         return project ? (
           <ExportPanel
@@ -673,13 +811,18 @@ export function MappingStudioApp() {
 
   return (
     showLanding ? (
-      <LandingPage onEnterStudio={() => setShowLanding(false)} />
+      <LandingPage onEnterStudio={handleEnterCommandCenter} />
     ) : (
       <div className="app-shell">
         <Sidebar
           currentStep={step}
-          onStepClick={setStep}
+          workflowStep={workflowContextStep}
+          onStepClick={handleStepClick}
+          theme={theme}
+          onThemeChange={setTheme}
           onReset={handleReset}
+          userName={userName}
+          userRole={user?.role}
           projectName={project?.name}
           sourceConnector={sourceConnectorName}
           targetConnector={targetConnectorName}

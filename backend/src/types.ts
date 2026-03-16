@@ -40,11 +40,20 @@ export interface Entity {
   description?: string;
 }
 
+export interface RecordType {
+  id?: string;
+  name: string;
+  developerName?: string;
+  active?: boolean;
+  entityName?: string;
+}
+
 export interface Field {
   id: string;
   entityId: string;
   name: string;
   label?: string;
+  description?: string;
   dataType: DataType;
   length?: number;
   precision?: number;
@@ -102,6 +111,18 @@ export interface RetrievalShortlist {
   candidates: RetrievalShortlistCandidate[];
 }
 
+export interface RerankerDecision {
+  sourceFieldId: string;
+  candidateCount: number;
+  selectedTargetFieldId: string;
+  selectedTargetFieldName: string;
+  finalRank: number;
+  confidence: number;
+  evidenceSignals: string[];
+  reasoning?: string;
+  provider?: string;
+}
+
 export type TransformType =
   | 'direct'
   | 'concat'
@@ -126,6 +147,7 @@ export interface FieldMapping {
   status: 'suggested' | 'accepted' | 'rejected' | 'modified';
   seedSource?: 'derived' | 'canonical' | 'agent';
   retrievalShortlist?: RetrievalShortlist;
+  rerankerDecision?: RerankerDecision;
 }
 
 export interface ValidationWarning {

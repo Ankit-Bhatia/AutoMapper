@@ -9,7 +9,7 @@
     "dev:api": "npm --prefix backend run dev",
     "demo:backend": "npm --workspace @automapper/demo-api run dev",
     "demo:frontend": "npm --workspace @automapper/web run dev -- --host 127.0.0.1",
-    "build": "npm --prefix backend run build && npm --workspace apps/web run build",
+    "build": "npm --prefix backend run build && npm --workspace apps/web run build && cp apps/web/dist/index.html demo.html",
     "test": "npm --prefix backend run test -- --run && npm --workspace apps/web run test -- --run",
     "test:backend": "npm --prefix backend run test -- --run",
     "test:frontend": "npm --workspace apps/web run test -- --run",

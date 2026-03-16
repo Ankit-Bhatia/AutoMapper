@@ -159,5 +159,8 @@ function inferSystemType(name: string): System['type'] {
   if (n.includes('jackhenry') || n.includes('silverlake') || n.includes('coredirector') || n.includes('symitar')) {
     return 'jackhenry';
   }
+  if (n.includes('riskclam') || n.includes('risk clam') || n.includes('bosl')) {
+    return 'riskclam';
+  }
   return 'generic';
 }

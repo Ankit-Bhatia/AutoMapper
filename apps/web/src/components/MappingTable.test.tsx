@@ -80,6 +80,7 @@ const initialMapping: FieldMapping = {
 
 function Harness() {
   const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([initialMapping]);
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
 
   return (
     <MappingTable
@@ -92,6 +93,14 @@ function Harness() {
       validation={validation}
       onMappingUpdate={(updated) => {
         setFieldMappings((prev) => prev.map((fm) => (fm.id === updated.id ? updated : fm)));
+      }}
+      acknowledgedFormulaMappingIds={acknowledged}
+      onAcknowledgeFormulaWarning={(mappingId) => {
+        setAcknowledged((prev) => {
+          const next = new Set(prev);
+          next.add(mappingId);
+          return next;
+        });
       }}
       onProceedToExport={() => {}}
     />
@@ -137,6 +146,80 @@ describe('MappingTable', () => {
       expect(screen.getByRole('button', { name: 'Accepted (1)' })).toBeInTheDocument();
       expect(screen.getByText('1/1')).toBeInTheDocument();
       expect(screen.getByText('1 accepted')).toBeInTheDocument();
+    });
+  });
+
+  it('surfaces SchemaIntelligence badges and allows formula warnings to be acknowledged', async () => {
+    const user = userEvent.setup();
+    const formulaMapping: FieldMapping = {
+      ...initialMapping,
+      id: 'fm-formula',
+      targetFieldId: 'target-field-formula',
+      rationale: [
+        "✅ Confirmed BOSL→FSC pattern: 'AMT_APPROVED_LOAN' → 'FinServ__LoanAmount__c' on FinancialAccount [HIGH]. Exact match",
+        "⚠️ Formula field target: 'FormulaAmount__c' appears to be a calculated field — inbound writes will fail. Map the source fields that feed this formula instead.",
+        "⚠️ One-to-Many field: 'AMT_APPROVED_LOAN' maps to multiple Salesforce targets in the BOSL corpus. Human routing decision required — validate this specific target is correct for your lifecycle stage.",
+        "ℹ️ Person Account field: 'PersonMailingStreet__pc' (__pc suffix) only exists on Person Account records — not available for business/organisation accounts.",
+      ].join(' | '),
+    };
+
+    function FormulaHarness() {
+      const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([formulaMapping]);
+      const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
+
+      return (
+        <MappingTable
+          projectId="project-1"
+          sourceEntities={[sourceEntity]}
+          targetEntities={[targetEntity]}
+          fields={[
+            {
+              ...fields[0],
+              name: 'AMT_APPROVED_LOAN',
+            },
+            {
+              ...fields[1],
+              id: 'target-field-formula',
+              name: 'PersonMailingStreet__pc',
+            },
+          ]}
+          entityMappings={entityMappings}
+          fieldMappings={fieldMappings}
+          validation={validation}
+          onMappingUpdate={(updated) => {
+            setFieldMappings((prev) => prev.map((fm) => (fm.id === updated.id ? updated : fm)));
+          }}
+          acknowledgedFormulaMappingIds={acknowledged}
+          onAcknowledgeFormulaWarning={(mappingId) => {
+            setAcknowledged((prev) => {
+              const next = new Set(prev);
+              next.add(mappingId);
+              return next;
+            });
+          }}
+          onProceedToExport={() => {}}
+        />
+      );
+    }
+
+    render(<FormulaHarness />);
+
+    expect(screen.getByText(/formula field acknowledgement required/i)).toBeInTheDocument();
+    expect(screen.getByText(/Confirmed Pattern \(HIGH\)/i)).toBeInTheDocument();
+    expect(screen.getAllByTitle(/formulaamount__c/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Routing Required/i)).toBeInTheDocument();
+
+    await user.click(screen.getByText('AMT_APPROVED_LOAN'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Formula target warning/i)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /acknowledge warning/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Acknowledged/i)).toBeInTheDocument();
+      expect(screen.queryByText(/formula field acknowledgement required/i)).not.toBeInTheDocument();
     });
   });
 });

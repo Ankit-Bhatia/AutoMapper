@@ -92,6 +92,7 @@ interface CustomConnectorPayload {
 
 interface CustomConnectorResponse {
   id: string;
+  deduped?: boolean;
   connector?: {
     id?: string;
     displayName?: string;
@@ -101,6 +102,12 @@ interface CustomConnectorResponse {
     description?: string;
     entities?: string[];
   };
+}
+
+interface CustomConnectorDeleteResponse {
+  ok?: boolean;
+  deletedIds?: string[];
+  deletedCount?: number;
 }
 
 function normalizeCategory(input: string): ConnectorDefinition['category'] {
@@ -116,6 +123,31 @@ function sanitizeConnectionConfig(connectionConfig: Record<string, unknown>): Re
   return Object.fromEntries(
     Object.entries(connectionConfig).filter(([key]) => !REDACTED_CONNECTION_KEYS.has(key)),
   );
+}
+
+function normalizeConnectorText(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function normalizeConnectorNameKey(value: string | undefined): string {
+  return normalizeConnectorText(value).replace(/[^a-z0-9]+/g, '');
+}
+
+function connectorFamilyKey(connector: ConnectorDefinition): string {
+  return JSON.stringify({
+    name: normalizeConnectorNameKey(connector.name),
+    vendor: normalizeConnectorText(connector.vendor),
+    category: normalizeConnectorText(connector.category),
+  });
+}
+
+function dedupeConnectorDefinitions(connectors: ConnectorDefinition[]): ConnectorDefinition[] {
+  const byFamily = new Map<string, ConnectorDefinition>();
+  for (const connector of connectors) {
+    byFamily.set(connectorFamilyKey(connector), connector);
+  }
+  return Array.from(byFamily.values())
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function inferDataType(value: unknown): string {
@@ -304,6 +336,9 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
   const [addEntities, setAddEntities] = useState<CustomConnectorEntity[]>([]);
   const [addError, setAddError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selectedCustomConnectorIds, setSelectedCustomConnectorIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -330,7 +365,7 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
               ? (connector.entities.filter((entity): entity is string => typeof entity === 'string').slice(0, 8))
               : [],
           }));
-        setConnectors([...BUILTIN_CONNECTORS, ...custom]);
+        setConnectors([...BUILTIN_CONNECTORS, ...dedupeConnectorDefinitions(custom)]);
       } catch {
         // Keep builtin connectors if discovery API is temporarily unavailable.
       }
@@ -499,6 +534,55 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
     setAddError(null);
   }
 
+  function isCustomConnector(connectorId: string): boolean {
+    return connectorId.startsWith('custom-');
+  }
+
+  function applyDeletedConnectorIds(ids: string[]) {
+    if (!ids.length) return;
+    const deletedIdSet = new Set(ids);
+    setConnectors((prev) => prev.filter((connector) => !deletedIdSet.has(connector.id)));
+    setSelectedCustomConnectorIds((prev) => {
+      const next = new Set([...prev].filter((id) => !deletedIdSet.has(id)));
+      return next;
+    });
+    setSource((prev) => (prev && deletedIdSet.has(prev) ? null : prev));
+    setTarget((prev) => (prev && deletedIdSet.has(prev) ? null : prev));
+  }
+
+  async function deleteCustomConnector(connectorId: string) {
+    if (deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const response = await api<CustomConnectorDeleteResponse>(`/api/connectors/custom/${connectorId}`, {
+        method: 'DELETE',
+      });
+      applyDeletedConnectorIds(response.deletedIds ?? [connectorId]);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Failed to delete custom connector');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  async function bulkDeleteCustomConnectors() {
+    if (deleteBusy || selectedCustomConnectorIds.size === 0) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const response = await api<CustomConnectorDeleteResponse>('/api/connectors/custom/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: [...selectedCustomConnectorIds] }),
+      });
+      applyDeletedConnectorIds(response.deletedIds ?? [...selectedCustomConnectorIds]);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Failed to delete selected custom connectors');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   function closeAddConnectorModal() {
     if (addSaving) return;
     setShowAddModal(false);
@@ -623,6 +707,7 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
             : resolvedEntities.map((entity) => entity.name)).slice(0, 8),
       };
 
+      setDeleteError(null);
       setConnectors((prev) => [...prev.filter((item) => item.id !== connector.id), connector]);
       setShowAddModal(false);
       resetAddConnectorForm();
@@ -663,6 +748,85 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
           Add custom connector
         </button>
       </div>
+
+      {connectors.some((connector) => isCustomConnector(connector.id)) && (
+        <section className="custom-connector-manager">
+          <div className="custom-connector-manager-header">
+            <div>
+              <h2 className="custom-connector-manager-title">Manage custom connectors</h2>
+              <p className="custom-connector-manager-subtitle">
+                Delete stale connectors permanently. Bulk delete removes the selected connector families from persistent storage.
+              </p>
+            </div>
+            <div className="custom-connector-manager-actions">
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={() => setSelectedCustomConnectorIds(new Set())}
+                disabled={deleteBusy || selectedCustomConnectorIds.size === 0}
+              >
+                Clear selection
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => { void bulkDeleteCustomConnectors(); }}
+                disabled={deleteBusy || selectedCustomConnectorIds.size === 0}
+              >
+                {deleteBusy ? 'Deleting…' : `Delete selected (${selectedCustomConnectorIds.size})`}
+              </button>
+            </div>
+          </div>
+
+          <div className="custom-connector-list" role="list" aria-label="Custom connectors">
+            {connectors
+              .filter((connector) => isCustomConnector(connector.id))
+              .map((connector) => {
+                const checked = selectedCustomConnectorIds.has(connector.id);
+                return (
+                  <div key={connector.id} className="custom-connector-row" role="listitem">
+                    <label className="custom-connector-select">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          setSelectedCustomConnectorIds((prev) => {
+                            const next = new Set(prev);
+                            if (event.target.checked) next.add(connector.id);
+                            else next.delete(connector.id);
+                            return next;
+                          });
+                        }}
+                        aria-label={`Select custom connector ${connector.name}`}
+                      />
+                      <span className="custom-connector-name">{connector.name}</span>
+                    </label>
+                    <div className="custom-connector-meta">
+                      <span>{connector.vendor}</span>
+                      <span>{CATEGORY_LABELS[connector.category] ?? connector.category}</span>
+                      <span>{connector.entities.length} entities</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => { void deleteCustomConnector(connector.id); }}
+                      disabled={deleteBusy}
+                      aria-label={`Delete ${connector.name}`}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+
+          {deleteError && (
+            <p className="connector-modal-error" role="alert">
+              {deleteError}
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Selection legend */}
       <div className="connector-legend">
@@ -1101,7 +1265,7 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
             </button>
           </div>
           <p className="connector-proceed-note">
-            AutoMapper will ingest both schemas and prepare them for the 7-agent orchestration pipeline. Uploaded files
+            AutoMapper will ingest both schemas and prepare them for the 8-agent orchestration pipeline. Uploaded files
             take priority for their selected side.
           </p>
         </div>

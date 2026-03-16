@@ -58,6 +58,18 @@ export interface RetrievalShortlist {
   candidates: RetrievalShortlistCandidate[];
 }
 
+export interface RerankerDecision {
+  sourceFieldId: string;
+  candidateCount: number;
+  selectedTargetFieldId: string;
+  selectedTargetFieldName: string;
+  finalRank: number;
+  confidence: number;
+  evidenceSignals: string[];
+  reasoning?: string;
+  provider?: string;
+}
+
 export interface FieldMapping {
   id: string;
   entityMappingId: string;
@@ -69,6 +81,7 @@ export interface FieldMapping {
   status: 'suggested' | 'accepted' | 'rejected' | 'modified';
   seedSource?: 'derived' | 'canonical' | 'agent';
   retrievalShortlist?: RetrievalShortlist;
+  rerankerDecision?: RerankerDecision;
 }
 
 export interface SeedSummary {
@@ -308,4 +321,4 @@ export interface ExportFormatDef {
 
 // ─── App workflow steps ───────────────────────────────────────────────────────
 
-export type WorkflowStep = 'connect' | 'orchestrate' | 'review' | 'export';
+export type WorkflowStep = 'command-center' | 'connect' | 'llm-settings' | 'orchestrate' | 'review' | 'export';

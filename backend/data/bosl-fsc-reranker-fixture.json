@@ -1,0 +1,268 @@
+[
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-name-first", "name": "NAME_FIRST", "label": "First Name", "dataType": "string", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib-name-middle", "name": "NAME_MIDDLE", "label": "Middle Name", "dataType": "string", "relation": "after", "offset": 1 },
+      { "id": "sib-name-last", "name": "NAME_LAST", "label": "Last Name", "dataType": "string", "relation": "after", "offset": 2 }
+    ],
+    "candidates": [
+      { "id": "tgt-name", "name": "Name", "label": "Account Name", "dataType": "string", "retrievalScore": 0.84, "semanticMode": "intent", "evidence": ["semantic 0.61 (intent)", "lexical 0.42"] },
+      { "id": "tgt-first-name", "name": "FirstName", "label": "First Name", "dataType": "string", "retrievalScore": 0.81, "semanticMode": "alias", "evidence": ["semantic 0.74 (alias)", "strong concept alignment"] },
+      { "id": "tgt-last-name", "name": "LastName", "label": "Last Name", "dataType": "string", "retrievalScore": 0.52, "semanticMode": "alias", "evidence": ["semantic 0.45 (alias)"] }
+    ],
+    "expectedTargetFieldId": "tgt-first-name"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-name-last", "name": "NAME_LAST", "label": "Last Name", "dataType": "string", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib2-name-first", "name": "NAME_FIRST", "label": "First Name", "dataType": "string", "relation": "before", "offset": 1 },
+      { "id": "sib2-name-middle", "name": "NAME_MIDDLE", "label": "Middle Name", "dataType": "string", "relation": "before", "offset": 2 }
+    ],
+    "candidates": [
+      { "id": "tgt2-name", "name": "Name", "label": "Account Name", "dataType": "string", "retrievalScore": 0.83, "semanticMode": "intent", "evidence": ["semantic 0.60 (intent)"] },
+      { "id": "tgt2-last-name", "name": "LastName", "label": "Last Name", "dataType": "string", "retrievalScore": 0.8, "semanticMode": "alias", "evidence": ["semantic 0.74 (alias)", "strong concept alignment"] },
+      { "id": "tgt2-first-name", "name": "FirstName", "label": "First Name", "dataType": "string", "retrievalScore": 0.5, "semanticMode": "alias", "evidence": ["semantic 0.44 (alias)"] }
+    ],
+    "expectedTargetFieldId": "tgt2-last-name"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-name-middle", "name": "NAME_MIDDLE", "label": "Middle Name", "dataType": "string", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib3-name-first", "name": "NAME_FIRST", "label": "First Name", "dataType": "string", "relation": "before", "offset": 2 },
+      { "id": "sib3-name-last", "name": "NAME_LAST", "label": "Last Name", "dataType": "string", "relation": "after", "offset": 1 }
+    ],
+    "candidates": [
+      { "id": "tgt3-name", "name": "Name", "label": "Account Name", "dataType": "string", "retrievalScore": 0.8, "semanticMode": "intent", "evidence": ["semantic 0.58 (intent)"] },
+      { "id": "tgt3-middle-name", "name": "MiddleName", "label": "Middle Name", "dataType": "string", "retrievalScore": 0.77, "semanticMode": "alias", "evidence": ["semantic 0.71 (alias)"] },
+      { "id": "tgt3-suffix", "name": "Suffix", "label": "Suffix", "dataType": "string", "retrievalScore": 0.49, "semanticMode": "intent", "evidence": ["semantic 0.41 (intent)"] }
+    ],
+    "expectedTargetFieldId": "tgt3-middle-name"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-total-assets", "name": "AMT_TOTAL_ASSETS", "label": "Total Assets", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib4-total-liabilities", "name": "AMT_TOTAL_LIABILITIES", "label": "Total Liabilities", "dataType": "decimal", "relation": "after", "offset": 1 }
+    ],
+    "candidates": [
+      { "id": "tgt4-balance", "name": "CurrentBalance", "label": "Current Balance", "dataType": "decimal", "retrievalScore": 0.82, "semanticMode": "intent", "evidence": ["semantic 0.62 (intent)", "type 1.00"] },
+      { "id": "tgt4-assets", "name": "Total_Assets__c", "label": "Total Assets", "dataType": "decimal", "retrievalScore": 0.79, "semanticMode": "alias", "evidence": ["semantic 0.76 (alias)", "type 1.00"] },
+      { "id": "tgt4-income", "name": "AnnualIncome__c", "label": "Annual Income", "dataType": "decimal", "retrievalScore": 0.43, "semanticMode": "intent", "evidence": ["type 1.00"] }
+    ],
+    "expectedTargetFieldId": "tgt4-assets"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-total-liabilities", "name": "AMT_TOTAL_LIABILITIES", "label": "Total Liabilities", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib5-total-assets", "name": "AMT_TOTAL_ASSETS", "label": "Total Assets", "dataType": "decimal", "relation": "before", "offset": 1 }
+    ],
+    "candidates": [
+      { "id": "tgt5-liabilities", "name": "Total_Liabilities__c", "label": "Total Liabilities", "dataType": "decimal", "retrievalScore": 0.84, "semanticMode": "alias", "evidence": ["semantic 0.81 (alias)", "type 1.00"] },
+      { "id": "tgt5-balance", "name": "CurrentBalance", "label": "Current Balance", "dataType": "decimal", "retrievalScore": 0.72, "semanticMode": "intent", "evidence": ["type 1.00"] },
+      { "id": "tgt5-assets", "name": "Total_Assets__c", "label": "Total Assets", "dataType": "decimal", "retrievalScore": 0.61, "semanticMode": "alias", "evidence": ["semantic 0.53 (alias)"] }
+    ],
+    "expectedTargetFieldId": "tgt5-liabilities"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-total-bosl", "name": "AMT_TOTAL_BOSL", "label": "Total BOSL Debt", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt6-balance", "name": "CurrentBalance", "label": "Current Balance", "dataType": "decimal", "retrievalScore": 0.8, "semanticMode": "intent", "evidence": ["type 1.00"] },
+      { "id": "tgt6-with-us", "name": "Total_Debt_With_Us__c", "label": "Total Debt With Us", "dataType": "decimal", "retrievalScore": 0.76, "semanticMode": "alias", "evidence": ["semantic 0.73 (alias)", "type 1.00"] },
+      { "id": "tgt6-other", "name": "Total_Debt_Other_Institutions__c", "label": "Total Debt Other Institutions", "dataType": "decimal", "retrievalScore": 0.58, "semanticMode": "alias", "evidence": ["semantic 0.49 (alias)"] }
+    ],
+    "expectedTargetFieldId": "tgt6-with-us"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-total-nonbsl", "name": "AMT_TOTAL_NONBSL", "label": "Total Non-BOSL Debt", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt7-balance", "name": "CurrentBalance", "label": "Current Balance", "dataType": "decimal", "retrievalScore": 0.81, "semanticMode": "intent", "evidence": ["type 1.00"] },
+      { "id": "tgt7-other", "name": "Total_Debt_Other_Institutions__c", "label": "Total Debt Other Institutions", "dataType": "decimal", "retrievalScore": 0.77, "semanticMode": "alias", "evidence": ["semantic 0.72 (alias)", "type 1.00"] },
+      { "id": "tgt7-with-us", "name": "Total_Debt_With_Us__c", "label": "Total Debt With Us", "dataType": "decimal", "retrievalScore": 0.55, "semanticMode": "alias", "evidence": ["semantic 0.47 (alias)"] }
+    ],
+    "expectedTargetFieldId": "tgt7-other"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-net-worth", "name": "AMT_NET_WORTH", "label": "Net Worth", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt8-net-worth", "name": "FinServ__NetWorth__c", "label": "Net Worth", "dataType": "decimal", "retrievalScore": 0.86, "semanticMode": "alias", "evidence": ["semantic 0.82 (alias)", "type 1.00"] },
+      { "id": "tgt8-assets", "name": "Total_Assets__c", "label": "Total Assets", "dataType": "decimal", "retrievalScore": 0.62, "semanticMode": "intent", "evidence": ["type 1.00"] },
+      { "id": "tgt8-income", "name": "AnnualIncome__c", "label": "Annual Income", "dataType": "decimal", "retrievalScore": 0.49, "semanticMode": "intent", "evidence": ["type 1.00"] }
+    ],
+    "expectedTargetFieldId": "tgt8-net-worth"
+  },
+  {
+    "sourceEntityName": "Loan",
+    "targetEntityName": "Loan__c",
+    "sourceField": { "id": "src-interest-pre", "name": "PERC_INTEREST", "label": "Interest Rate", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib9-date-application", "name": "DATE_APPLICATION", "label": "Application Date", "dataType": "date", "relation": "before", "offset": 1 }
+    ],
+    "candidates": [
+      { "id": "tgt9-fsc-rate", "name": "FinServ__InterestRate__c", "label": "Interest Rate", "dataType": "decimal", "retrievalScore": 0.83, "semanticMode": "alias", "evidence": ["semantic 0.78 (alias)", "type 1.00"] },
+      { "id": "tgt9-loan-rate", "name": "AnnualInterestRate__c", "label": "Annual Interest Rate", "dataType": "decimal", "retrievalScore": 0.8, "semanticMode": "alias", "evidence": ["semantic 0.75 (alias)", "entity route preboarding"] },
+      { "id": "tgt9-balance", "name": "CurrentBalance", "label": "Current Balance", "dataType": "decimal", "retrievalScore": 0.42, "semanticMode": "intent", "evidence": ["type 1.00"] }
+    ],
+    "expectedTargetFieldId": "tgt9-loan-rate"
+  },
+  {
+    "sourceEntityName": "Loan",
+    "targetEntityName": "FinancialAccount",
+    "sourceField": { "id": "src-interest-post", "name": "PERC_INTEREST", "label": "Interest Rate", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt10-fsc-rate", "name": "FinServ__InterestRate__c", "label": "Interest Rate", "dataType": "decimal", "retrievalScore": 0.84, "semanticMode": "alias", "evidence": ["semantic 0.80 (alias)", "entity route postboarding"] },
+      { "id": "tgt10-loan-rate", "name": "AnnualInterestRate__c", "label": "Annual Interest Rate", "dataType": "decimal", "retrievalScore": 0.79, "semanticMode": "alias", "evidence": ["semantic 0.73 (alias)"] },
+      { "id": "tgt10-balance", "name": "FinServ__Balance__c", "label": "Balance", "dataType": "decimal", "retrievalScore": 0.41, "semanticMode": "intent", "evidence": ["type 1.00"] }
+    ],
+    "expectedTargetFieldId": "tgt10-fsc-rate"
+  },
+  {
+    "sourceEntityName": "Loan",
+    "targetEntityName": "Loan__c",
+    "sourceField": { "id": "src-date-app-pre", "name": "DATE_APPLICATION", "label": "Application Date", "dataType": "date", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib11-interest", "name": "PERC_INTEREST", "label": "Interest Rate", "dataType": "decimal", "relation": "after", "offset": 1 }
+    ],
+    "candidates": [
+      { "id": "tgt11-fsc-app-date", "name": "FinServ__ApplicationDate__c", "label": "Application Date", "dataType": "date", "retrievalScore": 0.83, "semanticMode": "alias", "evidence": ["semantic 0.79 (alias)"] },
+      { "id": "tgt11-loan-app-date", "name": "Application_Date__c", "label": "Application Date", "dataType": "date", "retrievalScore": 0.81, "semanticMode": "alias", "evidence": ["semantic 0.74 (alias)", "entity route preboarding"] },
+      { "id": "tgt11-created", "name": "CreatedDate", "label": "Created Date", "dataType": "datetime", "retrievalScore": 0.48, "semanticMode": "intent", "evidence": ["lexical 0.21"] }
+    ],
+    "expectedTargetFieldId": "tgt11-loan-app-date"
+  },
+  {
+    "sourceEntityName": "Loan",
+    "targetEntityName": "FinancialAccount",
+    "sourceField": { "id": "src-date-app-post", "name": "DATE_APPLICATION", "label": "Application Date", "dataType": "date", "complianceTags": [] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt12-fsc-app-date", "name": "FinServ__ApplicationDate__c", "label": "Application Date", "dataType": "date", "retrievalScore": 0.85, "semanticMode": "alias", "evidence": ["semantic 0.81 (alias)", "entity route postboarding"] },
+      { "id": "tgt12-loan-app-date", "name": "Application_Date__c", "label": "Application Date", "dataType": "date", "retrievalScore": 0.78, "semanticMode": "alias", "evidence": ["semantic 0.70 (alias)"] },
+      { "id": "tgt12-created", "name": "CreatedDate", "label": "Created Date", "dataType": "datetime", "retrievalScore": 0.45, "semanticMode": "intent", "evidence": ["lexical 0.18"] }
+    ],
+    "expectedTargetFieldId": "tgt12-fsc-app-date"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-country", "name": "CODE_COUNTRY", "label": "Country Code", "dataType": "picklist", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib13-state", "name": "CODE_STATE", "label": "State Code", "dataType": "picklist", "relation": "after", "offset": 1 },
+      { "id": "sib13-postal", "name": "CODE_POSTAL", "label": "Postal Code", "dataType": "string", "relation": "after", "offset": 2 }
+    ],
+    "candidates": [
+      { "id": "tgt13-city", "name": "BillingCity", "label": "Billing City", "dataType": "string", "retrievalScore": 0.79, "semanticMode": "intent", "evidence": ["lexical 0.29"] },
+      { "id": "tgt13-country", "name": "BillingCountryCode", "label": "Billing Country Code", "dataType": "picklist", "retrievalScore": 0.76, "semanticMode": "alias", "evidence": ["semantic 0.72 (alias)", "type 1.00"] },
+      { "id": "tgt13-state", "name": "BillingStateCode", "label": "Billing State Code", "dataType": "picklist", "retrievalScore": 0.61, "semanticMode": "alias", "evidence": ["semantic 0.54 (alias)"] }
+    ],
+    "expectedTargetFieldId": "tgt13-country"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-state", "name": "CODE_STATE", "label": "State Code", "dataType": "picklist", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib14-country", "name": "CODE_COUNTRY", "label": "Country Code", "dataType": "picklist", "relation": "before", "offset": 1 },
+      { "id": "sib14-postal", "name": "CODE_POSTAL", "label": "Postal Code", "dataType": "string", "relation": "after", "offset": 1 }
+    ],
+    "candidates": [
+      { "id": "tgt14-city", "name": "BillingCity", "label": "Billing City", "dataType": "string", "retrievalScore": 0.77, "semanticMode": "intent", "evidence": ["lexical 0.27"] },
+      { "id": "tgt14-state", "name": "BillingStateCode", "label": "Billing State Code", "dataType": "picklist", "retrievalScore": 0.74, "semanticMode": "alias", "evidence": ["semantic 0.71 (alias)", "type 1.00"] },
+      { "id": "tgt14-country", "name": "BillingCountryCode", "label": "Billing Country Code", "dataType": "picklist", "retrievalScore": 0.59, "semanticMode": "alias", "evidence": ["semantic 0.52 (alias)"] }
+    ],
+    "expectedTargetFieldId": "tgt14-state"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-postal", "name": "CODE_POSTAL", "label": "Postal Code", "dataType": "string", "complianceTags": [] },
+    "siblings": [
+      { "id": "sib15-country", "name": "CODE_COUNTRY", "label": "Country Code", "dataType": "picklist", "relation": "before", "offset": 2 },
+      { "id": "sib15-state", "name": "CODE_STATE", "label": "State Code", "dataType": "picklist", "relation": "before", "offset": 1 }
+    ],
+    "candidates": [
+      { "id": "tgt15-city", "name": "BillingCity", "label": "Billing City", "dataType": "string", "retrievalScore": 0.76, "semanticMode": "intent", "evidence": ["lexical 0.26"] },
+      { "id": "tgt15-postal", "name": "BillingPostalCode", "label": "Billing Postal Code", "dataType": "string", "retrievalScore": 0.73, "semanticMode": "alias", "evidence": ["semantic 0.69 (alias)", "lexical 0.33"] },
+      { "id": "tgt15-state", "name": "BillingStateCode", "label": "Billing State Code", "dataType": "picklist", "retrievalScore": 0.44, "semanticMode": "alias", "evidence": ["semantic 0.41 (alias)"] }
+    ],
+    "expectedTargetFieldId": "tgt15-postal"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-fatca", "name": "Y_FATCA_PERSON", "label": "FATCA Person Flag", "dataType": "boolean", "complianceTags": ["GLBA_NPI"] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt16-us-crs", "name": "US_CRS__c", "label": "US CRS", "dataType": "boolean", "retrievalScore": 0.79, "semanticMode": "alias", "evidence": ["semantic 0.74 (alias)", "compliance aligned"], "complianceTags": ["GLBA_NPI"] },
+      { "id": "tgt16-name", "name": "Name", "label": "Name", "dataType": "string", "retrievalScore": 0.41, "semanticMode": "intent", "evidence": ["lexical 0.14"] },
+      { "id": "tgt16-country", "name": "BillingCountryCode", "label": "Billing Country Code", "dataType": "picklist", "retrievalScore": 0.33, "semanticMode": "intent", "evidence": ["lexical 0.12"] }
+    ],
+    "expectedTargetFieldId": "tgt16-us-crs"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "Account",
+    "sourceField": { "id": "src-due-diligence", "name": "Y_EXEMPT_DUE_DILIGENCE", "label": "Exempt Due Diligence", "dataType": "boolean", "complianceTags": ["GLBA_NPI"] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt17-exempt", "name": "Exempt_from_Due_Dilligence__pc", "label": "Exempt from Due Dilligence", "dataType": "boolean", "retrievalScore": 0.82, "semanticMode": "alias", "evidence": ["semantic 0.76 (alias)", "compliance aligned"], "complianceTags": ["GLBA_NPI"] },
+      { "id": "tgt17-name", "name": "Name", "label": "Name", "dataType": "string", "retrievalScore": 0.38, "semanticMode": "intent", "evidence": ["lexical 0.12"] },
+      { "id": "tgt17-country", "name": "BillingCountryCode", "label": "Billing Country Code", "dataType": "picklist", "retrievalScore": 0.31, "semanticMode": "intent", "evidence": ["lexical 0.11"] }
+    ],
+    "expectedTargetFieldId": "tgt17-exempt"
+  },
+  {
+    "sourceEntityName": "Borrower",
+    "targetEntityName": "PartyProfile",
+    "sourceField": { "id": "src-cif", "name": "NBR_CIF", "label": "CIF Number", "dataType": "string", "complianceTags": ["GLBA_NPI"] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt18-cif", "name": "CIFNumber", "label": "CIF Number", "dataType": "string", "retrievalScore": 0.85, "semanticMode": "alias", "evidence": ["semantic 0.82 (alias)", "compliance aligned"], "complianceTags": ["GLBA_NPI"] },
+      { "id": "tgt18-tax", "name": "TaxId", "label": "Tax Id", "dataType": "string", "retrievalScore": 0.63, "semanticMode": "alias", "evidence": ["semantic 0.55 (alias)", "compliance aligned"], "complianceTags": ["GLBA_NPI"] },
+      { "id": "tgt18-name", "name": "LegalName", "label": "Legal Name", "dataType": "string", "retrievalScore": 0.44, "semanticMode": "intent", "evidence": ["lexical 0.19"] }
+    ],
+    "expectedTargetFieldId": "tgt18-cif"
+  },
+  {
+    "sourceEntityName": "Loan",
+    "targetEntityName": "FinancialAccount",
+    "sourceField": { "id": "src-payment", "name": "AMT_PAYMENT", "label": "Payment Amount", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt19-balance", "name": "FinServ__Balance__c", "label": "Balance", "dataType": "decimal", "retrievalScore": 0.78, "semanticMode": "intent", "evidence": ["type 1.00"] },
+      { "id": "tgt19-payment", "name": "FinServ__PaymentAmount__c", "label": "Payment Amount", "dataType": "decimal", "retrievalScore": 0.75, "semanticMode": "alias", "evidence": ["semantic 0.71 (alias)", "type 1.00"] },
+      { "id": "tgt19-interest", "name": "FinServ__InterestRate__c", "label": "Interest Rate", "dataType": "decimal", "retrievalScore": 0.42, "semanticMode": "intent", "evidence": ["type 1.00"] }
+    ],
+    "expectedTargetFieldId": "tgt19-payment"
+  },
+  {
+    "sourceEntityName": "Loan",
+    "targetEntityName": "FinancialAccount",
+    "sourceField": { "id": "src-balance", "name": "AMT_TOTAL_CURRENT_BALANCE", "label": "Current Balance", "dataType": "decimal", "complianceTags": [] },
+    "siblings": [],
+    "candidates": [
+      { "id": "tgt20-balance", "name": "FinServ__Balance__c", "label": "Balance", "dataType": "decimal", "retrievalScore": 0.84, "semanticMode": "alias", "evidence": ["semantic 0.80 (alias)", "type 1.00"] },
+      { "id": "tgt20-payment", "name": "FinServ__PaymentAmount__c", "label": "Payment Amount", "dataType": "decimal", "retrievalScore": 0.55, "semanticMode": "intent", "evidence": ["type 1.00"] },
+      { "id": "tgt20-rate", "name": "FinServ__InterestRate__c", "label": "Interest Rate", "dataType": "decimal", "retrievalScore": 0.39, "semanticMode": "intent", "evidence": ["type 1.00"] }
+    ],
+    "expectedTargetFieldId": "tgt20-balance"
+  }
+]

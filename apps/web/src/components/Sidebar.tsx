@@ -3,8 +3,13 @@ import { WorkflowStep } from '@contracts';
 
 interface SidebarProps {
   currentStep: WorkflowStep;
+  workflowStep?: Exclude<WorkflowStep, 'llm-settings'>;
   onStepClick: (step: WorkflowStep) => void;
+  theme: 'dark' | 'light';
+  onThemeChange: (theme: 'dark' | 'light') => void;
   onReset?: () => void;
+  userName?: string;
+  userRole?: string;
   projectName?: string;
   sourceConnector?: string;
   targetConnector?: string;
@@ -15,12 +20,18 @@ interface SidebarProps {
   isDemoMode?: boolean;
 }
 
-const STEPS: { id: WorkflowStep; label: string; icon: string; description: string }[] = [
+const STEPS: { id: Exclude<WorkflowStep, 'llm-settings'>; label: string; icon: string; description: string }[] = [
+  { id: 'command-center', label: 'Command Center', icon: '◉', description: 'Projects, telemetry, and launchpad' },
   { id: 'connect',     label: 'Connect',     icon: '⬡', description: 'Choose source & target systems' },
   { id: 'orchestrate', label: 'Orchestrate', icon: '◈', description: 'Run AI mapping pipeline' },
   { id: 'review',      label: 'Review',      icon: '◻', description: 'Inspect & refine mappings' },
   { id: 'export',      label: 'Export',      icon: '◤', description: 'Download integration spec' },
 ];
+
+function isAdminRole(role?: string): boolean {
+  const normalized = (role ?? '').toUpperCase();
+  return normalized === 'ADMIN' || normalized === 'OWNER';
+}
 
 function AutoMapperLogomark({ size = 28, className = 'sidebar-logo-svg' }: { size?: number; className?: string }) {
   return (
@@ -42,10 +53,10 @@ function AutoMapperLogomark({ size = 28, className = 'sidebar-logo-svg' }: { siz
 }
 
 function stepStatus(
-  step: WorkflowStep,
-  current: WorkflowStep,
+  step: Exclude<WorkflowStep, 'llm-settings'>,
+  current: Exclude<WorkflowStep, 'llm-settings'>,
 ): 'done' | 'active' | 'disabled' {
-  const order: WorkflowStep[] = ['connect', 'orchestrate', 'review', 'export'];
+  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'export'];
   const ci = order.indexOf(current);
   const si = order.indexOf(step);
   if (si < ci) return 'done';
@@ -55,8 +66,13 @@ function stepStatus(
 
 export function Sidebar({
   currentStep,
+  workflowStep = 'command-center',
   onStepClick,
+  theme,
+  onThemeChange,
   onReset,
+  userName,
+  userRole,
   projectName,
   sourceConnector,
   targetConnector,
@@ -66,13 +82,20 @@ export function Sidebar({
   isOrchestrated = false,
   isDemoMode = true,
 }: SidebarProps) {
-  const order: WorkflowStep[] = ['connect', 'orchestrate', 'review', 'export'];
+  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'export'];
+  const workflowCurrentStep = currentStep === 'llm-settings' ? workflowStep : currentStep;
+  const adminPersona = isAdminRole(userRole);
+  const personaLabel = adminPersona ? 'Admin persona' : 'Normal user';
+  const personaDetail = adminPersona
+    ? 'Controls global LLM policy and product settings.'
+    : 'Runs mappings with organization defaults.';
 
-  function isClickable(step: WorkflowStep): boolean {
-    const ci = order.indexOf(currentStep);
+  function isClickable(step: Exclude<WorkflowStep, 'llm-settings'>): boolean {
+    if (step === 'command-center' || step === 'connect') return true;
+    const ci = order.indexOf(workflowCurrentStep);
     const si = order.indexOf(step);
     if (si <= ci) return true;
-    if (step === 'orchestrate') return !!(sourceConnector && targetConnector);
+    if (step === 'orchestrate') return !!(projectName && sourceConnector && targetConnector);
     if (step === 'review' || step === 'export') return isOrchestrated;
     return false;
   }
@@ -83,6 +106,59 @@ export function Sidebar({
       <div className="sidebar-logo">
         <AutoMapperLogomark />
         <span className="sidebar-logo-text">AutoMapper</span>
+      </div>
+
+      <div className="sidebar-user-card">
+        <div className="sidebar-user-heading">
+          <div className="sidebar-user-meta">
+            <div className="sidebar-user-label">Signed in</div>
+            <div className="sidebar-user-name">{userName || 'Workspace user'}</div>
+          </div>
+          <span className={`sidebar-persona-badge ${adminPersona ? 'is-admin' : 'is-user'}`}>
+            {personaLabel}
+          </span>
+        </div>
+        <div className="sidebar-user-detail">
+          <span>{userRole || 'Unknown role'}</span>
+          <span>{personaDetail}</span>
+        </div>
+        <button
+          type="button"
+          className={`sidebar-utility-btn ${currentStep === 'llm-settings' ? 'active' : ''}`}
+          onClick={() => onStepClick('llm-settings')}
+        >
+          <span className="sidebar-utility-icon">⌘</span>
+          <span className="sidebar-utility-copy">
+            <span className="sidebar-utility-title">LLM / API Settings</span>
+            <span className="sidebar-utility-subtitle">
+              {adminPersona ? 'Admin controls and usage telemetry' : 'View current access and policy'}
+            </span>
+          </span>
+        </button>
+        <div className="sidebar-theme-block">
+          <div className="sidebar-theme-header">
+            <span className="sidebar-theme-title">Theme</span>
+            <span className="sidebar-theme-meta">{theme === 'dark' ? 'Studio dark' : 'Workspace light'}</span>
+          </div>
+          <div className="sidebar-theme-switch" role="group" aria-label="Theme switch">
+            <button
+              type="button"
+              className={`sidebar-theme-option ${theme === 'dark' ? 'active' : ''}`}
+              aria-pressed={theme === 'dark'}
+              onClick={() => onThemeChange('dark')}
+            >
+              Dark
+            </button>
+            <button
+              type="button"
+              className={`sidebar-theme-option ${theme === 'light' ? 'active' : ''}`}
+              aria-pressed={theme === 'light'}
+              onClick={() => onThemeChange('light')}
+            >
+              Light
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Project summary (shown once source+target chosen) */}
@@ -139,7 +215,7 @@ export function Sidebar({
       {/* Workflow steps */}
       <nav className="sidebar-nav">
         {STEPS.map((step, i) => {
-          const st = stepStatus(step.id, currentStep);
+          const st = stepStatus(step.id, workflowCurrentStep);
           const clickable = isClickable(step.id);
           return (
             <button

@@ -595,32 +595,34 @@ describe('MappingProposalAgent', () => {
     });
   });
 
-  it('ignores llm retargets that fall outside the persisted retrieval shortlist', async () => {
+  it('uses shortlist-only reranker input and persists rerankerDecision on the mapping', async () => {
     const activeProviderSpy = vi.spyOn(LLMGateway, 'activeProvider').mockReturnValue('gemini');
     const llmCompleteSpy = vi.spyOn(LLMGateway, 'llmComplete').mockResolvedValue({
-      content: JSON.stringify([
-        {
-          sourceField: 'NAME_FIRST',
-          targetField: 'LegacyControlFlag__c',
-          confidence: 0.96,
-          reasoning: 'Use the legacy control flag field.',
-        },
-      ]),
+      content: JSON.stringify({
+        selectedTargetFieldId: 'tgt-first-name',
+        selectedTargetFieldName: 'FirstName',
+        finalRank: 1,
+        confidence: 0.88,
+        evidenceSignals: ['retrieval', 'sibling'],
+        reasoning: 'Sibling cluster indicates this field is the first-name component.',
+      }),
       provider: 'gemini',
-      tokensUsed: 33,
+      tokensUsed: 51,
     });
 
     const agent = new MappingProposalAgent();
+    const steps: Array<{ action: string; metadata?: Record<string, unknown> }> = [];
     const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
-    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'PartyProfile' });
-    const srcField = makeField({ id: 'src-first', entityId: 'src-ent', name: 'NAME_FIRST', label: 'First Name', dataType: 'string' });
-    const tgtFirst = makeField({ id: 'tgt-first', entityId: 'tgt-ent', name: 'FirstName', label: 'First Name', dataType: 'string' });
-    const tgtLast = makeField({ id: 'tgt-last', entityId: 'tgt-ent', name: 'LastName', label: 'Last Name', dataType: 'string' });
-    const tgtMiddle = makeField({ id: 'tgt-middle', entityId: 'tgt-ent', name: 'MiddleName', label: 'Middle Name', dataType: 'string' });
-    const tgtName = makeField({ id: 'tgt-name', entityId: 'tgt-ent', name: 'Name', label: 'Full Name', dataType: 'string' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' });
+    const srcFirst = makeField({ id: 'src-first', entityId: 'src-ent', name: 'NAME_FIRST', label: 'First Name', dataType: 'string' });
+    const srcMiddle = makeField({ id: 'src-middle', entityId: 'src-ent', name: 'NAME_MIDDLE', label: 'Middle Name', dataType: 'string' });
+    const srcLast = makeField({ id: 'src-last', entityId: 'src-ent', name: 'NAME_LAST', label: 'Last Name', dataType: 'string' });
+    const tgtName = makeField({ id: 'tgt-name', entityId: 'tgt-ent', name: 'Name', label: 'Account Name', dataType: 'string' });
+    const tgtFirst = makeField({ id: 'tgt-first-name', entityId: 'tgt-ent', name: 'FirstName', label: 'First Name', dataType: 'string' });
+    const tgtLast = makeField({ id: 'tgt-last-name', entityId: 'tgt-ent', name: 'LastName', label: 'Last Name', dataType: 'string' });
+    const tgtMiddle = makeField({ id: 'tgt-middle-name', entityId: 'tgt-ent', name: 'MiddleName', label: 'Middle Name', dataType: 'string' });
     const tgtSuffix = makeField({ id: 'tgt-suffix', entityId: 'tgt-ent', name: 'Suffix', label: 'Suffix', dataType: 'string' });
-    const tgtNickname = makeField({ id: 'tgt-nickname', entityId: 'tgt-ent', name: 'Nickname__c', label: 'Nickname', dataType: 'string' });
-    const tgtLegacy = makeField({ id: 'tgt-legacy', entityId: 'tgt-ent', name: 'LegacyControlFlag__c', label: 'Legacy Control Flag', dataType: 'boolean' });
+    const tgtExcluded = makeField({ id: 'tgt-legacy', entityId: 'tgt-ent', name: 'LegacyControlFlag__c', label: 'Legacy Control Flag', dataType: 'boolean' });
     const em: EntityMapping = {
       id: 'em-1',
       projectId: 'proj-1',
@@ -633,8 +635,8 @@ describe('MappingProposalAgent', () => {
       id: 'fm-1',
       entityMappingId: 'em-1',
       sourceFieldId: 'src-first',
-      targetFieldId: 'tgt-first',
-      confidence: 0.74,
+      targetFieldId: 'tgt-name',
+      confidence: 0.56,
       status: 'suggested',
       transform: { type: 'direct', config: {} },
       rationale: 'initial',
@@ -644,15 +646,46 @@ describe('MappingProposalAgent', () => {
       ...makeContext(),
       sourceEntities: [srcEnt],
       targetEntities: [tgtEnt],
-      fields: [srcField, tgtFirst, tgtLast, tgtMiddle, tgtName, tgtSuffix, tgtNickname, tgtLegacy],
+      fields: [
+        srcFirst,
+        srcMiddle,
+        srcLast,
+        tgtName,
+        tgtFirst,
+        tgtLast,
+        tgtMiddle,
+        tgtSuffix,
+        tgtExcluded,
+      ],
       entityMappings: [em],
       fieldMappings: [fm],
+      onStep: (step) => steps.push(step),
     });
 
     expect(activeProviderSpy).toHaveBeenCalled();
     expect(llmCompleteSpy).toHaveBeenCalledTimes(1);
-    expect(result.updatedFieldMappings[0]?.targetFieldId).toBe('tgt-first');
-    expect(result.updatedFieldMappings[0]?.retrievalShortlist?.candidates.some((candidate) => candidate.targetFieldId === 'tgt-legacy')).toBe(false);
+
+    const promptContent = llmCompleteSpy.mock.calls[0]?.[0].map((message) => message.content).join('\n') ?? '';
+    expect(promptContent).toContain('NAME_MIDDLE');
+    expect(promptContent).toContain('NAME_LAST');
+    expect(promptContent).not.toContain('LegacyControlFlag__c');
+    expect(promptContent).not.toContain('TARGET SCHEMA');
+
+    const updated = result.updatedFieldMappings[0];
+    expect(updated?.targetFieldId).toBe('tgt-first-name');
+    expect(updated?.rerankerDecision).toMatchObject({
+      selectedTargetFieldId: 'tgt-first-name',
+      finalRank: 1,
+      confidence: 0.88,
+      evidenceSignals: ['retrieval', 'sibling'],
+    });
+
+    const rerankerComplete = steps.filter((step) => step.action === 'reranker_complete');
+    expect(rerankerComplete).toHaveLength(1);
+    expect(rerankerComplete[0]?.metadata).toMatchObject({
+      candidateCount: 5,
+      top1Confidence: 0.88,
+    });
   });
 });
 

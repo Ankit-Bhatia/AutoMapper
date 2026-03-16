@@ -42,7 +42,93 @@ describe('ConnectorGrid', () => {
 
     render(<ConnectorGrid onProceed={onProceed} loading={false} />);
 
-    expect(await screen.findByRole('button', { name: /legacy los/i })).toBeInTheDocument();
+    expect(await screen.findByLabelText(/select custom connector legacy los/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /delete legacy los/i })).toBeInTheDocument();
+  });
+
+  it('deletes a persisted custom connector and removes it from the UI', async () => {
+    const user = userEvent.setup();
+    const onProceed = vi.fn();
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/api/connectors') {
+        return {
+          connectors: [
+            {
+              id: 'custom-legacy1',
+              name: 'Legacy LOS',
+              vendor: 'Custom',
+              category: 'core-banking',
+              description: 'Persisted custom connector',
+              entities: ['Loan', 'Borrower'],
+            },
+          ],
+        };
+      }
+      if (path === '/api/connectors/custom/custom-legacy1' && init?.method === 'DELETE') {
+        return { ok: true, deletedIds: ['custom-legacy1'], deletedCount: 1 };
+      }
+      return {};
+    });
+
+    render(<ConnectorGrid onProceed={onProceed} loading={false} />);
+    expect(await screen.findByLabelText(/select custom connector legacy los/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /delete legacy los/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/select custom connector legacy los/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /delete legacy los/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it('bulk deletes selected custom connectors', async () => {
+    const user = userEvent.setup();
+    const onProceed = vi.fn();
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/api/connectors') {
+        return {
+          connectors: [
+            {
+              id: 'custom-legacy1',
+              name: 'Legacy LOS',
+              vendor: 'Custom',
+              category: 'core-banking',
+              description: 'Persisted custom connector',
+              entities: ['Loan'],
+            },
+            {
+              id: 'custom-legacy2',
+              name: 'Legacy Core',
+              vendor: 'Custom',
+              category: 'core-banking',
+              description: 'Persisted custom connector',
+              entities: ['Customer'],
+            },
+          ],
+        };
+      }
+      if (path === '/api/connectors/custom/bulk-delete' && init?.method === 'POST') {
+        return {
+          ok: true,
+          deletedIds: ['custom-legacy1', 'custom-legacy2'],
+          deletedCount: 2,
+        };
+      }
+      return {};
+    });
+
+    render(<ConnectorGrid onProceed={onProceed} loading={false} />);
+    expect(await screen.findByLabelText(/select custom connector legacy los/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/select custom connector legacy core/i)).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText(/select custom connector legacy los/i));
+    await user.click(screen.getByLabelText(/select custom connector legacy core/i));
+    await user.click(screen.getByRole('button', { name: /delete selected \(2\)/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/select custom connector legacy los/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/select custom connector legacy core/i)).not.toBeInTheDocument();
+    });
   });
 
   it('enables discover when source and target are selected', async () => {
