@@ -594,6 +594,66 @@ describe('MappingProposalAgent', () => {
       topK: 5,
     });
   });
+
+  it('ignores llm retargets that fall outside the persisted retrieval shortlist', async () => {
+    const activeProviderSpy = vi.spyOn(LLMGateway, 'activeProvider').mockReturnValue('gemini');
+    const llmCompleteSpy = vi.spyOn(LLMGateway, 'llmComplete').mockResolvedValue({
+      content: JSON.stringify([
+        {
+          sourceField: 'NAME_FIRST',
+          targetField: 'LegacyControlFlag__c',
+          confidence: 0.96,
+          reasoning: 'Use the legacy control flag field.',
+        },
+      ]),
+      provider: 'gemini',
+      tokensUsed: 33,
+    });
+
+    const agent = new MappingProposalAgent();
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'PartyProfile' });
+    const srcField = makeField({ id: 'src-first', entityId: 'src-ent', name: 'NAME_FIRST', label: 'First Name', dataType: 'string' });
+    const tgtFirst = makeField({ id: 'tgt-first', entityId: 'tgt-ent', name: 'FirstName', label: 'First Name', dataType: 'string' });
+    const tgtLast = makeField({ id: 'tgt-last', entityId: 'tgt-ent', name: 'LastName', label: 'Last Name', dataType: 'string' });
+    const tgtMiddle = makeField({ id: 'tgt-middle', entityId: 'tgt-ent', name: 'MiddleName', label: 'Middle Name', dataType: 'string' });
+    const tgtName = makeField({ id: 'tgt-name', entityId: 'tgt-ent', name: 'Name', label: 'Full Name', dataType: 'string' });
+    const tgtSuffix = makeField({ id: 'tgt-suffix', entityId: 'tgt-ent', name: 'Suffix', label: 'Suffix', dataType: 'string' });
+    const tgtNickname = makeField({ id: 'tgt-nickname', entityId: 'tgt-ent', name: 'Nickname__c', label: 'Nickname', dataType: 'string' });
+    const tgtLegacy = makeField({ id: 'tgt-legacy', entityId: 'tgt-ent', name: 'LegacyControlFlag__c', label: 'Legacy Control Flag', dataType: 'boolean' });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-1',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-first',
+      targetFieldId: 'tgt-first',
+      confidence: 0.74,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [srcField, tgtFirst, tgtLast, tgtMiddle, tgtName, tgtSuffix, tgtNickname, tgtLegacy],
+      entityMappings: [em],
+      fieldMappings: [fm],
+    });
+
+    expect(activeProviderSpy).toHaveBeenCalled();
+    expect(llmCompleteSpy).toHaveBeenCalledTimes(1);
+    expect(result.updatedFieldMappings[0]?.targetFieldId).toBe('tgt-first');
+    expect(result.updatedFieldMappings[0]?.retrievalShortlist?.candidates.some((candidate) => candidate.targetFieldId === 'tgt-legacy')).toBe(false);
+  });
 });
 
 // ─── MappingRationaleAgent ───────────────────────────────────────────────────

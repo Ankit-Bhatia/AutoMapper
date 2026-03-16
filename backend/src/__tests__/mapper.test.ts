@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { suggestMappings } from '../services/mapper.js';
+import { getAiSuggestions } from '../services/llmAdapter.js';
 import type { Entity, Field, MappingProject } from '../types.js';
 
 vi.mock('../services/llmAdapter.js', () => ({
@@ -43,6 +44,7 @@ const makeField = (
 describe('suggestMappings — heuristic path (no AI)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getAiSuggestions).mockResolvedValue(null);
   });
 
   it('exact-name match should produce confidence ≥ 0.7', async () => {
@@ -281,5 +283,47 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     expect(mapping?.rationale ?? '').toContain('semantic');
     expect(mapping?.retrievalShortlist?.topK).toBe(5);
     expect(mapping?.retrievalShortlist?.candidates[0]?.targetFieldId).toBe('tf-years');
+  });
+
+  it('ignores AI target overrides that fall outside the persisted retrieval shortlist', async () => {
+    vi.mocked(getAiSuggestions).mockResolvedValue({
+      sourceEntityName: 'Borrower',
+      targetEntityName: 'PartyProfile',
+      confidence: 0.92,
+      rationale: 'ai suggestion',
+      fields: [
+        {
+          sourceFieldName: 'NAME_FIRST',
+          targetFieldName: 'LegacyControlFlag__c',
+          confidence: 0.97,
+          rationale: 'Use the legacy field.',
+        },
+      ],
+    });
+
+    const srcEntity = makeEntity('se-name', 'src-sys', 'Borrower', 'Borrower');
+    const tgtEntity = makeEntity('te-name', 'tgt-sys', 'PartyProfile', 'Party Profile');
+
+    const fields: Field[] = [
+      makeField('sf-first', 'se-name', 'NAME_FIRST', 'string', { label: 'First Name' }),
+      makeField('tf-first', 'te-name', 'FirstName', 'string'),
+      makeField('tf-last', 'te-name', 'LastName', 'string'),
+      makeField('tf-middle', 'te-name', 'MiddleName', 'string'),
+      makeField('tf-name', 'te-name', 'Name', 'string'),
+      makeField('tf-suffix', 'te-name', 'Suffix', 'string'),
+      makeField('tf-nickname', 'te-name', 'Nickname__c', 'string'),
+      makeField('tf-legacy', 'te-name', 'LegacyControlFlag__c', 'boolean'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcEntity],
+      targetEntities: [tgtEntity],
+      fields,
+    });
+
+    const mapping = fieldMappings.find((candidate) => candidate.sourceFieldId === 'sf-first');
+    expect(mapping?.targetFieldId).toBe('tf-first');
+    expect(mapping?.retrievalShortlist?.candidates.some((candidate) => candidate.targetFieldId === 'tf-legacy')).toBe(false);
   });
 });
