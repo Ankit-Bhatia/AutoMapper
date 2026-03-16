@@ -5,6 +5,8 @@ interface SidebarProps {
   currentStep: WorkflowStep;
   workflowStep?: Exclude<WorkflowStep, 'llm-settings'>;
   onStepClick: (step: WorkflowStep) => void;
+  theme: 'dark' | 'light';
+  onThemeChange: (theme: 'dark' | 'light') => void;
   onReset?: () => void;
   userName?: string;
   userRole?: string;
@@ -66,6 +68,8 @@ export function Sidebar({
   currentStep,
   workflowStep = 'command-center',
   onStepClick,
+  theme,
+  onThemeChange,
   onReset,
   userName,
   userRole,
@@ -131,6 +135,30 @@ export function Sidebar({
             </span>
           </span>
         </button>
+        <div className="sidebar-theme-block">
+          <div className="sidebar-theme-header">
+            <span className="sidebar-theme-title">Theme</span>
+            <span className="sidebar-theme-meta">{theme === 'dark' ? 'Studio dark' : 'Workspace light'}</span>
+          </div>
+          <div className="sidebar-theme-switch" role="group" aria-label="Theme switch">
+            <button
+              type="button"
+              className={`sidebar-theme-option ${theme === 'dark' ? 'active' : ''}`}
+              aria-pressed={theme === 'dark'}
+              onClick={() => onThemeChange('dark')}
+            >
+              Dark
+            </button>
+            <button
+              type="button"
+              className={`sidebar-theme-option ${theme === 'light' ? 'active' : ''}`}
+              aria-pressed={theme === 'light'}
+              onClick={() => onThemeChange('light')}
+            >
+              Light
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Project summary (shown once source+target chosen) */}

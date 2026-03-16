@@ -74,10 +74,22 @@ interface PipelineResult {
   processingMs: number;
 }
 
+type UiTheme = 'dark' | 'light';
+
+const UI_THEME_STORAGE_KEY = 'automapper-ui-theme';
+
 export function MappingStudioApp() {
   const { user } = useAuth();
   const demoUiMode = isDemoUiMode();
   const [showLanding, setShowLanding] = useState<boolean>(true);
+  const [theme, setTheme] = useState<UiTheme>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    const savedTheme = window.localStorage.getItem(UI_THEME_STORAGE_KEY);
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      return savedTheme;
+    }
+    return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  });
   // ── Workflow state ──────────────────────────────────────────────────────────
   const [step, setStep] = useState<WorkflowStep>('command-center');
   const [workflowContextStep, setWorkflowContextStep] = useState<Exclude<WorkflowStep, 'llm-settings'>>('command-center');
@@ -135,6 +147,11 @@ export function MappingStudioApp() {
       targetConnectorId,
     });
   }, [project?.id, sourceConnectorId, step, targetConnectorId]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem(UI_THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     if (step !== 'llm-settings') {
@@ -801,6 +818,8 @@ export function MappingStudioApp() {
           currentStep={step}
           workflowStep={workflowContextStep}
           onStepClick={handleStepClick}
+          theme={theme}
+          onThemeChange={setTheme}
           onReset={handleReset}
           userName={userName}
           userRole={user?.role}

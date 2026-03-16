@@ -97,13 +97,17 @@ vi.mock('./components/Sidebar', () => ({
   Sidebar: ({
     currentStep,
     onStepClick,
+    onThemeChange,
   }: {
     currentStep: string;
     onStepClick: (step: string) => void;
+    onThemeChange: (theme: 'dark' | 'light') => void;
   }) => (
     <div>
       <div data-testid="sidebar-step">{currentStep}</div>
       <button onClick={() => onStepClick('llm-settings')}>Open LLM Settings</button>
+      <button onClick={() => onThemeChange('light')}>Switch Light Theme</button>
+      <button onClick={() => onThemeChange('dark')}>Switch Dark Theme</button>
     </div>
   ),
 }));
@@ -193,6 +197,8 @@ vi.mock('./components/SeedSummaryCard', () => ({
 
 describe('MappingStudioApp export gating', () => {
   beforeEach(() => {
+    window.localStorage.clear();
+    document.documentElement.dataset.theme = '';
     authState.user = {
       id: 'user-1',
       email: 'admin@example.com',
@@ -403,5 +409,25 @@ describe('MappingStudioApp export gating', () => {
       expect(screen.getByText('Normal User Workspace')).toBeInTheDocument();
       expect(screen.getByText(/only admin users can change global llm policy/i)).toBeInTheDocument();
     });
+  });
+
+  it('persists the selected UI theme', async () => {
+    const user = userEvent.setup();
+    render(<MappingStudioApp />);
+
+    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
+    await user.click(screen.getByRole('button', { name: 'Switch Light Theme' }));
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe('light');
+    });
+    expect(window.localStorage.getItem('automapper-ui-theme')).toBe('light');
+
+    await user.click(screen.getByRole('button', { name: 'Switch Dark Theme' }));
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe('dark');
+    });
+    expect(window.localStorage.getItem('automapper-ui-theme')).toBe('dark');
   });
 });
