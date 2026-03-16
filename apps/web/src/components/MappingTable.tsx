@@ -11,6 +11,11 @@ import {
 import { api } from '@core/api-client';
 import { useAuth } from '../auth/AuthContext';
 import { AuditLogTab } from './AuditLogTab';
+import { SchemaIntelligenceBadge } from './SchemaIntelligenceBadge';
+import {
+  getActiveFormulaTargetIds,
+  parseSchemaIntelligenceRationale,
+} from './schemaIntelligence';
 
 interface MappingTableProps {
   projectId: string;
@@ -27,6 +32,8 @@ interface MappingTableProps {
   onSelectionChange?: (mappingId: string, selected: boolean) => void;
   selectionCap?: number;
   onMappingUpdate: (updated: FieldMapping) => void;
+  acknowledgedFormulaMappingIds?: Set<string>;
+  onAcknowledgeFormulaWarning?: (mappingId: string) => void;
   onProceedToExport?: () => void;
 }
 
@@ -99,6 +106,8 @@ export function MappingTable({
   onSelectionChange,
   selectionCap = 200,
   onMappingUpdate,
+  acknowledgedFormulaMappingIds,
+  onAcknowledgeFormulaWarning,
   onProceedToExport,
 }: MappingTableProps) {
   const { user } = useAuth();
@@ -115,6 +124,7 @@ export function MappingTable({
   const [reviewTab, setReviewTab] = useState<'mappings' | 'audit'>('mappings');
   const [hasRecentAudit, setHasRecentAudit] = useState(false);
   const selectedMappingIds = selectedIds ?? new Set<string>();
+  const acknowledgedFormulaIds = acknowledgedFormulaMappingIds ?? new Set<string>();
 
   // Build lookup maps
   const fieldMap = useMemo(() => {
@@ -156,6 +166,18 @@ export function MappingTable({
   const conflictingTargetFieldIds = useMemo(
     () => new Set(conflicts.map((conflict) => conflict.targetFieldId)),
     [conflicts],
+  );
+  const schemaInsightsById = useMemo(
+    () => new Map(fieldMappings.map((mapping) => [mapping.id, parseSchemaIntelligenceRationale(mapping.rationale)])),
+    [fieldMappings],
+  );
+  const activeFormulaTargetIds = useMemo(
+    () => getActiveFormulaTargetIds(fieldMappings),
+    [fieldMappings],
+  );
+  const pendingFormulaAcknowledgements = useMemo(
+    () => activeFormulaTargetIds.filter((mappingId) => !acknowledgedFormulaIds.has(mappingId)),
+    [acknowledgedFormulaIds, activeFormulaTargetIds],
   );
   const globalAcceptedCount = useMemo(
     () => fieldMappings.filter((fm) => fm.status === 'accepted').length,
@@ -425,6 +447,18 @@ export function MappingTable({
         </div>
       )}
 
+      {pendingFormulaAcknowledgements.length > 0 && (
+        <div className="validation-box validation-box--error mapping-warning-box">
+          <div className="validation-box-title">Formula field acknowledgement required</div>
+          <p className="schema-intelligence-alert-text">
+            {pendingFormulaAcknowledgements.length}
+            {' '}
+            mapping{pendingFormulaAcknowledgements.length === 1 ? '' : 's'} target Salesforce formula fields.
+            Acknowledge each warning in the expanded mapping row before export.
+          </p>
+        </div>
+      )}
+
       {/* Entity tabs */}
       <div className="entity-tabs">
         {entityMappings.map((em) => {
@@ -526,6 +560,9 @@ export function MappingTable({
                 const isSaving = saving === fm.id;
                 const allTags = [...(srcF?.complianceTags ?? []), ...(tgtF?.complianceTags ?? [])];
                 const uniqueTags = [...new Set(allTags)];
+                const schemaInsights = schemaInsightsById.get(fm.id) ?? parseSchemaIntelligenceRationale(fm.rationale);
+                const isFormulaAcknowledged = acknowledgedFormulaIds.has(fm.id);
+                const visibleSchemaBadges = schemaInsights.findings.filter((finding) => finding.kind !== 'baseRationale');
 
                 return (
                   <React.Fragment key={fm.id}>
@@ -568,6 +605,18 @@ export function MappingTable({
                                 {fm.rationale}
                               </div>
                             )}
+                            {visibleSchemaBadges.length > 0 && (
+                              <div className="schema-intelligence-badge-row">
+                                {visibleSchemaBadges.map((finding, index) => (
+                                  <SchemaIntelligenceBadge
+                                    key={`${finding.kind}-${index}`}
+                                    label={finding.label}
+                                    tone={finding.tone}
+                                    title={finding.text}
+                                  />
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <span className="field-type-badge">{srcF?.dataType ?? '?'}</span>
                         </div>
@@ -578,6 +627,14 @@ export function MappingTable({
                       <td>
                         <div className="field-cell">
                           <span className="field-name">{tgtF?.name ?? fm.targetFieldId}</span>
+                          {schemaInsights.flags.personAccountOnly && (
+                            <span
+                              className="field-info-chip"
+                              title={schemaInsights.findings.find((finding) => finding.kind === 'personAccountOnly')?.text}
+                            >
+                              __pc
+                            </span>
+                          )}
                           <span className="field-type-badge">{tgtF?.dataType ?? '?'}</span>
                         </div>
                         {tgtF?.required && <span className="field-required-dot" title="Required">●</span>}
@@ -631,6 +688,11 @@ export function MappingTable({
                           </div>
                           <span className="conf-pct">{Math.round(fm.confidence * 100)}%</span>
                         </div>
+                        {schemaInsights.confirmedConfidenceTier && (
+                          <div className="schema-intelligence-confidence-tier">
+                            Corpus tier: {schemaInsights.confirmedConfidenceTier}
+                          </div>
+                        )}
                       </td>
 
                       {/* Status */}
@@ -655,6 +717,18 @@ export function MappingTable({
                       {/* Actions */}
                       <td className="mapping-col-actions-cell" onClick={(e) => e.stopPropagation()}>
                         <div className="action-btns">
+                          {schemaInsights.flags.oneToMany && (
+                            <button
+                              className="btn btn--secondary btn--xs"
+                              onClick={() => {
+                                setExpandedRow(fm.id);
+                                setFocusedMappingId(fm.id);
+                              }}
+                              title="Routing decision required"
+                            >
+                              Route
+                            </button>
+                          )}
                           {fm.status !== 'accepted' && (
                             <button
                               className="btn btn--success btn--xs"
@@ -689,6 +763,82 @@ export function MappingTable({
                       <tr className="mapping-detail-row">
                         <td colSpan={onSelectionChange ? 7 : 6}>
                           <div className="mapping-detail">
+                            {schemaInsights.findings.length > 0 && (
+                              <div className="mapping-detail-section mapping-detail-section--full">
+                                <div className="mapping-detail-label">Schema Intelligence</div>
+                                <div className="schema-intelligence-detail-list">
+                                  {schemaInsights.findings.map((finding, index) => (
+                                    <div
+                                      key={`${finding.kind}-${index}`}
+                                      className={`schema-intelligence-detail-item is-${finding.tone}`}
+                                    >
+                                      <div className="schema-intelligence-detail-head">
+                                        <SchemaIntelligenceBadge
+                                          label={finding.label}
+                                          tone={finding.tone}
+                                          title={finding.text}
+                                        />
+                                      </div>
+                                      <div className="mapping-detail-value">{finding.text}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {schemaInsights.flags.formulaTarget && (
+                              <div className="mapping-detail-section mapping-detail-section--full">
+                                <div className="schema-intelligence-callout is-danger">
+                                  <div>
+                                    <div className="schema-intelligence-callout-title">Formula target warning</div>
+                                    <div className="schema-intelligence-callout-body">
+                                      This target field is calculated in Salesforce. Inbound writes will not persist unless
+                                      you map the fields that feed the formula instead.
+                                    </div>
+                                  </div>
+                                  {isFormulaAcknowledged ? (
+                                    <SchemaIntelligenceBadge
+                                      label="Acknowledged"
+                                      tone="success"
+                                      title="This formula-target warning has been acknowledged for export gating."
+                                    />
+                                  ) : (
+                                    onAcknowledgeFormulaWarning && (
+                                      <button
+                                        className="btn btn--danger btn--sm"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          onAcknowledgeFormulaWarning(fm.id);
+                                        }}
+                                      >
+                                        Acknowledge warning
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {schemaInsights.flags.oneToMany && (
+                              <div className="mapping-detail-section mapping-detail-section--full">
+                                <div className="schema-intelligence-callout is-warning">
+                                  <div>
+                                    <div className="schema-intelligence-callout-title">Routing decision required</div>
+                                    <div className="schema-intelligence-callout-body">
+                                      This source field appears in the BOSL corpus against multiple Salesforce targets.
+                                      Confirm this target matches the intended lifecycle stage before accepting or exporting.
+                                    </div>
+                                  </div>
+                                  <button
+                                    className="btn btn--secondary btn--sm"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setFocusedMappingId(fm.id);
+                                    }}
+                                  >
+                                    Review routing
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                             <div className="mapping-detail-section">
                               <div className="mapping-detail-label">Rationale</div>
                               <div className="mapping-detail-value">{fm.rationale || '—'}</div>
@@ -740,6 +890,14 @@ export function MappingTable({
             <span className="mapping-export-bar-count" style={{ color: validation.summary.totalWarnings > 0 ? 'var(--amber)' : 'var(--text-secondary)' }}>
               {validation.summary.totalWarnings} warning{validation.summary.totalWarnings !== 1 ? 's' : ''}
             </span>
+            {pendingFormulaAcknowledgements.length > 0 && (
+              <>
+                <span style={{ color: 'var(--text-muted)', margin: '0 6px' }}>·</span>
+                <span className="mapping-export-bar-count" style={{ color: 'var(--danger)' }}>
+                  {pendingFormulaAcknowledgements.length} formula acknowledgement{pendingFormulaAcknowledgements.length === 1 ? '' : 's'} pending
+                </span>
+              </>
+            )}
           </div>
           <button className="btn btn--primary" onClick={onProceedToExport}>
             Proceed to Export

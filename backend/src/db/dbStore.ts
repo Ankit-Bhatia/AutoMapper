@@ -92,7 +92,7 @@ function toFieldMapping(fm: {
   rationale: string;
   status: string;
   seedSource: string | null;
-  retrievalShortlist: unknown | null;
+  retrievalShortlist?: unknown | null;
   rerankerDecision?: unknown | null;
 }): FieldMapping {
   const transform = (fm.transform ?? { type: 'direct', config: {} }) as {

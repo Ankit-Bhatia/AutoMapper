@@ -126,7 +126,7 @@ export class FsStore {
 
   patchFieldMapping(
     fieldMappingId: string,
-    patch: Partial<Pick<FieldMapping, 'status' | 'confidence' | 'rationale' | 'targetFieldId' | 'sourceFieldId' | 'transform' | 'retrievalShortlist' | 'rerankerDecision'>>,
+    patch: Partial<Pick<FieldMapping, 'status' | 'confidence' | 'rationale' | 'targetFieldId' | 'sourceFieldId' | 'transform' | 'retrievalShortlist'>>,
   ): FieldMapping | undefined {
     const mapping = this.state.fieldMappings.find((m) => m.id === fieldMappingId);
     if (!mapping) return undefined;
@@ -158,6 +158,9 @@ function inferSystemType(name: string): System['type'] {
   if (n.includes('sap')) return 'sap';
   if (n.includes('jackhenry') || n.includes('silverlake') || n.includes('coredirector') || n.includes('symitar')) {
     return 'jackhenry';
+  }
+  if (n.includes('riskclam') || n.includes('risk clam') || n.includes('bosl')) {
+    return 'riskclam';
   }
   return 'generic';
 }

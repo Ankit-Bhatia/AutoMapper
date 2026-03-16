@@ -9,12 +9,14 @@ import { ExportPanel } from './components/ExportPanel';
 import { BulkActionBar, type BulkOperationResult } from './components/BulkActionBar';
 import { LandingPage } from './components/LandingPage';
 import { SeedSummaryCard } from './components/SeedSummaryCard';
+import { AdminControlPanel } from './components/AdminControlPanel';
 import { ProjectHistoryPanel } from './components/ProjectHistoryPanel';
-import {
-  LLMSettingsPanel,
-  type LLMConfigUpdatePayload,
-} from './components/LLMSettingsPanel';
+import { LLMSettingsPage } from './components/LLMSettingsPage';
+import { type LLMConfigUpdatePayload } from './components/LLMSettingsPanel';
+import { UserPersonaPanel } from './components/UserPersonaPanel';
+import { getActiveFormulaTargetIds } from './components/schemaIntelligence';
 import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
+import { useAuth } from './auth/AuthContext';
 import type {
   Entity,
   EntityMapping,
@@ -75,10 +77,12 @@ interface PipelineResult {
 }
 
 export function MappingStudioApp() {
+  const { user } = useAuth();
   const demoUiMode = isDemoUiMode();
   const [showLanding, setShowLanding] = useState<boolean>(true);
   // ── Workflow state ──────────────────────────────────────────────────────────
   const [step, setStep] = useState<WorkflowStep>('connect');
+  const [workflowContextStep, setWorkflowContextStep] = useState<Exclude<WorkflowStep, 'llm-settings'>>('connect');
   const [loadingSetup, setLoadingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
 
@@ -105,6 +109,7 @@ export function MappingStudioApp() {
   const [preflight, setPreflight] = useState<ProjectPreflight | null>(null);
   const [reviewGateMessage, setReviewGateMessage] = useState<string | null>(null);
   const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(new Set());
+  const [acknowledgedFormulaMappingIds, setAcknowledgedFormulaMappingIds] = useState<Set<string>>(new Set());
   const [validation, setValidation] = useState<ValidationReport>({
     warnings: [],
     summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
@@ -132,6 +137,12 @@ export function MappingStudioApp() {
       targetConnectorId,
     });
   }, [project?.id, sourceConnectorId, step, targetConnectorId]);
+
+  useEffect(() => {
+    if (step !== 'llm-settings') {
+      setWorkflowContextStep(step);
+    }
+  }, [step]);
 
   // ── Reload project data from API ────────────────────────────────────────────
   const loadProject = useCallback(async (pid: string) => {
@@ -252,6 +263,7 @@ export function MappingStudioApp() {
     setSourceSchemaMode(null);
     setTargetSchemaMode(null);
     setSelectedMappingIds(new Set());
+    setAcknowledgedFormulaMappingIds(new Set());
 
     try {
       const payload = await loadProject(projectId);
@@ -273,6 +285,7 @@ export function MappingStudioApp() {
         refreshPreflight(projectId),
         refreshConflicts(projectId),
       ]);
+      const formulaTargetIds = getActiveFormulaTargetIds(payload.fieldMappings);
 
       const hasMappings = payload.fieldMappings.length > 0;
       setIsOrchestrated(hasMappings);
@@ -284,6 +297,13 @@ export function MappingStudioApp() {
       }
 
       if (destination === 'export') {
+        if (formulaTargetIds.length > 0) {
+          setStep('review');
+          setReviewGateMessage(
+            `Acknowledge ${formulaTargetIds.length} formula field warning${formulaTargetIds.length === 1 ? '' : 's'} before export.`,
+          );
+          return;
+        }
         if (preflightData?.canExport) {
           setStep('export');
         } else {
@@ -468,6 +488,7 @@ export function MappingStudioApp() {
     setPreflight(null);
     setReviewGateMessage(null);
     setSelectedMappingIds(new Set());
+    setAcknowledgedFormulaMappingIds(new Set());
     void loadProjectHistory();
   }
 
@@ -475,6 +496,15 @@ export function MappingStudioApp() {
   function handleMappingUpdate(updated: FieldMapping) {
     setReviewGateMessage(null);
     setFieldMappings((prev) => prev.map((fm) => (fm.id === updated.id ? updated : fm)));
+  }
+
+  function handleAcknowledgeFormulaWarning(mappingId: string) {
+    setAcknowledgedFormulaMappingIds((prev) => {
+      const next = new Set(prev);
+      next.add(mappingId);
+      return next;
+    });
+    setReviewGateMessage(null);
   }
 
   function handleSelectionChange(mappingId: string, selected: boolean) {
@@ -513,9 +543,64 @@ export function MappingStudioApp() {
     () => fieldMappings.filter((fm) => fm.status === 'accepted').length,
     [fieldMappings],
   );
+  const activeFormulaTargetIds = useMemo(
+    () => getActiveFormulaTargetIds(fieldMappings),
+    [fieldMappings],
+  );
+  const pendingFormulaAcknowledgementIds = useMemo(
+    () => activeFormulaTargetIds.filter((mappingId) => !acknowledgedFormulaMappingIds.has(mappingId)),
+    [acknowledgedFormulaMappingIds, activeFormulaTargetIds],
+  );
+  const formulaExportBlocked = pendingFormulaAcknowledgementIds.length > 0;
+  const normalizedRole = (user?.role ?? '').toUpperCase();
+  const isAdmin = normalizedRole === 'ADMIN' || normalizedRole === 'OWNER';
+  const userName = user?.name || user?.email || undefined;
+
+  useEffect(() => {
+    const activeIds = new Set(activeFormulaTargetIds);
+    setAcknowledgedFormulaMappingIds((prev) => {
+      const next = new Set([...prev].filter((mappingId) => activeIds.has(mappingId)));
+      if (next.size === prev.size) {
+        return prev;
+      }
+      return next;
+    });
+  }, [activeFormulaTargetIds]);
 
   const sourceConnectorName = sourceConnectorId ? CONNECTOR_NAMES[sourceConnectorId] ?? sourceConnectorId : undefined;
   const targetConnectorName = targetConnectorId ? CONNECTOR_NAMES[targetConnectorId] ?? targetConnectorId : undefined;
+
+  function attemptOpenExport() {
+    const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
+    if (unresolved > 0) {
+      setReviewGateMessage(
+        `Resolve ${unresolved} unresolved conflict${unresolved === 1 ? '' : 's'} before export.`,
+      );
+      setConflictDrawerOpen(true);
+      setStep('review');
+      return;
+    }
+
+    if (formulaExportBlocked) {
+      setReviewGateMessage(
+        `Acknowledge ${pendingFormulaAcknowledgementIds.length} formula field warning${pendingFormulaAcknowledgementIds.length === 1 ? '' : 's'} before export.`,
+      );
+      setStep('review');
+      return;
+    }
+
+    setReviewGateMessage(null);
+    setStep('export');
+  }
+
+  function handleStepClick(nextStep: WorkflowStep) {
+    if (nextStep === 'export') {
+      attemptOpenExport();
+      return;
+    }
+    setReviewGateMessage(null);
+    setStep(nextStep);
+  }
 
   // ── Render main content by step ─────────────────────────────────────────────
   function renderContent() {
@@ -533,15 +618,15 @@ export function MappingStudioApp() {
                 onOpenReview={(projectId) => { void openPastProject(projectId, 'review'); }}
                 onOpenExport={(projectId) => { void openPastProject(projectId, 'export'); }}
               />
-              <LLMSettingsPanel
-                config={llmConfig}
-                usage={llmUsage}
-                loading={llmLoading}
-                saving={llmSaving}
-                error={llmError}
-                onRefresh={() => { void refreshLlmTelemetry(); }}
-                onSave={saveLlmConfig}
-              />
+              {isAdmin ? (
+                <AdminControlPanel
+                  userName={userName}
+                  projects={projectHistory}
+                  llmUsage={llmUsage}
+                />
+              ) : (
+                <UserPersonaPanel userName={userName} />
+              )}
             </div>
             <ConnectorGrid
               onProceed={handleConnectorProceed}
@@ -621,18 +706,9 @@ export function MappingStudioApp() {
               onSelectionChange={handleSelectionChange}
               selectionCap={200}
               onMappingUpdate={handleMappingUpdate}
-              onProceedToExport={() => {
-                const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
-                if (unresolved > 0) {
-                  setReviewGateMessage(
-                    `Resolve ${unresolved} unresolved conflict${unresolved === 1 ? '' : 's'} before export.`,
-                  );
-                  setConflictDrawerOpen(true);
-                  return;
-                }
-                setReviewGateMessage(null);
-                setStep('export');
-              }}
+              acknowledgedFormulaMappingIds={acknowledgedFormulaMappingIds}
+              onAcknowledgeFormulaWarning={handleAcknowledgeFormulaWarning}
+              onProceedToExport={attemptOpenExport}
             />
             <ConflictDrawer
               projectId={project.id}
@@ -654,6 +730,23 @@ export function MappingStudioApp() {
             />
           </>
         ) : null;
+
+      case 'llm-settings':
+        return (
+          <LLMSettingsPage
+            isAdmin={isAdmin}
+            userName={userName}
+            projects={projectHistory}
+            llmConfig={llmConfig}
+            llmUsage={llmUsage}
+            llmLoading={llmLoading}
+            llmSaving={llmSaving}
+            llmError={llmError}
+            onRefresh={() => { void refreshLlmTelemetry(); }}
+            onSave={saveLlmConfig}
+            onBack={() => setStep(workflowContextStep)}
+          />
+        );
 
       case 'export':
         return project ? (
@@ -678,8 +771,11 @@ export function MappingStudioApp() {
       <div className="app-shell">
         <Sidebar
           currentStep={step}
-          onStepClick={setStep}
+          workflowStep={workflowContextStep}
+          onStepClick={handleStepClick}
           onReset={handleReset}
+          userName={userName}
+          userRole={user?.role}
           projectName={project?.name}
           sourceConnector={sourceConnectorName}
           targetConnector={targetConnectorName}

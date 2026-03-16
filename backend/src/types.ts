@@ -40,11 +40,20 @@ export interface Entity {
   description?: string;
 }
 
+export interface RecordType {
+  id?: string;
+  name: string;
+  developerName?: string;
+  active?: boolean;
+  entityName?: string;
+}
+
 export interface Field {
   id: string;
   entityId: string;
   name: string;
   label?: string;
+  description?: string;
   dataType: DataType;
   length?: number;
   precision?: number;

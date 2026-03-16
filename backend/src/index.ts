@@ -241,7 +241,7 @@ setupConnectorRoutes(app, store);
 setupAgentRoutes(app, store);
 
 // Learning-loop org routes (mapping events, derived mappings, project seeding)
-setupOrgRoutes(app);
+setupOrgRoutes(app, store);
 
 // LLM config/usage routes (BYOL controls and token/call telemetry)
 setupLLMRoutes(app);

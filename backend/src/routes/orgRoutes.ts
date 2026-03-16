@@ -7,7 +7,7 @@ import { authMiddleware } from '../auth/authMiddleware.js';
 import { buildCanonicalTransitiveMappings } from './canonicalRoutes.js';
 import { sendHttpError } from '../utils/httpErrors.js';
 import { parseWorkbookFieldMappings } from '../services/mappingWorkbookParser.js';
-import type { SeedSummary } from '../types.js';
+import type { AppState, MappingProject, SeedSummary } from '../types.js';
 
 const TRANSFORM_TYPES = ['direct', 'concat', 'formatDate', 'lookup', 'static', 'regex', 'split', 'trim'] as const;
 const workbookUpload = multer({ limits: { fileSize: 12 * 1024 * 1024 } });
@@ -206,7 +206,12 @@ function parseConfidence(input: unknown): number {
   return Math.min(Math.max(parsed, 0.5), 0.99);
 }
 
-export function setupOrgRoutes(app: Express): void {
+interface SeedStoreAdapter {
+  getProject(projectId: string): Promise<MappingProject | undefined> | MappingProject | undefined;
+  getState(): Promise<AppState> | AppState;
+}
+
+export function setupOrgRoutes(app: Express, store?: SeedStoreAdapter): void {
   app.post('/api/org/:orgSlug/mapping-events', authMiddleware, async (req: Request, res: Response) => {
     const parsed = MappingEventSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -591,6 +596,29 @@ export function setupOrgRoutes(app: Express): void {
 
   app.post('/api/projects/:projectId/seed', authMiddleware, async (req: Request, res: Response) => {
     const projectId = req.params.projectId;
+    if (!process.env.DATABASE_URL) {
+      if (!store) {
+        sendError(req, res, 500, 'STORE_UNAVAILABLE', 'Store-backed seeding is not configured');
+        return;
+      }
+
+      const project = await Promise.resolve(store.getProject(projectId));
+      if (!project) {
+        sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+        return;
+      }
+
+      await Promise.resolve(store.getState());
+      const summary: SeedSummary = {
+        fromDerived: 0,
+        fromCanonical: 0,
+        fromAgent: 0,
+        total: 0,
+      };
+      res.json({ summary });
+      return;
+    }
+
     const project = await prisma.mappingProject.findUnique({
       where: { id: projectId },
       include: {
