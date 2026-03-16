@@ -108,6 +108,21 @@ vi.mock('./components/Sidebar', () => ({
   ),
 }));
 
+vi.mock('./components/CommandCenter', () => ({
+  CommandCenter: ({
+    onNewProject,
+    onOpenLLMSettings,
+  }: {
+    onNewProject: () => void;
+    onOpenLLMSettings: () => void;
+  }) => (
+    <div>
+      <button onClick={onNewProject}>Open New Project</button>
+      <button onClick={onOpenLLMSettings}>Open LLM Settings</button>
+    </div>
+  ),
+}));
+
 vi.mock('./components/ConnectorGrid', () => ({
   ConnectorGrid: ({ onProceed }: { onProceed: (src: string, tgt: string) => void }) => (
     <button onClick={() => onProceed('jackhenry-silverlake', 'salesforce')}>Connect Systems</button>
@@ -255,6 +270,7 @@ describe('MappingStudioApp export gating', () => {
     render(<MappingStudioApp />);
 
     await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
+    await user.click(screen.getByRole('button', { name: 'Open New Project' }));
     await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
 
     await waitFor(() => {
@@ -333,6 +349,7 @@ describe('MappingStudioApp export gating', () => {
     render(<MappingStudioApp />);
 
     await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
+    await user.click(screen.getByRole('button', { name: 'Open New Project' }));
     await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
 
     await waitFor(() => {
@@ -358,7 +375,7 @@ describe('MappingStudioApp export gating', () => {
     render(<MappingStudioApp />);
 
     await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
-    await user.click(screen.getByRole('button', { name: 'Open LLM Settings' }));
+    await user.click(screen.getAllByRole('button', { name: 'Open LLM Settings' })[0]);
 
     await waitFor(() => {
       expect(screen.getByText('LLM / API Settings')).toBeInTheDocument();
@@ -379,7 +396,7 @@ describe('MappingStudioApp export gating', () => {
     render(<MappingStudioApp />);
 
     await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
-    await user.click(screen.getByRole('button', { name: 'Open LLM Settings' }));
+    await user.click(screen.getAllByRole('button', { name: 'Open LLM Settings' })[0]);
 
     await waitFor(() => {
       expect(screen.getByText('LLM / API Settings')).toBeInTheDocument();

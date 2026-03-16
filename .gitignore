@@ -106,3 +106,10 @@ backend/vitest.config.ts.timestamp-*.mjs
 
 # Vite/apps build artifacts
 apps/web/vite.config.ts.timestamp-*.mjs
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Local env backup and scratch directories
+backend/.env.save
+local-archive/

@@ -321,4 +321,4 @@ export interface ExportFormatDef {
 
 // ─── App workflow steps ───────────────────────────────────────────────────────
 
-export type WorkflowStep = 'connect' | 'llm-settings' | 'orchestrate' | 'review' | 'export';
+export type WorkflowStep = 'command-center' | 'connect' | 'llm-settings' | 'orchestrate' | 'review' | 'export';

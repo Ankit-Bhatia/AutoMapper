@@ -19,6 +19,7 @@ interface SidebarProps {
 }
 
 const STEPS: { id: Exclude<WorkflowStep, 'llm-settings'>; label: string; icon: string; description: string }[] = [
+  { id: 'command-center', label: 'Command Center', icon: '◉', description: 'Projects, telemetry, and launchpad' },
   { id: 'connect',     label: 'Connect',     icon: '⬡', description: 'Choose source & target systems' },
   { id: 'orchestrate', label: 'Orchestrate', icon: '◈', description: 'Run AI mapping pipeline' },
   { id: 'review',      label: 'Review',      icon: '◻', description: 'Inspect & refine mappings' },
@@ -53,7 +54,7 @@ function stepStatus(
   step: Exclude<WorkflowStep, 'llm-settings'>,
   current: Exclude<WorkflowStep, 'llm-settings'>,
 ): 'done' | 'active' | 'disabled' {
-  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['connect', 'orchestrate', 'review', 'export'];
+  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'export'];
   const ci = order.indexOf(current);
   const si = order.indexOf(step);
   if (si < ci) return 'done';
@@ -63,7 +64,7 @@ function stepStatus(
 
 export function Sidebar({
   currentStep,
-  workflowStep = 'connect',
+  workflowStep = 'command-center',
   onStepClick,
   onReset,
   userName,
@@ -77,7 +78,7 @@ export function Sidebar({
   isOrchestrated = false,
   isDemoMode = true,
 }: SidebarProps) {
-  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['connect', 'orchestrate', 'review', 'export'];
+  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'export'];
   const workflowCurrentStep = currentStep === 'llm-settings' ? workflowStep : currentStep;
   const adminPersona = isAdminRole(userRole);
   const personaLabel = adminPersona ? 'Admin persona' : 'Normal user';
@@ -86,10 +87,11 @@ export function Sidebar({
     : 'Runs mappings with organization defaults.';
 
   function isClickable(step: Exclude<WorkflowStep, 'llm-settings'>): boolean {
+    if (step === 'command-center' || step === 'connect') return true;
     const ci = order.indexOf(workflowCurrentStep);
     const si = order.indexOf(step);
     if (si <= ci) return true;
-    if (step === 'orchestrate') return !!(sourceConnector && targetConnector);
+    if (step === 'orchestrate') return !!(projectName && sourceConnector && targetConnector);
     if (step === 'review' || step === 'export') return isOrchestrated;
     return false;
   }

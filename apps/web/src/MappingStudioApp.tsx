@@ -9,11 +9,9 @@ import { ExportPanel } from './components/ExportPanel';
 import { BulkActionBar, type BulkOperationResult } from './components/BulkActionBar';
 import { LandingPage } from './components/LandingPage';
 import { SeedSummaryCard } from './components/SeedSummaryCard';
-import { AdminControlPanel } from './components/AdminControlPanel';
-import { ProjectHistoryPanel } from './components/ProjectHistoryPanel';
+import { CommandCenter } from './components/CommandCenter';
 import { LLMSettingsPage } from './components/LLMSettingsPage';
 import { type LLMConfigUpdatePayload } from './components/LLMSettingsPanel';
-import { UserPersonaPanel } from './components/UserPersonaPanel';
 import { getActiveFormulaTargetIds } from './components/schemaIntelligence';
 import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
 import { useAuth } from './auth/AuthContext';
@@ -81,8 +79,8 @@ export function MappingStudioApp() {
   const demoUiMode = isDemoUiMode();
   const [showLanding, setShowLanding] = useState<boolean>(true);
   // ── Workflow state ──────────────────────────────────────────────────────────
-  const [step, setStep] = useState<WorkflowStep>('connect');
-  const [workflowContextStep, setWorkflowContextStep] = useState<Exclude<WorkflowStep, 'llm-settings'>>('connect');
+  const [step, setStep] = useState<WorkflowStep>('command-center');
+  const [workflowContextStep, setWorkflowContextStep] = useState<Exclude<WorkflowStep, 'llm-settings'>>('command-center');
   const [loadingSetup, setLoadingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
 
@@ -602,32 +600,62 @@ export function MappingStudioApp() {
     setStep(nextStep);
   }
 
+  function handleEnterCommandCenter() {
+    setShowLanding(false);
+    setStep('command-center');
+    setWorkflowContextStep('command-center');
+  }
+
+  function handleNewProject() {
+    resetMockState();
+    setProject(null);
+    setSourceConnectorId(null);
+    setTargetConnectorId(null);
+    setSourceSchemaMode(null);
+    setTargetSchemaMode(null);
+    setSourceEntities([]);
+    setTargetEntities([]);
+    setFields([]);
+    setEntityMappings([]);
+    setFieldMappings([]);
+    setValidation({ warnings: [], summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 } });
+    setIsOrchestrated(false);
+    setSetupError(null);
+    setSeedSummary(null);
+    setSeedSummaryAcknowledged(true);
+    setConflicts([]);
+    setConflictDrawerOpen(false);
+    setPreflight(null);
+    setReviewGateMessage(null);
+    setSelectedMappingIds(new Set());
+    setAcknowledgedFormulaMappingIds(new Set());
+    setStep('connect');
+  }
+
   // ── Render main content by step ─────────────────────────────────────────────
   function renderContent() {
     switch (step) {
+      case 'command-center':
+        return (
+          <CommandCenter
+            userName={userName}
+            userRole={user?.role}
+            projects={projectHistory}
+            llmUsage={llmUsage}
+            isDemoMode={demoUiMode}
+            loading={projectHistoryLoading}
+            error={projectHistoryError}
+            onNewProject={handleNewProject}
+            onOpenReview={(projectId) => { void openPastProject(projectId, 'review'); }}
+            onOpenExport={(projectId) => { void openPastProject(projectId, 'export'); }}
+            onOpenLLMSettings={() => setStep('llm-settings')}
+            onRefresh={() => { void loadProjectHistory(); }}
+          />
+        );
+
       case 'connect':
         return (
           <div className="connect-workspace">
-            <div className="connect-top-panels">
-              <ProjectHistoryPanel
-                projects={projectHistory}
-                loading={projectHistoryLoading}
-                error={projectHistoryError}
-                activeProjectId={project?.id ?? null}
-                onRefresh={() => { void loadProjectHistory(); }}
-                onOpenReview={(projectId) => { void openPastProject(projectId, 'review'); }}
-                onOpenExport={(projectId) => { void openPastProject(projectId, 'export'); }}
-              />
-              {isAdmin ? (
-                <AdminControlPanel
-                  userName={userName}
-                  projects={projectHistory}
-                  llmUsage={llmUsage}
-                />
-              ) : (
-                <UserPersonaPanel userName={userName} />
-              )}
-            </div>
             <ConnectorGrid
               onProceed={handleConnectorProceed}
               loading={loadingSetup}
@@ -766,7 +794,7 @@ export function MappingStudioApp() {
 
   return (
     showLanding ? (
-      <LandingPage onEnterStudio={() => setShowLanding(false)} />
+      <LandingPage onEnterStudio={handleEnterCommandCenter} />
     ) : (
       <div className="app-shell">
         <Sidebar
