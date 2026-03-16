@@ -33,13 +33,21 @@ export default async function globalSetup() {
   const databaseUrl = process.env.DATABASE_URL || DEFAULT_TEST_DATABASE_URL;
 
   process.env.DATABASE_URL = databaseUrl;
-  recreateDatabase(databaseUrl);
-  execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate'], {
-    cwd: backendRoot,
-    env: {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-    },
-    stdio: 'ignore',
-  });
+
+  try {
+    recreateDatabase(databaseUrl);
+    execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate'], {
+      cwd: backendRoot,
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+      },
+      stdio: 'ignore',
+    });
+  } catch {
+    console.warn(
+      '[globalSetup] PostgreSQL not reachable — skipping DB provisioning. ' +
+      'DB-dependent tests (audit, canonical, orgRoutes) may fail individually.',
+    );
+  }
 }
