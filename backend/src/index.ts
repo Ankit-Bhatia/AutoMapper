@@ -20,6 +20,7 @@ import {
   countUnresolvedConflicts,
   targetFieldIdFromConflictId,
 } from './services/conflicts.js';
+import { isActiveFieldMapping } from './utils/mappingStatus.js';
 import { setupAuthRoutes } from './routes/authRoutes.js';
 import { setupConnectorRoutes } from './routes/connectorRoutes.js';
 import { setupAgentRoutes } from './routes/agentRoutes.js';
@@ -153,9 +154,9 @@ function buildProjectPreflight(
   const requiredTargetFields = targetFields.filter((field) => field.required);
 
   const scopedMappings = fieldMappings.filter((mapping) => targetFieldIds.has(mapping.targetFieldId));
-  const nonRejectedMappings = scopedMappings.filter((mapping) => mapping.status !== 'rejected');
+  const activeMappings = scopedMappings.filter((mapping) => isActiveFieldMapping(mapping));
   const mappingsByTargetField = new Map<string, FieldMapping[]>();
-  for (const mapping of nonRejectedMappings) {
+  for (const mapping of activeMappings) {
     const existing = mappingsByTargetField.get(mapping.targetFieldId) ?? [];
     existing.push(mapping);
     mappingsByTargetField.set(mapping.targetFieldId, existing);
@@ -169,7 +170,7 @@ function buildProjectPreflight(
       label: field.label,
     }));
 
-  const mappedTargetCount = new Set(nonRejectedMappings.map((mapping) => mapping.targetFieldId)).size;
+  const mappedTargetCount = new Set(activeMappings.map((mapping) => mapping.targetFieldId)).size;
   const unresolvedConflicts = countUnresolvedConflicts(fieldMappings);
   const acceptedMappingsCount = scopedMappings.filter((mapping) => mapping.status === 'accepted').length;
   const suggestedMappingsCount = scopedMappings.filter(
@@ -567,7 +568,7 @@ app.post('/api/projects/:id/conflicts/:conflictId/resolve', async (req, res) => 
   const state = await store.getState();
   const scoped = getProjectScopedState(state, project);
   const competing = scoped.fieldMappings.filter(
-    (mapping) => mapping.targetFieldId === targetFieldId && mapping.status !== 'rejected',
+    (mapping) => mapping.targetFieldId === targetFieldId && isActiveFieldMapping(mapping),
   );
   if (competing.length < 2) {
     sendError(req, res, 404, 'CONFLICT_NOT_FOUND', 'Conflict not found or already resolved');
@@ -794,7 +795,7 @@ app.post('/api/projects/:id/agent-refine', async (req, res) => {
   writeEvent({
     type: 'start',
     projectId: project.id,
-    totalLowConfidence: fieldMappings.filter((fm) => fm.status === 'suggested' && fm.confidence < 0.65).length,
+    totalLowConfidence: fieldMappings.filter((fm) => isActiveFieldMapping(fm) && fm.status === 'suggested' && fm.confidence < 0.65).length,
     llmProvider,
     hasAi: llmProvider !== 'heuristic',
   });

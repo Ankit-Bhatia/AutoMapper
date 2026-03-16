@@ -7,6 +7,7 @@ import type {
   ValidationWarning,
 } from '../types.js';
 import { typeCompatibilityScore } from '../utils/typeUtils.js';
+import { isActiveFieldMapping } from '../utils/mappingStatus.js';
 
 export function validateMappings(input: {
   entityMappings: EntityMapping[];
@@ -18,6 +19,7 @@ export function validateMappings(input: {
   const fieldById = new Map(input.fields.map((f) => [f.id, f]));
 
   for (const fieldMapping of input.fieldMappings) {
+    if (!isActiveFieldMapping(fieldMapping)) continue;
     const source = fieldById.get(fieldMapping.sourceFieldId);
     const target = fieldById.get(fieldMapping.targetFieldId);
     if (!source || !target) continue;
@@ -55,7 +57,7 @@ export function validateMappings(input: {
   for (const em of input.entityMappings) {
     const mappedTargetFieldIds = new Set(
       (fieldMappingsByEntityMap.get(em.id) ?? [])
-        .filter((fm) => fm.status !== 'rejected')
+        .filter((fm) => isActiveFieldMapping(fm))
         .map((fm) => fm.targetFieldId),
     );
 

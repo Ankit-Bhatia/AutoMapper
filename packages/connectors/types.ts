@@ -45,6 +45,7 @@ export interface Field {
   entityId: string;
   name: string;
   label?: string;
+  description?: string;
   dataType: DataType;
   length?: number;
   precision?: number;
@@ -52,6 +53,10 @@ export interface Field {
   required?: boolean;
   isKey?: boolean;
   isExternalId?: boolean;
+  isFormula?: boolean;
+  isSystemField?: boolean;
+  isAutoNumber?: boolean;
+  referenceTo?: string[];
   picklistValues?: string[];
   // Connector metadata — populated by Jack Henry / SAP / Salesforce connectors
   jxchangeXPath?: string;        // e.g. "CIFInq.Rs.CIFRec.CIFInfo.TaxId"

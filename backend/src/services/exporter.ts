@@ -23,6 +23,7 @@ import type {
   System,
   ValidationReport,
 } from '../types.js';
+import { isActiveFieldMapping } from '../utils/mappingStatus.js';
 
 // ─── Shared input shape ────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ function systemType(systemId: string, systems: System[]): string {
 function groupFieldMappings(input: BuildInput): Map<string, FieldMapping[]> {
   const map = new Map<string, FieldMapping[]>();
   for (const fm of input.fieldMappings) {
+    if (!isActiveFieldMapping(fm)) continue;
     if (!map.has(fm.entityMappingId)) map.set(fm.entityMappingId, []);
     map.get(fm.entityMappingId)!.push(fm);
   }
@@ -145,9 +147,9 @@ export function buildJsonExport(input: BuildInput): object {
       compliance: input.validation ?? null,
       metadata: {
         totalEntityMappings: input.entityMappings.length,
-        totalFieldMappings: input.fieldMappings.length,
+        totalFieldMappings: input.fieldMappings.filter((fm) => isActiveFieldMapping(fm)).length,
         acceptedMappings: input.fieldMappings.filter((fm) => fm.status === 'accepted').length,
-        highConfidenceMappings: input.fieldMappings.filter((fm) => fm.confidence >= 0.8).length,
+        highConfidenceMappings: input.fieldMappings.filter((fm) => isActiveFieldMapping(fm) && fm.confidence >= 0.8).length,
         complianceWarnings: input.validation?.warnings.length ?? 0,
       },
     },
@@ -338,7 +340,7 @@ export function buildDataWeaveExport(input: BuildInput): string {
   for (const em of input.entityMappings) {
     const src = entities.get(em.sourceEntityId);
     const tgt = entities.get(em.targetEntityId);
-    const fms = (fmByEm.get(em.id) ?? []).filter((fm) => fm.status !== 'rejected');
+    const fms = (fmByEm.get(em.id) ?? []).filter((fm) => isActiveFieldMapping(fm));
 
     w(`// ${'─'.repeat(72)}`);
     w(`// Entity: ${src?.name ?? '?'} → ${tgt?.name ?? '?'}  [confidence: ${(em.confidence * 100).toFixed(0)}%]`);
@@ -485,7 +487,7 @@ export function buildBoomiExport(input: BuildInput): string {
   for (const em of input.entityMappings) {
     const src = entities.get(em.sourceEntityId);
     const tgt = entities.get(em.targetEntityId);
-    const fms = (fmByEm.get(em.id) ?? []).filter((fm) => fm.status !== 'rejected');
+    const fms = (fmByEm.get(em.id) ?? []).filter((fm) => isActiveFieldMapping(fm));
 
     w(``);
     w(`    <Map`);
@@ -604,7 +606,7 @@ export function buildWorkatoExport(input: BuildInput): object {
   const steps = input.entityMappings.map((em, idx) => {
     const src = entities.get(em.sourceEntityId);
     const tgt = entities.get(em.targetEntityId);
-    const fms = (fmByEm.get(em.id) ?? []).filter((fm) => fm.status !== 'rejected');
+    const fms = (fmByEm.get(em.id) ?? []).filter((fm) => isActiveFieldMapping(fm));
 
     const inputFields: Record<string, unknown> = {};
     for (const fm of fms) {
@@ -658,7 +660,7 @@ export function buildWorkatoExport(input: BuildInput): object {
       projectId: input.project.id,
       totalSteps: steps.length,
       reviewRequired: input.fieldMappings
-        .filter((fm) => fm.confidence < 0.7 && fm.status !== 'rejected')
+        .filter((fm) => fm.confidence < 0.7 && isActiveFieldMapping(fm))
         .length,
     },
   };

@@ -12,6 +12,7 @@ import { validateMappings } from './validator.js';
 import { typeCompatibilityScore } from '../utils/typeUtils.js';
 import { jaccard } from '../utils/stringSim.js';
 import { activeProvider, llmComplete } from '../agents/llm/LLMGateway.js';
+import { isActiveFieldMapping } from '../utils/mappingStatus.js';
 
 export interface RefinementStep {
   iteration: number;
@@ -377,7 +378,7 @@ async function runRequiredFieldPassAi(input: {
 
     const mappedSourceIds = new Set(
       input.fieldMappings
-        .filter((fm) => fm.entityMappingId === entityMapping.id && fm.status !== 'rejected')
+        .filter((fm) => fm.entityMappingId === entityMapping.id && isActiveFieldMapping(fm))
         .map((fm) => fm.sourceFieldId),
     );
 
@@ -452,7 +453,7 @@ function runRequiredFieldPassHeuristic(input: {
     );
     const requiredUnmapped = targetFields.filter((f) => f.required && !mappedTarget.has(f.id));
 
-    const usedSource = new Set(allMappings.filter((fm) => fm.status !== 'rejected').map((fm) => fm.sourceFieldId));
+    const usedSource = new Set(allMappings.filter((fm) => isActiveFieldMapping(fm)).map((fm) => fm.sourceFieldId));
     const remainingSource = sourceFields.filter((f) => !usedSource.has(f.id));
 
     for (const targetField of requiredUnmapped) {
@@ -490,7 +491,7 @@ function getConflicts(fieldMappings: FieldMapping[]): FieldMapping[][] {
   const byTarget = new Map<string, FieldMapping[]>();
 
   for (const mapping of fieldMappings) {
-    if (mapping.status === 'rejected') continue;
+    if (!isActiveFieldMapping(mapping)) continue;
     const list = byTarget.get(mapping.targetFieldId) ?? [];
     list.push(mapping);
     byTarget.set(mapping.targetFieldId, list);

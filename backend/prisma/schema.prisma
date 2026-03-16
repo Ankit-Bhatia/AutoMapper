@@ -157,6 +157,8 @@ model FieldMapping {
   seedSource      String?
   retrievalShortlist Json?
   rerankerDecision Json?
+  optimizerDisplacement Json?
+  lowConfidenceFallback Boolean       @default(false)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   mappingEvents   MappingEvent[]
