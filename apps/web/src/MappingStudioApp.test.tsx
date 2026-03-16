@@ -384,7 +384,7 @@ describe('MappingStudioApp export gating', () => {
     await user.click(screen.getAllByRole('button', { name: 'Open LLM Settings' })[0]);
 
     await waitFor(() => {
-      expect(screen.getByText('LLM / API Settings')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'LLM / API Settings' })).toBeInTheDocument();
       expect(screen.getByText('Admin Console')).toBeInTheDocument();
       expect(screen.getByText(/^Admin persona$/i)).toBeInTheDocument();
     });
@@ -405,9 +405,9 @@ describe('MappingStudioApp export gating', () => {
     await user.click(screen.getAllByRole('button', { name: 'Open LLM Settings' })[0]);
 
     await waitFor(() => {
-      expect(screen.getByText('LLM / API Settings')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'LLM / API Settings' })).toBeInTheDocument();
       expect(screen.getByText('Normal User Workspace')).toBeInTheDocument();
-      expect(screen.getByText(/only admin users can change global llm policy/i)).toBeInTheDocument();
+      expect(screen.getByText(/global plan and provider controls stay restricted to admin roles/i)).toBeInTheDocument();
     });
   });
 

@@ -7,7 +7,7 @@ import {
   FieldMapping,
   ValidationReport,
 } from '@contracts';
-import { apiBase } from '@core/api-client';
+import { api, API_BASE, isDemoUiMode } from '@core/api-client';
 
 const FORMATS: ExportFormatDef[] = [
   {
@@ -95,6 +95,7 @@ export function ExportPanel({
 }: ExportPanelProps) {
   const [downloading, setDownloading] = useState<ExportFormat | null>(null);
   const [lastDownloaded, setLastDownloaded] = useState<ExportFormat | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [overrideRequiredBlockers, setOverrideRequiredBlockers] = useState(false);
 
   const preflight = useMemo(() => {
@@ -195,12 +196,23 @@ export function ExportPanel({
     if (exportBlocked) return;
     setDownloading(format);
     try {
-      const url = `${apiBase()}/api/projects/${projectId}/export?format=${format}`;
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
-      const blob = await resp.blob();
-      const fmt = FORMATS.find((f) => f.id === format)!;
+      setExportError(null);
+      const fmt = FORMATS.find((candidate) => candidate.id === format)!;
       const filename = `automapper-export-${format}${fmt.ext}`;
+
+      let blob: Blob;
+      if (isDemoUiMode()) {
+        const content = await api<string>(`/api/projects/${projectId}/export?format=${format}`);
+        blob = new Blob([content], { type: 'application/octet-stream' });
+      } else {
+        const url = `${API_BASE}/api/projects/${projectId}/export?format=${format}`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) {
+          throw new Error(`Export failed: ${resp.status}`);
+        }
+        blob = await resp.blob();
+      }
+
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = filename;
@@ -208,7 +220,7 @@ export function ExportPanel({
       URL.revokeObjectURL(a.href);
       setLastDownloaded(format);
     } catch (e) {
-      console.error('Export error:', e);
+      setExportError(e instanceof Error ? e.message : 'Download failed');
     } finally {
       setDownloading(null);
     }
@@ -405,6 +417,8 @@ export function ExportPanel({
           ))}
         </div>
       </div>
+
+      {exportError && <p className="export-error">{exportError}</p>}
 
       {/* Footer note */}
       <div className="export-footer-note">
