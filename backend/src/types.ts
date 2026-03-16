@@ -61,6 +61,10 @@ export interface Field {
   required?: boolean;
   isKey?: boolean;
   isExternalId?: boolean;
+  isFormula?: boolean;
+  isSystemField?: boolean;
+  isAutoNumber?: boolean;
+  referenceTo?: string[];
   picklistValues?: string[];
   // Connector metadata — populated by Jack Henry / SAP / Salesforce connectors
   jxchangeXPath?: string;        // e.g. "CIFInq.Rs.CIFRec.CIFInfo.TaxId"
@@ -123,6 +127,26 @@ export interface RerankerDecision {
   provider?: string;
 }
 
+export type OptimizerDisplacementReason =
+  | 'hard_ban'
+  | 'type_incompatible'
+  | 'lookup_out_of_scope'
+  | 'duplicate_displaced'
+  | 'low_confidence_fallback';
+
+export interface OptimizerDisplacement {
+  originalTargetFieldId: string;
+  reason: OptimizerDisplacementReason;
+  finalAssignment: string | null;
+}
+
+export type FieldMappingStatus =
+  | 'suggested'
+  | 'accepted'
+  | 'rejected'
+  | 'modified'
+  | 'unmatched';
+
 export type TransformType =
   | 'direct'
   | 'concat'
@@ -144,10 +168,12 @@ export interface FieldMapping {
   };
   confidence: number;
   rationale: string;
-  status: 'suggested' | 'accepted' | 'rejected' | 'modified';
+  status: FieldMappingStatus;
   seedSource?: 'derived' | 'canonical' | 'agent';
   retrievalShortlist?: RetrievalShortlist;
   rerankerDecision?: RerankerDecision;
+  optimizerDisplacement?: OptimizerDisplacement;
+  lowConfidenceFallback?: boolean;
 }
 
 export interface ValidationWarning {

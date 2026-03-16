@@ -22,9 +22,15 @@ export interface Field {
   entityId: string;
   name: string;
   label?: string;
+  description?: string;
   dataType: string;
   required?: boolean;
   isKey?: boolean;
+  isExternalId?: boolean;
+  isFormula?: boolean;
+  isSystemField?: boolean;
+  isAutoNumber?: boolean;
+  referenceTo?: string[];
   picklistValues?: string[];
   // Connector metadata
   jxchangeXPath?: string;
@@ -70,6 +76,26 @@ export interface RerankerDecision {
   provider?: string;
 }
 
+export type OptimizerDisplacementReason =
+  | 'hard_ban'
+  | 'type_incompatible'
+  | 'lookup_out_of_scope'
+  | 'duplicate_displaced'
+  | 'low_confidence_fallback';
+
+export interface OptimizerDisplacement {
+  originalTargetFieldId: string;
+  reason: OptimizerDisplacementReason;
+  finalAssignment: string | null;
+}
+
+export type FieldMappingStatus =
+  | 'suggested'
+  | 'accepted'
+  | 'rejected'
+  | 'modified'
+  | 'unmatched';
+
 export interface FieldMapping {
   id: string;
   entityMappingId: string;
@@ -78,10 +104,12 @@ export interface FieldMapping {
   transform: { type: TransformType; config: Record<string, unknown> };
   confidence: number;
   rationale: string;
-  status: 'suggested' | 'accepted' | 'rejected' | 'modified';
+  status: FieldMappingStatus;
   seedSource?: 'derived' | 'canonical' | 'agent';
   retrievalShortlist?: RetrievalShortlist;
   rerankerDecision?: RerankerDecision;
+  optimizerDisplacement?: OptimizerDisplacement;
+  lowConfidenceFallback?: boolean;
 }
 
 export interface SeedSummary {

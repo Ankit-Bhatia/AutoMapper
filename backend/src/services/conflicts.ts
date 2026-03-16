@@ -1,4 +1,5 @@
 import type { Entity, Field, FieldMapping } from '../types.js';
+import { isActiveFieldMapping } from '../utils/mappingStatus.js';
 
 export interface ProjectConflict {
   id: string;
@@ -11,16 +12,12 @@ export interface ProjectConflict {
   resolvedAt: string | null;
 }
 
-function isActiveMapping(mapping: Pick<FieldMapping, 'status'>): boolean {
-  return mapping.status !== 'rejected';
-}
-
 export function countUnresolvedConflicts(
   mappings: Array<Pick<FieldMapping, 'targetFieldId' | 'status'>>,
 ): number {
   const grouped = new Map<string, number>();
   for (const mapping of mappings) {
-    if (!isActiveMapping(mapping)) continue;
+    if (!isActiveFieldMapping(mapping)) continue;
     grouped.set(mapping.targetFieldId, (grouped.get(mapping.targetFieldId) ?? 0) + 1);
   }
   return [...grouped.values()].filter((count) => count > 1).length;
@@ -38,7 +35,7 @@ export function buildMappingConflicts(
   entities: Entity[],
   detectedAt = new Date().toISOString(),
 ): ProjectConflict[] {
-  const activeMappings = mappings.filter((mapping) => isActiveMapping(mapping));
+  const activeMappings = mappings.filter((mapping) => isActiveFieldMapping(mapping));
   const grouped = new Map<string, FieldMapping[]>();
 
   for (const mapping of activeMappings) {

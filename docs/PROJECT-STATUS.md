@@ -656,3 +656,51 @@ Scope completed:
 - Kept `suggestMappings` AI overrides inside the persisted `retrievalShortlist` contract.
 - Added the isolated Vitest PostgreSQL bootstrap (`automapper_vitest`) so plain `cd backend && npm test` remains deterministic on the reranker branch as well.
 - Left the shortlist-only reranker path intact, since it already selects only from the persisted shortlist and did not need the old Pass 2 LLM guard.
+
+### 2026-03-17 01:35 IST — KAN-88 global mapping optimizer
+
+Implemented by Codex.
+
+Scope completed:
+- Added a pure post-reranker optimizer in `backend/src/services/mappingOptimizer.ts` that performs a three-pass greedy resolution over the final mapping set.
+- Pass 1 removes invalid targets (hard-ban targets, type-incompatible targets, and relationship-scope targets when a graph is present), walking `retrievalShortlist.candidates` for the next valid replacement and marking mappings `unmatched` when no valid replacement exists.
+- Pass 2 resolves duplicate target assignments globally, keeping the highest-confidence claimant and demoting the rest through the persisted retrieval shortlist until every active target assignment is unique.
+- Pass 3 covers required/key targets only from unmatched source fields whose persisted shortlist contains that target at `retrievalScore >= 0.30`; no low-score promotion is allowed.
+- Added optimizer metadata to `FieldMapping` (`optimizerDisplacement`, `lowConfidenceFallback`) and introduced `FieldMappingStatus = 'unmatched'` in shared/backend contracts.
+- Persisted optimizer metadata through Prisma + FS store (`optimizerDisplacement`, `lowConfidenceFallback`) and added migration `backend/prisma/migrations/20260317131500_add_field_mapping_optimizer_metadata/migration.sql`.
+- Wired the optimizer into `backend/src/agents/MappingProposalAgent.ts` after the structured reranker and before final emission, with a new `optimizer_complete` step event that reports duplicate resolution, uncovered required fields, and low-confidence AI fallback flags.
+- Updated backend consumers (`index.ts`, `validator.ts`, `conflicts.ts`, `exporter.ts`, `agentRefiner.ts`) to treat `unmatched` as an inactive mapping state.
+- KAN-90 relationship scope is not merged in this repo baseline, so the optimizer currently skips lookup-scope rejection and leaves the TODO in place.
+
+Files changed:
+- `packages/contracts/types.ts`
+- `packages/connectors/types.ts`
+- `backend/src/types.ts`
+- `backend/src/services/mappingOptimizer.ts`
+- `backend/src/utils/mappingStatus.ts`
+- `backend/src/agents/MappingProposalAgent.ts`
+- `backend/src/db/dbStore.ts`
+- `backend/src/utils/fsStore.ts`
+- `backend/src/services/conflicts.ts`
+- `backend/src/services/validator.ts`
+- `backend/src/services/exporter.ts`
+- `backend/src/services/agentRefiner.ts`
+- `backend/src/index.ts`
+- `backend/prisma/schema.prisma`
+- `backend/prisma/migrations/20260317131500_add_field_mapping_optimizer_metadata/migration.sql`
+- `backend/src/__tests__/mappingOptimizer.test.ts`
+- `backend/src/__tests__/agents.test.ts`
+- `backend/src/__tests__/retrievalPersistence.test.ts`
+
+Validation:
+- `cd backend && npx tsc --noEmit` -> passing
+- `cd backend && npm run lint` -> passing
+- `cd backend && npm test -- --run` -> passing (`179/179`)
+- `cd backend && npx prisma generate` -> passing
+
+Acceptance notes:
+- Duplicate target assignments are removed from the final active mapping set.
+- Required/key coverage is only promoted from unmatched sources when the shortlist score is `>= 0.30`; weak candidates remain uncovered rather than being force-assigned.
+- Hard-banned targets do not survive the optimizer when a valid alternative exists.
+- `optimizer_complete` is emitted from `MappingProposalAgent` with the required metadata shape, including the Jira-specified `aiFailbackFlagged` key.
+- Relationship scope checks remain gated behind the future `KAN-90` graph implementation.

@@ -687,6 +687,91 @@ describe('MappingProposalAgent', () => {
       top1Confidence: 0.88,
     });
   });
+
+  it('emits optimizer_complete metadata and removes duplicate targets after reranking', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+
+    const agent = new MappingProposalAgent();
+    const steps: Array<{ action: string; metadata?: Record<string, unknown> }> = [];
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' });
+    const srcAmount = makeField({ id: 'src-amount', entityId: 'src-ent', name: 'AMT_APPROVED', dataType: 'decimal' });
+    const srcPayment = makeField({ id: 'src-payment', entityId: 'src-ent', name: 'AMT_PAYMENT', dataType: 'decimal' });
+    const tgtBalance = makeField({ id: 'tgt-balance', entityId: 'tgt-ent', name: 'CurrentBalance', dataType: 'decimal' });
+    const tgtPayment = makeField({ id: 'tgt-payment', entityId: 'tgt-ent', name: 'PaymentAmount', dataType: 'decimal' });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fmAmount: FieldMapping = {
+      id: 'fm-amount',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-amount',
+      targetFieldId: 'tgt-balance',
+      confidence: 0.82,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+    const fmPayment: FieldMapping = {
+      id: 'fm-payment',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-payment',
+      targetFieldId: 'tgt-balance',
+      confidence: 0.79,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [srcAmount, srcPayment, tgtBalance, tgtPayment],
+      entityMappings: [em],
+      fieldMappings: [fmAmount, fmPayment],
+      onStep: (step) => steps.push(step),
+    });
+
+    const optimizerStep = steps.find((step) => step.action === 'optimizer_complete');
+    expect(optimizerStep?.metadata).toMatchObject({
+      duplicatesResolved: expect.any(Number),
+      unmatchedFromDuplicates: expect.any(Number),
+      hardBanViolationsRemoved: expect.any(Number),
+      typeIncompatibleRemoved: expect.any(Number),
+      lookupOutOfScopeRemoved: expect.any(Number),
+      requiredFieldsCovered: expect.any(Number),
+      requiredFieldsUncovered: expect.any(Number),
+      aiFailbackFlagged: expect.any(Number),
+    });
+
+    const activeTargets = result.updatedFieldMappings
+      .filter((mapping) => mapping.status !== 'rejected' && mapping.status !== 'unmatched')
+      .map((mapping) => mapping.targetFieldId);
+    expect(new Set(activeTargets).size).toBe(activeTargets.length);
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
 });
 
 // ─── MappingRationaleAgent ───────────────────────────────────────────────────

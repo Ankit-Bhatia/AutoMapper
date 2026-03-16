@@ -6,6 +6,7 @@ import type {
   Field,
   FieldMapping,
   MappingProject,
+  OptimizerDisplacement,
   RetrievalShortlist,
   RerankerDecision,
   Relationship,
@@ -94,6 +95,8 @@ function toFieldMapping(fm: {
   seedSource: string | null;
   retrievalShortlist?: unknown | null;
   rerankerDecision?: unknown | null;
+  optimizerDisplacement?: unknown | null;
+  lowConfidenceFallback?: boolean | null;
 }): FieldMapping {
   const transform = (fm.transform ?? { type: 'direct', config: {} }) as {
     type: TransformType;
@@ -111,6 +114,8 @@ function toFieldMapping(fm: {
     seedSource: (fm.seedSource ?? undefined) as FieldMapping['seedSource'],
     retrievalShortlist: (fm.retrievalShortlist ?? undefined) as RetrievalShortlist | undefined,
     rerankerDecision: (fm.rerankerDecision ?? undefined) as RerankerDecision | undefined,
+    optimizerDisplacement: (fm.optimizerDisplacement ?? undefined) as OptimizerDisplacement | undefined,
+    lowConfidenceFallback: fm.lowConfidenceFallback ?? undefined,
   };
 }
 
@@ -322,6 +327,8 @@ export class DbStore {
           status: fm.status,
           retrievalShortlist: (fm.retrievalShortlist ?? null) as unknown as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
           rerankerDecision: (fm.rerankerDecision ?? null) as unknown as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
+          optimizerDisplacement: (fm.optimizerDisplacement ?? null) as unknown as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
+          lowConfidenceFallback: fm.lowConfidenceFallback ?? false,
         })),
       });
     }
@@ -331,7 +338,7 @@ export class DbStore {
 
   async patchFieldMapping(
     fieldMappingId: string,
-    patch: Partial<Pick<FieldMapping, 'status' | 'confidence' | 'rationale' | 'targetFieldId' | 'sourceFieldId' | 'transform' | 'retrievalShortlist' | 'rerankerDecision'>>,
+    patch: Partial<Pick<FieldMapping, 'status' | 'confidence' | 'rationale' | 'targetFieldId' | 'sourceFieldId' | 'transform' | 'retrievalShortlist' | 'rerankerDecision' | 'optimizerDisplacement' | 'lowConfidenceFallback'>>,
   ): Promise<FieldMapping | undefined> {
     try {
       const updated = await this.prisma.fieldMapping.update({
@@ -349,6 +356,10 @@ export class DbStore {
           ...(patch.rerankerDecision !== undefined && {
             rerankerDecision: (patch.rerankerDecision ?? null) as unknown as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
           }),
+          ...(patch.optimizerDisplacement !== undefined && {
+            optimizerDisplacement: (patch.optimizerDisplacement ?? null) as unknown as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
+          }),
+          ...(patch.lowConfidenceFallback !== undefined && { lowConfidenceFallback: patch.lowConfidenceFallback }),
         },
       });
       return toFieldMapping(updated);

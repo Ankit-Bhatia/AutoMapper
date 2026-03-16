@@ -10,7 +10,7 @@
  */
 import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
-import type { Field, EntityMapping } from '../types.js';
+import type { Field, EntityMapping, FieldMapping } from '../types.js';
 import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 import { countRedactedFields } from './llm/PIIGuard.js';
 import { activeProvider } from './llm/LLMGateway.js';
@@ -24,6 +24,8 @@ import {
   buildRerankerPayload,
   runStructuredReranker,
 } from '../services/structuredReranker.js';
+import { runMappingOptimizer } from '../services/mappingOptimizer.js';
+import { isActiveFieldMapping } from '../utils/mappingStatus.js';
 
 const RETRIEVAL_TOP_K = DEFAULT_RETRIEVAL_TOP_K;
 const MIN_CONTEXT_AUTOPICK_SCORE = 0.68;
@@ -76,6 +78,22 @@ function buildEntityFieldIndex(
     index.set(field.entityId, bucket);
   }
   return index;
+}
+
+function requiredTargetCoverageCount(
+  targetFields: (Field | ConnectorField)[],
+  mappings: FieldMapping[],
+): number {
+  const requiredTargetIds = new Set(
+    targetFields
+      .filter((field) => field.required || field.isKey)
+      .map((field) => field.id),
+  );
+  return new Set(
+    mappings
+      .filter((mapping) => isActiveFieldMapping(mapping) && requiredTargetIds.has(mapping.targetFieldId))
+      .map((mapping) => mapping.targetFieldId),
+  ).size;
 }
 
 function siblingFieldsFor(
@@ -371,9 +389,59 @@ export class MappingProposalAgent extends AgentBase {
       }
     }
 
+    const optimizerInput = updatedMappings.map((mapping) => ({ ...mapping }));
+    const targetFieldUniverse = fields.filter((field) => targetEntities.some((entity) => entity.id === field.entityId));
+    const sourceFieldsById = new Map(
+      fields
+        .filter((field) => sourceEntities.some((entity) => entity.id === field.entityId))
+        .map((field) => [field.id, field] as const),
+    );
+    const requiredCoverageBefore = requiredTargetCoverageCount(targetFieldUniverse, optimizerInput);
+    const optimizedMappings = runMappingOptimizer(optimizerInput, targetFieldUniverse, {
+      sourceFieldsById,
+    });
+    const requiredCoverageAfter = requiredTargetCoverageCount(targetFieldUniverse, optimizedMappings);
+    const optimizerImproved = optimizedMappings.filter((mapping, index) => {
+      const before = optimizerInput[index];
+      return before
+        && (
+          before.targetFieldId !== mapping.targetFieldId
+          || before.status !== mapping.status
+          || before.lowConfidenceFallback !== mapping.lowConfidenceFallback
+        );
+    }).length;
+    const optimizerMetadata = {
+      duplicatesResolved: optimizedMappings.filter((mapping) => mapping.optimizerDisplacement?.reason === 'duplicate_displaced').length,
+      unmatchedFromDuplicates: optimizedMappings.filter(
+        (mapping) => mapping.optimizerDisplacement?.reason === 'duplicate_displaced' && mapping.status === 'unmatched',
+      ).length,
+      hardBanViolationsRemoved: optimizedMappings.filter((mapping) => mapping.optimizerDisplacement?.reason === 'hard_ban').length,
+      typeIncompatibleRemoved: optimizedMappings.filter((mapping) => mapping.optimizerDisplacement?.reason === 'type_incompatible').length,
+      lookupOutOfScopeRemoved: optimizedMappings.filter((mapping) => mapping.optimizerDisplacement?.reason === 'lookup_out_of_scope').length,
+      requiredFieldsCovered: Math.max(0, requiredCoverageAfter - requiredCoverageBefore),
+      requiredFieldsUncovered: Math.max(
+        0,
+        targetFieldUniverse.filter((field) => field.required || field.isKey).length - requiredCoverageAfter,
+      ),
+      aiFailbackFlagged: optimizedMappings.filter((mapping) => mapping.lowConfidenceFallback).length,
+    };
+    const optimizerStep: Omit<AgentStep, 'agentName'> = {
+      action: 'optimizer_complete',
+      detail: `Global optimizer resolved ${optimizerMetadata.duplicatesResolved} duplicate targets and left ${optimizerMetadata.requiredFieldsUncovered} required targets uncovered`,
+      durationMs: 0,
+      metadata: optimizerMetadata,
+    };
+    this.emit(context, optimizerStep);
+    steps.push({ agentName: this.name, ...optimizerStep });
+
+    for (let index = 0; index < optimizedMappings.length; index += 1) {
+      updatedMappings[index] = optimizedMappings[index];
+    }
+    improved += optimizerImproved;
+
     const summary: Omit<AgentStep, 'agentName'> = {
       action: 'mapping_proposal_complete',
-      detail: `${provider === 'heuristic' ? 'Context ranker' : 'Context ranker + shortlist reranker'} applied — ${improved} mappings improved`,
+      detail: `${provider === 'heuristic' ? 'Context ranker + optimizer' : 'Context ranker + shortlist reranker + optimizer'} applied — ${improved} mappings improved`,
       durationMs: Date.now() - start,
       metadata: {
         improved,
@@ -381,6 +449,7 @@ export class MappingProposalAgent extends AgentBase {
         provider,
         shortlistsBuilt: rankingByMappingId.size,
         topK: RETRIEVAL_TOP_K,
+        ...optimizerMetadata,
       },
     };
     this.emit(context, summary);

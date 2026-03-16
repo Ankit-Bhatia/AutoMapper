@@ -254,7 +254,7 @@ export function parseSchemaIntelligenceRationale(rationale?: string): ParsedSche
 
 export function getActiveFormulaTargetIds(fieldMappings: FieldMapping[]): string[] {
   return fieldMappings
-    .filter((mapping) => mapping.status !== 'rejected')
+    .filter((mapping) => mapping.status !== 'rejected' && mapping.status !== 'unmatched')
     .filter((mapping) => parseSchemaIntelligenceRationale(mapping.rationale).flags.formulaTarget)
     .map((mapping) => mapping.id);
 }

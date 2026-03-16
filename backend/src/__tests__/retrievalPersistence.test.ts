@@ -67,6 +67,12 @@ describe('retrieval shortlist persistence', () => {
             reasoning: 'Sibling cluster confirmed target selection.',
             provider: 'gemini',
           },
+          optimizerDisplacement: {
+            originalTargetFieldId: 'legacy-target',
+            reason: 'duplicate_displaced',
+            finalAssignment: 'tgt-field',
+          },
+          lowConfidenceFallback: true,
         },
       ],
     );
@@ -96,5 +102,11 @@ describe('retrieval shortlist persistence', () => {
       reasoning: 'Sibling cluster confirmed target selection.',
       provider: 'gemini',
     });
+    expect(reloaded.fieldMappings[0]?.optimizerDisplacement).toEqual({
+      originalTargetFieldId: 'legacy-target',
+      reason: 'duplicate_displaced',
+      finalAssignment: 'tgt-field',
+    });
+    expect(reloaded.fieldMappings[0]?.lowConfidenceFallback).toBe(true);
   });
 });
