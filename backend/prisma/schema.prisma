@@ -156,6 +156,7 @@ model FieldMapping {
   status          String        @default("suggested")
   seedSource      String?
   retrievalShortlist Json?
+  rerankerDecision Json?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   mappingEvents   MappingEvent[]

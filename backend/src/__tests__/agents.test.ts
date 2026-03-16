@@ -594,6 +594,99 @@ describe('MappingProposalAgent', () => {
       topK: 5,
     });
   });
+
+  it('uses shortlist-only reranker input and persists rerankerDecision on the mapping', async () => {
+    const activeProviderSpy = vi.spyOn(LLMGateway, 'activeProvider').mockReturnValue('gemini');
+    const llmCompleteSpy = vi.spyOn(LLMGateway, 'llmComplete').mockResolvedValue({
+      content: JSON.stringify({
+        selectedTargetFieldId: 'tgt-first-name',
+        selectedTargetFieldName: 'FirstName',
+        finalRank: 1,
+        confidence: 0.88,
+        evidenceSignals: ['retrieval', 'sibling'],
+        reasoning: 'Sibling cluster indicates this field is the first-name component.',
+      }),
+      provider: 'gemini',
+      tokensUsed: 51,
+    });
+
+    const agent = new MappingProposalAgent();
+    const steps: Array<{ action: string; metadata?: Record<string, unknown> }> = [];
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' });
+    const srcFirst = makeField({ id: 'src-first', entityId: 'src-ent', name: 'NAME_FIRST', label: 'First Name', dataType: 'string' });
+    const srcMiddle = makeField({ id: 'src-middle', entityId: 'src-ent', name: 'NAME_MIDDLE', label: 'Middle Name', dataType: 'string' });
+    const srcLast = makeField({ id: 'src-last', entityId: 'src-ent', name: 'NAME_LAST', label: 'Last Name', dataType: 'string' });
+    const tgtName = makeField({ id: 'tgt-name', entityId: 'tgt-ent', name: 'Name', label: 'Account Name', dataType: 'string' });
+    const tgtFirst = makeField({ id: 'tgt-first-name', entityId: 'tgt-ent', name: 'FirstName', label: 'First Name', dataType: 'string' });
+    const tgtLast = makeField({ id: 'tgt-last-name', entityId: 'tgt-ent', name: 'LastName', label: 'Last Name', dataType: 'string' });
+    const tgtMiddle = makeField({ id: 'tgt-middle-name', entityId: 'tgt-ent', name: 'MiddleName', label: 'Middle Name', dataType: 'string' });
+    const tgtSuffix = makeField({ id: 'tgt-suffix', entityId: 'tgt-ent', name: 'Suffix', label: 'Suffix', dataType: 'string' });
+    const tgtExcluded = makeField({ id: 'tgt-legacy', entityId: 'tgt-ent', name: 'LegacyControlFlag__c', label: 'Legacy Control Flag', dataType: 'boolean' });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'tgt-ent',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-1',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-first',
+      targetFieldId: 'tgt-name',
+      confidence: 0.56,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+    };
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt],
+      fields: [
+        srcFirst,
+        srcMiddle,
+        srcLast,
+        tgtName,
+        tgtFirst,
+        tgtLast,
+        tgtMiddle,
+        tgtSuffix,
+        tgtExcluded,
+      ],
+      entityMappings: [em],
+      fieldMappings: [fm],
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(activeProviderSpy).toHaveBeenCalled();
+    expect(llmCompleteSpy).toHaveBeenCalledTimes(1);
+
+    const promptContent = llmCompleteSpy.mock.calls[0]?.[0].map((message) => message.content).join('\n') ?? '';
+    expect(promptContent).toContain('NAME_MIDDLE');
+    expect(promptContent).toContain('NAME_LAST');
+    expect(promptContent).not.toContain('LegacyControlFlag__c');
+    expect(promptContent).not.toContain('TARGET SCHEMA');
+
+    const updated = result.updatedFieldMappings[0];
+    expect(updated?.targetFieldId).toBe('tgt-first-name');
+    expect(updated?.rerankerDecision).toMatchObject({
+      selectedTargetFieldId: 'tgt-first-name',
+      finalRank: 1,
+      confidence: 0.88,
+      evidenceSignals: ['retrieval', 'sibling'],
+    });
+
+    const rerankerComplete = steps.filter((step) => step.action === 'reranker_complete');
+    expect(rerankerComplete).toHaveLength(1);
+    expect(rerankerComplete[0]?.metadata).toMatchObject({
+      candidateCount: 5,
+      top1Confidence: 0.88,
+    });
+  });
 });
 
 // ─── MappingRationaleAgent ───────────────────────────────────────────────────

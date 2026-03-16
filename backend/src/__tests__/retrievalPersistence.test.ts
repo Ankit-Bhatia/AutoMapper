@@ -15,7 +15,7 @@ describe('retrieval shortlist persistence', () => {
     }
   });
 
-  it('persists retrievalShortlist on field mappings in FsStore mode', () => {
+  it('persists retrievalShortlist and rerankerDecision on field mappings in FsStore mode', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automapper-retrieval-'));
     const store = new FsStore(tempDir);
     const project = store.createProject('Test');
@@ -56,6 +56,17 @@ describe('retrieval shortlist persistence', () => {
               },
             ],
           },
+          rerankerDecision: {
+            sourceFieldId: 'src-field',
+            candidateCount: 3,
+            selectedTargetFieldId: 'tgt-field',
+            selectedTargetFieldName: 'Target',
+            finalRank: 1,
+            confidence: 0.86,
+            evidenceSignals: ['retrieval', 'sibling'],
+            reasoning: 'Sibling cluster confirmed target selection.',
+            provider: 'gemini',
+          },
         },
       ],
     );
@@ -73,6 +84,17 @@ describe('retrieval shortlist persistence', () => {
           evidence: ['semantic 0.81 (alias)'],
         },
       ],
+    });
+    expect(reloaded.fieldMappings[0]?.rerankerDecision).toEqual({
+      sourceFieldId: 'src-field',
+      candidateCount: 3,
+      selectedTargetFieldId: 'tgt-field',
+      selectedTargetFieldName: 'Target',
+      finalRank: 1,
+      confidence: 0.86,
+      evidenceSignals: ['retrieval', 'sibling'],
+      reasoning: 'Sibling cluster confirmed target selection.',
+      provider: 'gemini',
     });
   });
 });
