@@ -729,3 +729,28 @@ Validation:
 - `npm --workspace apps/web run typecheck` -> passing
 - `npm --workspace apps/web run test -- --run` -> passing (`40/40`)
 - `npm --workspace apps/web run build` -> passing
+
+## 2026-03-20 KAN-101 RiskClam ranking fix (Implemented by Codex)
+
+Summary:
+- Tightened `backend/src/services/candidateRetrieval.ts` so same-object Schema Intelligence matches get a retrieval boost and generic distractors are penalized when they miss the source field's specific RiskClam concept.
+- Added object-alias matching for Schema Intelligence targets such as `FA / Loan`, so `DATE_APPROVAL` can correctly boost `Date_Credit_Approved__c` on `FinancialAccount` and `Loan`.
+- Left entity routing unchanged. This ticket only fixes field ranking inside the routed target object; package-level routing debt like `AMT_TOTAL_BOSL` remains a separate concern.
+- Added focused regressions in:
+  - `backend/src/__tests__/candidateRetrieval.test.ts`
+  - `backend/src/__tests__/mapper.test.ts`
+
+Measured retrieval deltas on the same synthetic scorer inputs used to reproduce the bug:
+- `AMT_PAYMENT`
+  - before: `Total_Fee_Amount__c 0.551`, `Disbursement_Amount__c 0.551`, `Monthly_Payment__c 0.528`
+  - after: `Monthly_Payment__c 0.777`, `Disbursement_Amount__c 0.417`, `Total_Fee_Amount__c 0.408`
+- `DATE_APPROVAL`
+  - before: `OpenDate 0.540`, `Date_Credit_Approved__c 0.520`
+  - after: `Date_Credit_Approved__c 0.733`, `OpenDate 0.388`
+- `AMT_APPROVED_LOAN`
+  - after: `Loan_Amount_formula__c 0.697`, `Disbursement_Amount__c 0.417`, `Total_Fee_Amount__c 0.408`
+  - note: the optimizer still hard-bans formula targets later, which is expected
+
+Validation:
+- `cd backend && npx tsc --noEmit` -> passing
+- `cd backend && npm test -- --run` -> passing (`193/193`)

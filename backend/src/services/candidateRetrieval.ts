@@ -11,6 +11,7 @@ import {
   isHardIncompatible,
   semanticTypeScore,
 } from './fieldSemantics.js';
+import { getSchemaIntelligencePatternCandidates } from './schemaIntelligencePatterns.js';
 import { fieldEmbeddingText, type EmbeddingCache, cosineSimilarity } from './EmbeddingService.js';
 import { jaccard } from '../utils/stringSim.js';
 
@@ -42,6 +43,62 @@ export interface RetrievalOptions {
 }
 
 export const DEFAULT_RETRIEVAL_TOP_K = 5;
+const RISKCLAM_SPECIFIC_CONCEPTS = new Set([
+  'payment',
+  'approval',
+  'loan',
+  'funded',
+  'asset',
+  'debt',
+  'liability',
+  'balance',
+]);
+const RISKCLAM_DISTRACTOR_CONCEPTS = new Set([
+  'fee',
+  'disbursement',
+  'escrow',
+  'open',
+  'maturity',
+  'interest',
+]);
+const TARGET_OBJECT_ALIASES: Record<string, string[]> = {
+  account: ['account'],
+  collateral: ['collateral'],
+  fa: ['financialaccount', 'fa'],
+  fee: ['fee'],
+  financialaccount: ['financialaccount', 'fa'],
+  loan: ['loan'],
+  loanpackage: ['loanpackage'],
+  pit: ['pit', 'partyinvolvedintransaction'],
+  partyinvolvedintransaction: ['pit', 'partyinvolvedintransaction'],
+};
+
+function normalizeKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function patternTargetsEntity(patternTargetObject: string, entityName: string): boolean {
+  const normalizedEntity = normalizeKey(entityName);
+  const entityAliases = new Set([
+    normalizedEntity,
+    ...(TARGET_OBJECT_ALIASES[normalizedEntity] ?? []),
+  ]);
+
+  return patternTargetObject
+    .split('/')
+    .map((segment) => normalizeKey(segment))
+    .filter(Boolean)
+    .some((segment) => {
+      const segmentAliases = new Set([
+        segment,
+        ...(TARGET_OBJECT_ALIASES[segment] ?? []),
+      ]);
+      for (const alias of entityAliases) {
+        if (segmentAliases.has(alias)) return true;
+      }
+      return false;
+    });
+}
 
 function entityNameFor(
   field: Field | ConnectorField,
@@ -99,6 +156,73 @@ function buildRetrievalEvidence(candidate: {
   return evidence;
 }
 
+function confirmedPatternBoost(confidence: 'HIGH' | 'MEDIUM' | 'LOW', isFormulaTarget: boolean): number {
+  switch (confidence) {
+    case 'HIGH':
+      return isFormulaTarget ? 0.18 : 0.22;
+    case 'MEDIUM':
+      return isFormulaTarget ? 0.14 : 0.16;
+    default:
+      return isFormulaTarget ? 0.08 : 0.1;
+  }
+}
+
+function applyRiskClamPatternAdjustment(
+  sourceField: Field | ConnectorField,
+  targetField: Field | ConnectorField,
+  sourceProfile: ReturnType<typeof buildFieldSemanticProfile>,
+  targetProfile: ReturnType<typeof buildFieldSemanticProfile>,
+  targetEntityName?: string,
+): { adjustment: number; evidence: string[] } {
+  const patterns = getSchemaIntelligencePatternCandidates(sourceField.name);
+  if (!patterns.length || !targetEntityName) {
+    return { adjustment: 0, evidence: [] };
+  }
+
+  const normalizedTargetEntity = normalizeKey(targetEntityName);
+  const normalizedTargetField = normalizeKey(targetField.name);
+  const sameObjectPatterns = patterns.filter(
+    (pattern) => patternTargetsEntity(pattern.targetObject, normalizedTargetEntity),
+  );
+
+  if (!sameObjectPatterns.length) {
+    return { adjustment: 0, evidence: [] };
+  }
+
+  const exactPattern = sameObjectPatterns.find(
+    (pattern) => normalizeKey(pattern.targetFieldName) === normalizedTargetField,
+  );
+  if (exactPattern) {
+    return {
+      adjustment: confirmedPatternBoost(exactPattern.confidence, exactPattern.isFormulaTarget),
+      evidence: [`schema intelligence ${exactPattern.confidence.toLowerCase()} match`],
+    };
+  }
+
+  const sharedSpecificConcept = [...sourceProfile.concepts].some(
+    (concept) => RISKCLAM_SPECIFIC_CONCEPTS.has(concept) && targetProfile.concepts.has(concept),
+  );
+  const missingSpecificConcept = [...sourceProfile.concepts].some(
+    (concept) => RISKCLAM_SPECIFIC_CONCEPTS.has(concept) && !targetProfile.concepts.has(concept),
+  );
+  const distractorConcept = [...targetProfile.concepts].find(
+    (concept) => RISKCLAM_DISTRACTOR_CONCEPTS.has(concept) && !sourceProfile.concepts.has(concept),
+  );
+
+  let adjustment = 0;
+  const evidence: string[] = [];
+  if (missingSpecificConcept && !sharedSpecificConcept) {
+    adjustment -= 0.08;
+    evidence.push('misses schema-intelligence concept');
+  }
+  if (distractorConcept) {
+    adjustment -= 0.06;
+    evidence.push(`distractor ${distractorConcept}`);
+  }
+
+  return { adjustment, evidence };
+}
+
 function toShortlistCandidate(candidate: RetrievalCandidate): RetrievalShortlistCandidate {
   return {
     targetFieldId: candidate.targetField.id,
@@ -150,6 +274,14 @@ export function scoreRetrievalCandidate(
     (0.14 * typeScore) +
     (0.10 * canonicalScore) +
     (0.10 * complianceScore);
+  const riskClamAdjustment = applyRiskClamPatternAdjustment(
+    sourceField,
+    targetField,
+    sourceProfile,
+    targetProfile,
+    entityNameFor(targetField, options.entityNamesById),
+  );
+  retrievalScore += riskClamAdjustment.adjustment;
 
   const strongSemanticAlignment =
     !incompatible
@@ -182,6 +314,9 @@ export function scoreRetrievalCandidate(
   });
   if (strongSemanticAlignment) {
     evidence.push('strong concept alignment');
+  }
+  for (const item of riskClamAdjustment.evidence) {
+    if (!evidence.includes(item)) evidence.push(item);
   }
 
   return {
