@@ -62,6 +62,16 @@ export const ConflictResolutionRequestSchema = z
     }
   });
 
+export const ResolveOneToManyMappingsSchema = z.object({
+  resolutions: z.array(
+    z.object({
+      fieldMappingId: z.string().uuid(),
+      sourceFieldId: z.string().uuid(),
+      targetFieldId: z.string().uuid(),
+    }),
+  ).min(1),
+});
+
 export const RegisterSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
@@ -77,5 +87,6 @@ export type CreateProjectInput = z.infer<typeof CreateProjectSchema>;
 export type SalesforceSchemaInput = z.infer<typeof SalesforceSchemaSchema>;
 export type PatchFieldMappingInput = z.infer<typeof PatchFieldMappingSchema>;
 export type ConflictResolutionRequestInput = z.infer<typeof ConflictResolutionRequestSchema>;
+export type ResolveOneToManyMappingsInput = z.infer<typeof ResolveOneToManyMappingsSchema>;
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type LoginInput = z.infer<typeof LoginSchema>;

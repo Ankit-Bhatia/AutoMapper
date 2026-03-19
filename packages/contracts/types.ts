@@ -7,6 +7,33 @@ export interface Project {
   targetSystemId: string;
   createdAt: string;
   updatedAt: string;
+  resolvedOneToManyMappings?: Record<string, OneToManyResolution>;
+}
+
+export interface OneToManyResolution {
+  sourceFieldId: string;
+  sourceFieldName: string;
+  targetFieldId: string;
+  targetFieldName: string;
+  targetObject?: string;
+  resolvedAt: string;
+}
+
+export interface SchemaIntelligencePatternCandidate {
+  xmlField: string;
+  normalizedFieldKey: string;
+  targetFieldName: string;
+  targetObject: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  notes: string;
+  isOneToMany: boolean;
+  isFormulaTarget: boolean;
+  isPersonAccountOnly: boolean;
+}
+
+export interface SchemaIntelligencePatternLookupResponse {
+  field?: string;
+  candidates: SchemaIntelligencePatternCandidate[];
 }
 
 export interface Entity {
@@ -170,6 +197,7 @@ export interface ProjectPreflight {
   rejectedMappingsCount: number;
   unmappedRequiredFields: Array<{ id: string; name: string; label?: string }>;
   unresolvedConflicts: number;
+  unresolvedRoutingDecisions: number;
   canExport: boolean;
 }
 
@@ -223,6 +251,7 @@ export interface ProjectHistoryItem {
   entityMappingCount: number;
   canExport: boolean;
   unresolvedConflicts: number;
+  unresolvedRoutingDecisions?: number;
 }
 
 export interface ProjectListResponse {
@@ -349,4 +378,11 @@ export interface ExportFormatDef {
 
 // ─── App workflow steps ───────────────────────────────────────────────────────
 
-export type WorkflowStep = 'command-center' | 'connect' | 'llm-settings' | 'orchestrate' | 'review' | 'export';
+export type WorkflowStep =
+  | 'command-center'
+  | 'connect'
+  | 'llm-settings'
+  | 'orchestrate'
+  | 'review'
+  | 'routing'
+  | 'export';

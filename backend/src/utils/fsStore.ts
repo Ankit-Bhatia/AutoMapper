@@ -7,6 +7,7 @@ import type {
   Field,
   FieldMapping,
   MappingProject,
+  OneToManyResolution,
   Relationship,
   System,
 } from '../types.js';
@@ -76,6 +77,7 @@ export class FsStore {
       targetSystemId: targetSystem.id,
       createdAt: now,
       updatedAt: now,
+      resolvedOneToManyMappings: {},
     };
     this.state.projects.push(project);
     this.persist();
@@ -91,6 +93,18 @@ export class FsStore {
 
   getProject(projectId: string): MappingProject | undefined {
     return this.state.projects.find((p) => p.id === projectId);
+  }
+
+  updateProjectResolvedOneToManyMappings(
+    projectId: string,
+    resolvedOneToManyMappings: Record<string, OneToManyResolution>,
+  ): MappingProject | undefined {
+    const project = this.state.projects.find((candidate) => candidate.id === projectId);
+    if (!project) return undefined;
+    project.resolvedOneToManyMappings = resolvedOneToManyMappings;
+    project.updatedAt = new Date().toISOString();
+    this.persist();
+    return project;
   }
 
   replaceSystemSchema(

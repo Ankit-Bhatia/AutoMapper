@@ -27,7 +27,9 @@ interface MappingTableProps {
   validation: ValidationReport;
   conflicts?: MappingConflict[];
   unresolvedConflicts?: number;
+  unresolvedRoutingDecisions?: number;
   onOpenConflicts?: () => void;
+  onOpenRouting?: () => void;
   selectedIds?: Set<string>;
   onSelectionChange?: (mappingId: string, selected: boolean) => void;
   selectionCap?: number;
@@ -37,7 +39,7 @@ interface MappingTableProps {
   onProceedToExport?: () => void;
 }
 
-type StatusFilter = 'all' | 'suggested' | 'accepted' | 'rejected' | 'modified';
+type StatusFilter = 'all' | 'suggested' | 'accepted' | 'rejected' | 'modified' | 'unmatched';
 const TRANSFORM_OPTIONS = ['direct', 'concat', 'formatDate', 'lookup', 'static', 'regex', 'split', 'trim'];
 
 function extractPatchedMapping(payload: unknown): FieldMapping | null {
@@ -75,6 +77,7 @@ function StatusBadge({ status }: { status: FieldMapping['status'] }) {
     accepted: 'status-accepted',
     rejected: 'status-rejected',
     modified: 'status-modified',
+    unmatched: 'status-rejected',
   };
   return <span className={`status-badge ${map[status] ?? ''}`}>{status}</span>;
 }
@@ -101,7 +104,9 @@ export function MappingTable({
   validation,
   conflicts = [],
   unresolvedConflicts = 0,
+  unresolvedRoutingDecisions = 0,
   onOpenConflicts,
+  onOpenRouting,
   selectedIds,
   onSelectionChange,
   selectionCap = 200,
@@ -368,6 +373,14 @@ export function MappingTable({
           </p>
         </div>
         <div className="mapping-header-actions">
+          {unresolvedRoutingDecisions > 0 && onOpenRouting && (
+            <button
+              className="conflict-warning-badge"
+              onClick={onOpenRouting}
+            >
+              ↳ {unresolvedRoutingDecisions} routing decision{unresolvedRoutingDecisions > 1 ? 's' : ''}
+            </button>
+          )}
           {unresolvedConflicts > 0 && onOpenConflicts && (
             <button
               className="conflict-warning-badge"
@@ -447,6 +460,18 @@ export function MappingTable({
         </div>
       )}
 
+      {unresolvedRoutingDecisions > 0 && (
+        <div className="validation-box validation-box--warn mapping-warning-box">
+          <div className="validation-box-title">Routing decisions required</div>
+          <p className="schema-intelligence-alert-text">
+            {unresolvedRoutingDecisions} one-to-many mapping{unresolvedRoutingDecisions === 1 ? '' : 's'} still require a confirmed target route.
+          </p>
+          {onOpenRouting && (
+            <button className="btn btn--secondary" onClick={onOpenRouting}>Open routing resolver</button>
+          )}
+        </div>
+      )}
+
       {pendingFormulaAcknowledgements.length > 0 && (
         <div className="validation-box validation-box--error mapping-warning-box">
           <div className="validation-box-title">Formula field acknowledgement required</div>
@@ -490,7 +515,7 @@ export function MappingTable({
       {/* Filter bar */}
       <div className="mapping-filter-bar">
         <div className="mapping-filter-pills">
-          {(['all', 'suggested', 'accepted', 'rejected', 'modified'] as StatusFilter[]).map((f) => (
+          {(['all', 'suggested', 'accepted', 'rejected', 'modified', 'unmatched'] as StatusFilter[]).map((f) => (
             <button
               key={f}
               className={`filter-pill ${statusFilter === f ? 'filter-pill--active' : ''}`}

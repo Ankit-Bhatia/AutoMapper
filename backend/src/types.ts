@@ -88,6 +88,28 @@ export interface MappingProject {
   targetSystemId: string;
   createdAt: string;
   updatedAt: string;
+  resolvedOneToManyMappings?: Record<string, OneToManyResolution>;
+}
+
+export interface OneToManyResolution {
+  sourceFieldId: string;
+  sourceFieldName: string;
+  targetFieldId: string;
+  targetFieldName: string;
+  targetObject?: string;
+  resolvedAt: string;
+}
+
+export interface SchemaIntelligencePatternCandidate {
+  xmlField: string;
+  normalizedFieldKey: string;
+  targetFieldName: string;
+  targetObject: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  notes: string;
+  isOneToMany: boolean;
+  isFormulaTarget: boolean;
+  isPersonAccountOnly: boolean;
 }
 
 export interface EntityMapping {

@@ -6,6 +6,7 @@ import { AgentPipeline } from './components/AgentPipeline';
 import { MappingTable } from './components/MappingTable';
 import { ConflictDrawer } from './components/ConflictDrawer';
 import { ExportPanel } from './components/ExportPanel';
+import { OneToManyResolverPanel } from './components/OneToManyResolverPanel';
 import { BulkActionBar, type BulkOperationResult } from './components/BulkActionBar';
 import { LandingPage } from './components/LandingPage';
 import { SeedSummaryCard } from './components/SeedSummaryCard';
@@ -319,7 +320,10 @@ export function MappingStudioApp() {
           );
           return;
         }
-        if (preflightData?.canExport) {
+        if ((preflightData?.unresolvedRoutingDecisions ?? 0) > 0) {
+          setStep('routing');
+          setReviewGateMessage('Resolve one-to-many routing decisions before export.');
+        } else if (preflightData?.canExport) {
           setStep('export');
         } else {
           setStep('review');
@@ -587,12 +591,21 @@ export function MappingStudioApp() {
 
   function attemptOpenExport() {
     const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
+    const unresolvedRouting = preflight?.unresolvedRoutingDecisions ?? 0;
     if (unresolved > 0) {
       setReviewGateMessage(
         `Resolve ${unresolved} unresolved conflict${unresolved === 1 ? '' : 's'} before export.`,
       );
       setConflictDrawerOpen(true);
       setStep('review');
+      return;
+    }
+
+    if (unresolvedRouting > 0) {
+      setReviewGateMessage(
+        `Resolve ${unresolvedRouting} one-to-many routing decision${unresolvedRouting === 1 ? '' : 's'} before export.`,
+      );
+      setStep('routing');
       return;
     }
 
@@ -746,7 +759,9 @@ export function MappingStudioApp() {
               validation={validation}
               conflicts={conflicts}
               unresolvedConflicts={preflight?.unresolvedConflicts ?? conflicts.length}
+              unresolvedRoutingDecisions={preflight?.unresolvedRoutingDecisions ?? 0}
               onOpenConflicts={() => setConflictDrawerOpen(true)}
+              onOpenRouting={() => { setReviewGateMessage(null); setStep('routing'); }}
               selectedIds={selectedMappingIds}
               onSelectionChange={handleSelectionChange}
               selectionCap={200}
@@ -774,6 +789,24 @@ export function MappingStudioApp() {
               }}
             />
           </>
+        ) : null;
+
+      case 'routing':
+        return project ? (
+          <OneToManyResolverPanel
+            project={project}
+            fields={fields}
+            fieldMappings={fieldMappings}
+            unresolvedCount={preflight?.unresolvedRoutingDecisions ?? 0}
+            onResolved={({ project: nextProject, fieldMappings: nextFieldMappings }) => {
+              setProject(nextProject);
+              setFieldMappings(nextFieldMappings);
+              void refreshPreflight(nextProject.id);
+              setReviewGateMessage(null);
+            }}
+            onBackToReview={() => setStep('review')}
+            onProceedToExport={() => attemptOpenExport()}
+          />
         ) : null;
 
       case 'llm-settings':
@@ -804,6 +837,8 @@ export function MappingStudioApp() {
             fields={fields}
             fieldMappings={fieldMappings}
             targetEntities={targetEntities}
+            unresolvedRoutingDecisions={preflight?.unresolvedRoutingDecisions ?? 0}
+            onResolveRouting={() => setStep('routing')}
           />
         ) : null;
     }
@@ -829,6 +864,7 @@ export function MappingStudioApp() {
           sourceSchemaMode={sourceSchemaMode ?? undefined}
           targetSchemaMode={targetSchemaMode ?? undefined}
           mappingCount={fieldMappings.length}
+          unresolvedRoutingDecisions={preflight?.unresolvedRoutingDecisions ?? 0}
           isOrchestrated={isOrchestrated}
           isDemoMode={demoUiMode}
         />

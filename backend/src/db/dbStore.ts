@@ -6,6 +6,7 @@ import type {
   Field,
   FieldMapping,
   MappingProject,
+  OneToManyResolution,
   OptimizerDisplacement,
   RetrievalShortlist,
   RerankerDecision,
@@ -119,6 +120,13 @@ function toFieldMapping(fm: {
   };
 }
 
+function readResolvedOneToManyMappings(value: unknown): Record<string, OneToManyResolution> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, OneToManyResolution>;
+}
+
 export class DbStore {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -146,6 +154,7 @@ export class DbStore {
         targetSystemId: p.targetSystemId,
         createdAt: p.createdAt.toISOString(),
         updatedAt: p.updatedAt.toISOString(),
+        resolvedOneToManyMappings: readResolvedOneToManyMappings((p as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
       })),
       entityMappings: entityMappings.map((em) => ({
         id: em.id,
@@ -185,7 +194,8 @@ export class DbStore {
           organisationId: owner?.organisationId ?? null,
           sourceSystemId: src.id,
           targetSystemId: tgt.id,
-        },
+          resolvedOneToManyMappings: {},
+        } as never,
       });
       return [src, tgt, proj] as const;
     });
@@ -200,6 +210,7 @@ export class DbStore {
       targetSystemId: project.targetSystemId,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
+      resolvedOneToManyMappings: readResolvedOneToManyMappings((project as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
     };
   }
 
@@ -213,6 +224,29 @@ export class DbStore {
       targetSystemId: project.targetSystemId,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
+      resolvedOneToManyMappings: readResolvedOneToManyMappings((project as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
+    };
+  }
+
+  async updateProjectResolvedOneToManyMappings(
+    projectId: string,
+    resolvedOneToManyMappings: Record<string, OneToManyResolution>,
+  ): Promise<MappingProject | undefined> {
+    const project = await this.prisma.mappingProject.update({
+      where: { id: projectId },
+      data: {
+        resolvedOneToManyMappings: resolvedOneToManyMappings as unknown as Prisma.InputJsonValue,
+      } as never,
+    }).catch(() => null);
+    if (!project) return undefined;
+    return {
+      id: project.id,
+      name: project.name,
+      sourceSystemId: project.sourceSystemId,
+      targetSystemId: project.targetSystemId,
+      createdAt: project.createdAt.toISOString(),
+      updatedAt: project.updatedAt.toISOString(),
+      resolvedOneToManyMappings: readResolvedOneToManyMappings((project as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
     };
   }
 
