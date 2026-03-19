@@ -205,6 +205,30 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     expect(termMapping?.targetFieldId).toBe('tf-fsc-term');
   });
 
+  it('prefers RiskClam payment targets over generic balance fields when they exist in the target schema', async () => {
+    const srcLoan = makeEntity('se-los-loan-payment', 'src-sys', 'LOAN', 'Loan');
+    const tgtFin = makeEntity('te-fsc-fin-payment', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+
+    const fields: Field[] = [
+      makeField('sf-los-payment', 'se-los-loan-payment', 'AMT_PAYMENT', 'string'),
+      makeField('tf-fin-balance', 'te-fsc-fin-payment', 'CurrentBalance', 'decimal'),
+      makeField('tf-fin-available', 'te-fsc-fin-payment', 'AvailableBalance', 'decimal'),
+      makeField('tf-fin-payment', 'te-fsc-fin-payment', 'FinServ__PaymentAmount__c', 'decimal'),
+      makeField('tf-fin-monthly', 'te-fsc-fin-payment', 'Monthly_Payment__c', 'decimal'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcLoan],
+      targetEntities: [tgtFin],
+      fields,
+    });
+
+    const paymentMapping = fieldMappings.find((mapping) => mapping.sourceFieldId === 'sf-los-payment');
+    expect(paymentMapping).toBeDefined();
+    expect(['tf-fin-payment', 'tf-fin-monthly']).toContain(paymentMapping?.targetFieldId);
+  });
+
   it('maps LOS entities even when lexical entity similarity is zero', async () => {
     const srcBorrower = makeEntity('se-los-borrower', 'src-sys', 'BORROWER', 'Borrower');
     const tgtParty = makeEntity('te-fsc-party', 'tgt-sys', 'PartyProfile', 'Party Profile');
