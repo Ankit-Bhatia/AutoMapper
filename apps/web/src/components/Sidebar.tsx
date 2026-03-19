@@ -16,16 +16,18 @@ interface SidebarProps {
   sourceSchemaMode?: 'live' | 'mock' | 'uploaded';
   targetSchemaMode?: 'live' | 'mock' | 'uploaded';
   mappingCount?: number;
+  unresolvedRoutingDecisions?: number;
   isOrchestrated?: boolean;
   isDemoMode?: boolean;
 }
 
 const STEPS: { id: Exclude<WorkflowStep, 'llm-settings'>; label: string; icon: string; description: string }[] = [
   { id: 'command-center', label: 'Command Center', icon: '◉', description: 'Projects, telemetry, and launchpad' },
-  { id: 'connect',     label: 'Connect',     icon: '⬡', description: 'Choose source & target systems' },
+  { id: 'connect', label: 'Connect', icon: '⬡', description: 'Choose source & target systems' },
   { id: 'orchestrate', label: 'Orchestrate', icon: '◈', description: 'Run AI mapping pipeline' },
-  { id: 'review',      label: 'Review',      icon: '◻', description: 'Inspect & refine mappings' },
-  { id: 'export',      label: 'Export',      icon: '◤', description: 'Download integration spec' },
+  { id: 'review', label: 'Review', icon: '◻', description: 'Inspect & refine mappings' },
+  { id: 'routing', label: 'Routing', icon: '↳', description: 'Resolve one-to-many field routes' },
+  { id: 'export', label: 'Export', icon: '◤', description: 'Download integration spec' },
 ];
 
 function isAdminRole(role?: string): boolean {
@@ -56,7 +58,7 @@ function stepStatus(
   step: Exclude<WorkflowStep, 'llm-settings'>,
   current: Exclude<WorkflowStep, 'llm-settings'>,
 ): 'done' | 'active' | 'disabled' {
-  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'export'];
+  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'routing', 'export'];
   const ci = order.indexOf(current);
   const si = order.indexOf(step);
   if (si < ci) return 'done';
@@ -79,10 +81,11 @@ export function Sidebar({
   sourceSchemaMode,
   targetSchemaMode,
   mappingCount = 0,
+  unresolvedRoutingDecisions = 0,
   isOrchestrated = false,
   isDemoMode = true,
 }: SidebarProps) {
-  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'export'];
+  const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'routing', 'export'];
   const workflowCurrentStep = currentStep === 'llm-settings' ? workflowStep : currentStep;
   const adminPersona = isAdminRole(userRole);
   const personaLabel = adminPersona ? 'Admin persona' : 'Normal user';
@@ -96,7 +99,9 @@ export function Sidebar({
     const si = order.indexOf(step);
     if (si <= ci) return true;
     if (step === 'orchestrate') return !!(projectName && sourceConnector && targetConnector);
-    if (step === 'review' || step === 'export') return isOrchestrated;
+    if (step === 'review') return isOrchestrated;
+    if (step === 'routing') return isOrchestrated;
+    if (step === 'export') return isOrchestrated && unresolvedRoutingDecisions === 0;
     return false;
   }
 

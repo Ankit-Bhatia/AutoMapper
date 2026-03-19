@@ -4563,3 +4563,72 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+
+.routing-page {
+  display: grid;
+  gap: 16px;
+}
+
+.routing-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.routing-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--surface-elevated);
+  display: grid;
+  gap: 12px;
+}
+
+.routing-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.routing-source-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.routing-source-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.routing-options {
+  display: grid;
+  gap: 10px;
+}
+
+.routing-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-base);
+}
+
+.routing-option-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.routing-option-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.routing-option-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+}

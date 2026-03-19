@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-16
+> **Last updated:** 2026-03-20
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -136,7 +136,7 @@ AutoMapper/
 |---|---|---|
 | **🔴 KAN-77 — Export downloads broken** | `ExportPanel.tsx` calls `fetch()` directly without `credentials: 'include'` — auth cookies never sent, so backend returns 401. In standalone/demo mode `apiBase()` returns `''` (empty string), making the request relative and hitting nothing. No user-facing error message shown on failure — error is silently swallowed to console only. | **HIGH — blocks demo** |
 | **🟠 KAN-78 — SchemaIntelligence UI invisible** | `SchemaIntelligenceAgent` is live in the pipeline and emits rich metadata (`confirmedPattern`, `isOneToMany`, `formulaTarget`, `personAccountOnly`) via `AgentStep.metadata`, but `MappingTable` and `FieldMappingCard` render none of it. Confirmed pattern hits, formula warnings, one-to-many flags, and FSC namespace badges need to surface in the Mapping Review UI. | HIGH |
-| **🟠 KAN-79 — One-to-many routing unresolved** | 23 source fields are flagged `isOneToMany` by `SchemaIntelligenceAgent` but there is no UI mechanism to route them to the correct target. Export should be gated (or at minimum warn) until all one-to-many fields have a confirmed routing decision. | HIGH |
+| **🟠 KAN-79 — One-to-many routing unresolved** | In progress on branch `codex/KAN-79-one-to-many-resolver`: adds `/api/schema-intelligence/patterns`, persisted `resolvedOneToManyMappings`, a dedicated `routing` workflow step, `OneToManyResolverPanel`, and export gating until routing decisions are confirmed. Pending PR review/merge. | HIGH |
 | **🟡 KAN-88 — Global mapping optimizer** | 3-pass greedy optimizer: (1) validity sweep — hard bans, type-compat, out-of-scope lookups; (2) duplicate target resolution — keep highest-confidence claimant, demote rest through shortlist; (3) required field coverage — promote only if `retrievalScore ≥ 0.30`. `optimizer_complete` step event. **Depends on KAN-87 (done) + KAN-90 for scope enforcement (in progress).** | HIGH — next dispatch |
 | **🟡 KAN-90 — Entity relationship graph** | `RelationshipGraph` on `AgentContext` with `buildRelationshipGraph`, `topologicalOrder`, `isInScope`; used by KAN-88 optimizer for lookup scope enforcement. Dispatched to Codex. | MEDIUM |
 | **🟡 KAN-95 — Audit logging crashes in no-DB mode** | `backend/src/db/audit.ts:28` calls `prisma.auditEntry.create()` unconditionally even when `DATABASE_URL` is unset. Produces repeated `PrismaClientInitializationError` log noise on every project creation and orchestration run. Needs a `isDatabaseAvailable()` guard that routes to a file-backed sink (or no-op) in FsStore mode. | MEDIUM |
@@ -217,6 +217,15 @@ cd apps/web && npm test
 ---
 
 ## Recent Delivery Log
+
+### 2026-03-20 — Codex
+- **KAN-79 implemented on branch `codex/KAN-79-one-to-many-resolver`** — one-to-many routing decision flow added end-to-end.
+  - Added `GET /api/schema-intelligence/patterns` and `POST /api/projects/:id/one-to-many-resolutions` in `backend/src/index.ts`.
+  - Added `resolvedOneToManyMappings` persistence in both Prisma-backed and FsStore-backed project paths (`backend/src/db/dbStore.ts`, `backend/src/utils/fsStore.ts`, Prisma migration `20260318023500_add_one_to_many_routing_resolutions`).
+  - Added `schemaIntelligencePatterns.ts` helper service + backend tests.
+  - Added `routing` workflow step and `OneToManyResolverPanel` in the frontend; export is now blocked when `ProjectPreflight.unresolvedRoutingDecisions > 0`.
+  - Added standalone/demo API support for routing candidate lookup and resolution persistence in `packages/core/api-client.ts`.
+  - Validation on branch: backend `tsc --noEmit` **pass**, backend `npm test -- --run` **184/184**, frontend `npm test -- --run` **41/41**, frontend build **pass**.
 
 ### 2026-03-13 — Claude
 - **SchemaIntelligenceAgent shipped** — new Step 2 in the OrchestratorAgent pipeline (active when `targetSystemType === 'salesforce'`).

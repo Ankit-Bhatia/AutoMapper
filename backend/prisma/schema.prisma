@@ -98,6 +98,7 @@ model MappingProject {
   targetSystemId String
   sourceSystem   System          @relation("SourceSystem", fields: [sourceSystemId], references: [id])
   targetSystem   System          @relation("TargetSystem", fields: [targetSystemId], references: [id])
+  resolvedOneToManyMappings Json?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   entityMappings EntityMapping[]

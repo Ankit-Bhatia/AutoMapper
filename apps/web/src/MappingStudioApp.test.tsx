@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { EntityMapping, Field, FieldMapping, Project } from '@contracts';
 import { MappingStudioApp } from './MappingStudioApp';
 
 const apiMock = vi.fn();
@@ -14,7 +15,7 @@ const authState = {
   },
 };
 
-const project = {
+const project: Project = {
   id: 'project-1',
   name: 'Test Project',
   sourceSystemId: 'source-system-1',
@@ -35,14 +36,14 @@ const targetEntity = {
   name: 'FinancialAccount',
 };
 
-const sourceField = {
+const sourceField: Field = {
   id: 'source-field-1',
   entityId: sourceEntity.id,
   name: 'AMT_APPROVED_LOAN',
   dataType: 'decimal',
 };
 
-const targetRequiredField = {
+const targetRequiredField: Field = {
   id: 'target-field-1',
   entityId: targetEntity.id,
   name: 'LoanAmount__c',
@@ -50,7 +51,7 @@ const targetRequiredField = {
   required: true,
 };
 
-const entityMapping = {
+const entityMapping: EntityMapping = {
   id: 'entity-map-1',
   projectId: project.id,
   sourceEntityId: sourceEntity.id,
@@ -59,7 +60,7 @@ const entityMapping = {
   rationale: 'test',
 };
 
-const fieldMapping = {
+const fieldMapping: FieldMapping = {
   id: 'field-map-1',
   entityMappingId: entityMapping.id,
   sourceFieldId: sourceField.id,
@@ -70,7 +71,7 @@ const fieldMapping = {
   status: 'accepted' as const,
 };
 
-let pipelineFieldMappings = [fieldMapping];
+let pipelineFieldMappings: FieldMapping[] = [fieldMapping];
 
 vi.mock('@core/api-client', () => ({
   api: (...args: unknown[]) => apiMock(...args),
@@ -187,6 +188,10 @@ vi.mock('./components/ExportPanel', () => ({
   ExportPanel: () => <div>Export Panel Visible</div>,
 }));
 
+vi.mock('./components/OneToManyResolverPanel', () => ({
+  OneToManyResolverPanel: () => <div>Routing Resolver Visible</div>,
+}));
+
 vi.mock('./components/ConflictDrawer', () => ({
   ConflictDrawer: () => null,
 }));
@@ -263,6 +268,7 @@ describe('MappingStudioApp export gating', () => {
           rejectedMappingsCount: 0,
           unmappedRequiredFields: [{ id: targetRequiredField.id, name: targetRequiredField.name }],
           unresolvedConflicts: 0,
+          unresolvedRoutingDecisions: 0,
           canExport: false,
         };
       }
@@ -346,6 +352,7 @@ describe('MappingStudioApp export gating', () => {
           rejectedMappingsCount: 0,
           unmappedRequiredFields: [],
           unresolvedConflicts: 0,
+          unresolvedRoutingDecisions: 0,
           canExport: true,
         };
       }
@@ -373,6 +380,86 @@ describe('MappingStudioApp export gating', () => {
     await waitFor(() => {
       expect(screen.getByText(/acknowledge 1 formula field warning before export/i)).toBeInTheDocument();
       expect(screen.queryByText('Export Panel Visible')).not.toBeInTheDocument();
+    });
+  });
+
+  it('routes the user to the resolver before export when one-to-many routing is unresolved', async () => {
+    const user = userEvent.setup();
+    pipelineFieldMappings = [{
+      ...fieldMapping,
+      id: 'field-map-routing',
+      rationale: '⚠️ One-to-Many field: AMT_PAYMENT can route to multiple Salesforce targets. | test',
+      status: 'modified' as const,
+    }];
+
+    apiMock.mockReset();
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      const method = (init?.method ?? 'GET').toUpperCase();
+
+      if (path === '/api/projects' && method === 'POST') return { project };
+      if (path === `/api/projects/${project.id}/schema/jackhenry-silverlake` && method === 'POST') return { mode: 'mock' };
+      if (path === `/api/projects/${project.id}/schema/salesforce` && method === 'POST') return { mode: 'mock' };
+      if (path === `/api/projects/${project.id}/suggest-mappings` && method === 'POST') {
+        return {
+          entityMappings: [entityMapping],
+          fieldMappings: pipelineFieldMappings,
+          validation: {
+            warnings: [],
+            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+          },
+        };
+      }
+      if (path === `/api/projects/${project.id}` && method === 'GET') {
+        return {
+          project,
+          sourceEntities: [sourceEntity],
+          targetEntities: [targetEntity],
+          fields: [sourceField, targetRequiredField],
+          entityMappings: [entityMapping],
+          fieldMappings: pipelineFieldMappings,
+        };
+      }
+      if (path === `/api/projects/${project.id}/seed` && method === 'POST') {
+        return { summary: { fromDerived: 0, fromCanonical: 0, fromAgent: 0, total: 0 } };
+      }
+      if (path === `/api/projects/${project.id}/conflicts` && method === 'GET') return { conflicts: [] };
+      if (path === `/api/projects/${project.id}/preflight` && method === 'GET') {
+        return {
+          projectId: project.id,
+          mappedTargetCount: 1,
+          targetFieldCount: 1,
+          acceptedMappingsCount: 0,
+          suggestedMappingsCount: 1,
+          rejectedMappingsCount: 0,
+          unmappedRequiredFields: [],
+          unresolvedConflicts: 0,
+          unresolvedRoutingDecisions: 1,
+          canExport: false,
+        };
+      }
+      return {};
+    });
+
+    render(<MappingStudioApp />);
+
+    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
+    await user.click(screen.getByRole('button', { name: 'Open New Project' }));
+    await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Finish Pipeline' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Finish Pipeline' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Proceed To Export' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Proceed To Export' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Routing Resolver Visible')).toBeInTheDocument();
     });
   });
 

@@ -39,9 +39,11 @@ import {
   SalesforceSchemaSchema,
   PatchFieldMappingSchema,
   ConflictResolutionRequestSchema,
+  ResolveOneToManyMappingsSchema,
 } from './validation/schemas.js';
 import { captureException, sendHttpError } from './utils/httpErrors.js';
 import type { AppState, FieldMapping, MappingProject } from './types.js';
+import { getOneToManyPatternCandidates, getSchemaIntelligencePatternCandidates, isOneToManyFieldName } from './services/schemaIntelligencePatterns.js';
 // Register all built-in connectors into the defaultRegistry (side-effect import)
 import '../../packages/connectors/registerConnectors.js';
 
@@ -172,12 +174,23 @@ function buildProjectPreflight(
 
   const mappedTargetCount = new Set(activeMappings.map((mapping) => mapping.targetFieldId)).size;
   const unresolvedConflicts = countUnresolvedConflicts(fieldMappings);
+  const sourceFieldById = new Map(state.fields.map((field) => [field.id, field]));
+  const resolvedOneToManyMappings = project.resolvedOneToManyMappings ?? {};
+  const unresolvedRoutingDecisions = activeMappings.filter((mapping) => {
+    const sourceField = sourceFieldById.get(mapping.sourceFieldId);
+    if (!sourceField || !isOneToManyFieldName(sourceField.name)) return false;
+    const resolution = resolvedOneToManyMappings[mapping.sourceFieldId];
+    return resolution?.targetFieldId !== mapping.targetFieldId;
+  }).length;
   const acceptedMappingsCount = scopedMappings.filter((mapping) => mapping.status === 'accepted').length;
   const suggestedMappingsCount = scopedMappings.filter(
     (mapping) => mapping.status === 'suggested' || mapping.status === 'modified',
   ).length;
   const rejectedMappingsCount = scopedMappings.filter((mapping) => mapping.status === 'rejected').length;
-  const canExport = unmappedRequiredFields.length === 0 && unresolvedConflicts === 0;
+  const canExport =
+    unmappedRequiredFields.length === 0
+    && unresolvedConflicts === 0
+    && unresolvedRoutingDecisions === 0;
 
   return {
     projectId: project.id,
@@ -188,6 +201,7 @@ function buildProjectPreflight(
     rejectedMappingsCount,
     unmappedRequiredFields,
     unresolvedConflicts,
+    unresolvedRoutingDecisions,
     canExport,
   };
 }
@@ -251,6 +265,14 @@ setupLLMRoutes(app);
 app.use('/api/projects', authMiddleware);
 app.use('/api/field-mappings', authMiddleware);
 app.use('/api/projects/:id/mappings', createBulkRouter(store));
+
+app.get('/api/schema-intelligence/patterns', authMiddleware, (req, res) => {
+  const fieldName = typeof req.query.field === 'string' ? req.query.field : undefined;
+  res.json({
+    field: fieldName,
+    candidates: getSchemaIntelligencePatternCandidates(fieldName),
+  });
+});
 
 app.post('/api/projects', async (req, res) => {
   const parsed = CreateProjectSchema.safeParse(req.body);
@@ -519,6 +541,87 @@ app.patch('/api/field-mappings/:id', async (req, res) => {
     }
   }
   res.json({ fieldMapping: mapping });
+});
+
+app.post('/api/projects/:id/one-to-many-resolutions', async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) {
+    sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  const parsed = ResolveOneToManyMappingsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(req, res, 400, 'VALIDATION_ERROR', 'Invalid one-to-many resolution payload', parsed.error.issues);
+    return;
+  }
+
+  const state = await store.getState();
+  const scoped = getProjectScopedState(state, project);
+  const mappingById = new Map(scoped.fieldMappings.map((mapping) => [mapping.id, mapping]));
+  const fieldById = new Map(scoped.scopedFields.map((field) => [field.id, field]));
+  const nextResolvedMappings = { ...(project.resolvedOneToManyMappings ?? {}) };
+
+  for (const resolution of parsed.data.resolutions) {
+    const mapping = mappingById.get(resolution.fieldMappingId);
+    if (!mapping) {
+      sendError(req, res, 404, 'FIELD_MAPPING_NOT_FOUND', `Field mapping ${resolution.fieldMappingId} not found`);
+      return;
+    }
+    if (mapping.sourceFieldId !== resolution.sourceFieldId) {
+      sendError(req, res, 400, 'VALIDATION_ERROR', 'Resolution source field does not match field mapping');
+      return;
+    }
+
+    const sourceField = fieldById.get(resolution.sourceFieldId);
+    const targetField = fieldById.get(resolution.targetFieldId);
+    if (!sourceField || !targetField) {
+      sendError(req, res, 404, 'FIELD_NOT_FOUND', 'Resolved source or target field was not found in project scope');
+      return;
+    }
+
+    const candidates = getOneToManyPatternCandidates(sourceField.name);
+    if (candidates.length === 0) {
+      sendError(req, res, 400, 'NOT_ONE_TO_MANY_FIELD', `${sourceField.name} is not marked as one-to-many`);
+      return;
+    }
+    if (!candidates.some((candidate) => candidate.targetFieldName === targetField.name)) {
+      sendError(req, res, 400, 'INVALID_ONE_TO_MANY_TARGET', `${targetField.name} is not a valid routing candidate for ${sourceField.name}`);
+      return;
+    }
+
+    const nextStatus =
+      mapping.targetFieldId === targetField.id && mapping.status !== 'unmatched'
+        ? mapping.status
+        : 'modified';
+    await store.patchFieldMapping(mapping.id, {
+      targetFieldId: targetField.id,
+      status: nextStatus,
+    });
+
+    nextResolvedMappings[sourceField.id] = {
+      sourceFieldId: sourceField.id,
+      sourceFieldName: sourceField.name,
+      targetFieldId: targetField.id,
+      targetFieldName: targetField.name,
+      targetObject: state.entities.find((entity) => entity.id === targetField.entityId)?.name,
+      resolvedAt: new Date().toISOString(),
+    };
+  }
+
+  const updatedProject = await store.updateProjectResolvedOneToManyMappings(project.id, nextResolvedMappings);
+  const updatedState = await store.getState();
+  const refreshedProject = updatedProject ?? (await store.getProject(project.id));
+  if (!refreshedProject) {
+    sendError(req, res, 500, 'PROJECT_UPDATE_FAILED', 'Failed to persist one-to-many resolutions');
+    return;
+  }
+  const refreshedScoped = getProjectScopedState(updatedState, refreshedProject);
+
+  res.json({
+    project: refreshedProject,
+    fieldMappings: refreshedScoped.fieldMappings,
+  });
 });
 
 app.get('/api/projects/:id/preflight', async (req, res) => {

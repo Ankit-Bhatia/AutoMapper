@@ -81,6 +81,8 @@ interface ExportPanelProps {
   fields: Field[];
   fieldMappings: FieldMapping[];
   targetEntities: Entity[];
+  unresolvedRoutingDecisions?: number;
+  onResolveRouting?: () => void;
 }
 
 export function ExportPanel({
@@ -92,6 +94,8 @@ export function ExportPanel({
   fields,
   fieldMappings,
   targetEntities,
+  unresolvedRoutingDecisions = 0,
+  onResolveRouting,
 }: ExportPanelProps) {
   const [downloading, setDownloading] = useState<ExportFormat | null>(null);
   const [lastDownloaded, setLastDownloaded] = useState<ExportFormat | null>(null);
@@ -190,7 +194,8 @@ export function ExportPanel({
   }, [requiredBlockersSignature]);
 
   const hasRequiredBlockers = preflight.unmappedRequiredFields.length > 0;
-  const exportBlocked = hasRequiredBlockers && !overrideRequiredBlockers;
+  const routingBlocked = unresolvedRoutingDecisions > 0;
+  const exportBlocked = (hasRequiredBlockers && !overrideRequiredBlockers) || routingBlocked;
 
   async function handleDownload(format: ExportFormat) {
     if (exportBlocked) return;
@@ -244,6 +249,18 @@ export function ExportPanel({
           </p>
         </div>
       </div>
+
+      {routingBlocked && (
+        <div className="validation-box validation-box--warn" style={{ marginBottom: '16px' }}>
+          <div className="validation-box-title">Routing resolver required</div>
+          <p style={{ margin: 0, fontSize: '14px' }}>
+            {unresolvedRoutingDecisions} one-to-many mapping{unresolvedRoutingDecisions === 1 ? '' : 's'} must be resolved before export.
+          </p>
+          {onResolveRouting && (
+            <button className="btn btn--secondary" style={{ marginTop: '12px' }} onClick={onResolveRouting}>Resolve routing</button>
+          )}
+        </div>
+      )}
 
       {/* Summary card */}
       <div className="export-summary-card">
