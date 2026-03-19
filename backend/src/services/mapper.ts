@@ -20,6 +20,7 @@ import {
   retrievalSummary,
   scoreRetrievalCandidate,
 } from './candidateRetrieval.js';
+import { runMappingOptimizer } from './mappingOptimizer.js';
 
 const LOS_TYPE_PREFIX_RE = /^(AMT|NBR|DT|TYP|IND|CD|PCT|YN|NAME|DESC|CODE|PERC|DATE|ADDR|PHONE|EMAIL|Y)_/i;
 
@@ -52,6 +53,7 @@ export async function suggestMappings(input: {
 }): Promise<{ entityMappings: EntityMapping[]; fieldMappings: FieldMapping[] }> {
   const entityMappings: EntityMapping[] = [];
   const fieldMappings: FieldMapping[] = [];
+  const sourceEntityIds = new Set(input.sourceEntities.map((entity) => entity.id));
   const entityNamesById = new Map<string, string>([
     ...input.sourceEntities.map((entity) => [entity.id, entity.name] as const),
     ...input.targetEntities.map((entity) => [entity.id, entity.name] as const),
@@ -173,7 +175,20 @@ export async function suggestMappings(input: {
     }
   }
 
-  return { entityMappings, fieldMappings };
+  const mappedTargetEntityIds = new Set(
+    entityMappings.map((mapping) => mapping.targetEntityId),
+  );
+  const targetFieldUniverse = input.fields.filter((field) => mappedTargetEntityIds.has(field.entityId));
+  const sourceFieldsById = new Map(
+    input.fields
+      .filter((field) => sourceEntityIds.has(field.entityId))
+      .map((field) => [field.id, field] as const),
+  );
+  const optimizedFieldMappings = runMappingOptimizer(fieldMappings, targetFieldUniverse, {
+    sourceFieldsById,
+  });
+
+  return { entityMappings, fieldMappings: optimizedFieldMappings };
 }
 
 function chooseTargetEntity(
