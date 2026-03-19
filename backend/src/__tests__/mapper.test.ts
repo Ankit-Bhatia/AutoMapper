@@ -326,4 +326,30 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     expect(mapping?.targetFieldId).toBe('tf-first');
     expect(mapping?.retrievalShortlist?.candidates.some((candidate) => candidate.targetFieldId === 'tf-legacy')).toBe(false);
   });
+
+  it('runs the optimizer over seed mappings so duplicate targets do not survive into review', async () => {
+    const srcLoan = makeEntity('se-los-loan4', 'src-sys', 'LOAN', 'Loan');
+    const tgtFin = makeEntity('te-fsc-fin4', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+
+    const fields: Field[] = [
+      makeField('sf-los-amt4', 'se-los-loan4', 'AMT_CURRENT_BALANCE', 'decimal'),
+      makeField('sf-los-amt5', 'se-los-loan4', 'AMT_TOTAL_CURRENT_BALANCE', 'decimal'),
+      makeField('tf-fin-bal4', 'te-fsc-fin4', 'CurrentBalance', 'decimal'),
+      makeField('tf-fin-avail4', 'te-fsc-fin4', 'AvailableBalance', 'decimal'),
+      makeField('tf-fin-num4', 'te-fsc-fin4', 'FinancialAccountNumber', 'string', { required: true }),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcLoan],
+      targetEntities: [tgtFin],
+      fields,
+    });
+
+    const activeMappings = fieldMappings.filter((mapping) => mapping.status !== 'rejected' && mapping.status !== 'unmatched');
+    const activeTargetIds = activeMappings.map((mapping) => mapping.targetFieldId);
+    expect(new Set(activeTargetIds).size).toBe(activeTargetIds.length);
+    expect(activeMappings.some((mapping) => mapping.targetFieldId === 'tf-fin-bal4')).toBe(true);
+    expect(activeMappings.some((mapping) => mapping.targetFieldId === 'tf-fin-avail4')).toBe(true);
+  });
 });

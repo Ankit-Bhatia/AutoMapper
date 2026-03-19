@@ -6,7 +6,7 @@ import type {
   OptimizerDisplacement,
   RetrievalShortlistCandidate,
 } from '../types.js';
-import { typeCompatibilityScore } from '../utils/typeUtils.js';
+import { buildFieldSemanticProfile, semanticTypeScore } from './fieldSemantics.js';
 
 const REQUIRED_FIELD_PROMOTION_THRESHOLD = 0.30;
 const LOW_CONFIDENCE_FALLBACK_THRESHOLD = 0.30;
@@ -47,7 +47,7 @@ function isHardBanTarget(field: FieldLike): boolean {
 
 function isTypeCompatible(sourceField: FieldLike | undefined, targetField: FieldLike): boolean {
   if (!sourceField) return true;
-  return typeCompatibilityScore(sourceField.dataType, targetField.dataType) >= 0.6;
+  return semanticTypeScore(buildFieldSemanticProfile(sourceField), targetField.dataType) >= 0.6;
 }
 
 function isLookupOutOfScope(
