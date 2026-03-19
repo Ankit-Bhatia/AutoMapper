@@ -35,6 +35,10 @@ import { authMiddleware } from './auth/authMiddleware.js';
 import { runWithLLMRuntimeContext } from './services/llmRuntimeContext.js';
 import { llmSettingsStore } from './services/llmSettingsStore.js';
 import {
+  augmentSalesforceSchemaForRiskClam,
+  isRiskClamSourceSystem,
+} from './services/riskClamSalesforceSchema.js';
+import {
   CreateProjectSchema,
   SalesforceSchemaSchema,
   PatchFieldMappingSchema,
@@ -379,10 +383,15 @@ app.post('/api/projects/:id/target-schema/salesforce', async (req, res) => {
     ? schemaInput.data.objects
     : ['Account', 'Contact', 'Sales_Area__c'];
 
-  const schema = await fetchSalesforceSchema(project.targetSystemId, {
+  const state = await store.getState();
+  const sourceSystem = state.systems.find((system) => system.id === project.sourceSystemId);
+  const fetchedSchema = await fetchSalesforceSchema(project.targetSystemId, {
     objects,
     credentials: schemaInput.data.credentials,
   });
+  const schema = isRiskClamSourceSystem(sourceSystem)
+    ? augmentSalesforceSchemaForRiskClam(fetchedSchema)
+    : fetchedSchema;
 
   await store.replaceSystemSchema(project.targetSystemId, schema.entities, schema.fields, schema.relationships);
   await store.updateProjectTimestamp(project.id);
