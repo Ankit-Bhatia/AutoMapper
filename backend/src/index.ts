@@ -7,7 +7,12 @@ import multer from 'multer';
 import { randomUUID } from 'node:crypto';
 import { DbStore } from './db/dbStore.js';
 import { prisma } from './db/prismaClient.js';
-import { writeAuditEntry, type AuditActor, type AuditAction } from './db/audit.js';
+import {
+  materializeAuditEntry,
+  writeAuditEntry,
+  type AuditActor,
+  type AuditAction,
+} from './db/audit.js';
 import { FsStore } from './utils/fsStore.js';
 import { parseSapSchema } from './services/sapParser.js';
 import { fetchSalesforceSchema } from '../../packages/connectors/salesforce.js';
@@ -54,11 +59,9 @@ import '../../packages/connectors/registerConnectors.js';
 const app = express();
 const upload = multer();
 const port = Number(process.env.PORT || 4000);
-const store = (
-  process.env.DATABASE_URL
-    ? new DbStore(prisma)
-    : new FsStore(process.env.DATA_DIR || './data')
-) as unknown as DbStore;
+const store: DbStore | FsStore = process.env.DATABASE_URL
+  ? new DbStore(prisma)
+  : new FsStore(process.env.DATA_DIR || './data');
 
 const defaultCorsOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const allowedCorsOrigins = (
@@ -119,6 +122,10 @@ function writeAuditEntrySafe(args: {
   before?: unknown;
   after?: unknown;
 }): void {
+  if (store instanceof FsStore) {
+    store.appendAuditEntry(materializeAuditEntry(args));
+    return;
+  }
   void writeAuditEntry(args).catch((error) => {
     console.error('[audit] Failed to write audit entry:', error);
   });
@@ -512,6 +519,22 @@ app.patch('/api/field-mappings/:id', async (req, res) => {
       sendError(req, res, 404, 'FIELD_MAPPING_NOT_FOUND', 'Field mapping not found');
       return;
     }
+  } else {
+    const state = await store.getState();
+    const currentMapping = state.fieldMappings.find((candidate) => candidate.id === req.params.id);
+    if (!currentMapping) {
+      sendError(req, res, 404, 'FIELD_MAPPING_NOT_FOUND', 'Field mapping not found');
+      return;
+    }
+    const currentEntityMapping = state.entityMappings.find(
+      (candidate) => candidate.id === currentMapping.entityMappingId,
+    );
+    existing = {
+      id: currentMapping.id,
+      status: currentMapping.status,
+      transform: currentMapping.transform,
+      entityMapping: currentEntityMapping ? { projectId: currentEntityMapping.projectId } : null,
+    };
   }
 
   const mapping = await store.patchFieldMapping(req.params.id, parsed.data);
@@ -699,7 +722,7 @@ app.post('/api/projects/:id/conflicts/:conflictId/resolve', async (req, res) => 
     if (action === 'pick') {
       await Promise.all(
         competing.map((mapping) => store.patchFieldMapping(mapping.id, {
-          status: mapping.id === winnerMappingId ? 'accepted' : 'rejected',
+          status: mapping.id === winnerMappingId ? 'accepted' : 'unmatched',
         })),
       );
     } else {
@@ -709,8 +732,8 @@ app.post('/api/projects/:id/conflicts/:conflictId/resolve', async (req, res) => 
     await prisma.$transaction(async (tx) => {
       if (action === 'pick') {
         await tx.fieldMapping.updateMany({
-          where: { id: { in: competingIds } },
-          data: { status: 'rejected' },
+          where: { id: { in: competingIds.filter((id) => id !== winnerMappingId) } },
+          data: { status: 'unmatched' },
         });
         await tx.fieldMapping.update({
           where: { id: winnerMappingId! },
@@ -837,9 +860,13 @@ app.get('/api/projects/:id/audit', async (req, res) => {
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 100;
   const beforeRaw = typeof req.query.before === 'string' ? req.query.before : null;
 
-  const where: Prisma.AuditEntryWhereInput = {
-    projectId: project.id,
-  };
+  if (store instanceof FsStore) {
+    const fileBacked = store.listAuditEntries(project.id, { limit, before: beforeRaw });
+    res.json(fileBacked);
+    return;
+  }
+
+  const where: Prisma.AuditEntryWhereInput = { projectId: project.id };
   if (beforeRaw) {
     const beforeDate = new Date(beforeRaw);
     if (!Number.isNaN(beforeDate.getTime())) {

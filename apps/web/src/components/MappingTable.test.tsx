@@ -111,7 +111,7 @@ describe('MappingTable', () => {
   beforeEach(() => {
     apiMock.mockReset();
     apiMock.mockImplementation(async (path: string) => {
-      if (typeof path === 'string' && path.includes('/api/projects/project-1/audit?limit=1')) {
+      if (typeof path === 'string' && path.includes('/api/projects/project-1/audit?limit=50')) {
         return { entries: [] };
       }
       if (typeof path === 'string' && path.includes('/api/org/default/mapping-events')) {
@@ -137,14 +137,14 @@ describe('MappingTable', () => {
     expect(actionsHeader).toHaveClass('mapping-col-actions');
 
     expect(screen.getByRole('button', { name: 'Accepted (0)' })).toBeInTheDocument();
-    expect(screen.getByText('0/1')).toBeInTheDocument();
+    expect(screen.getByText('0 of 1 accepted')).toBeInTheDocument();
     expect(screen.getByText('0 accepted')).toBeInTheDocument();
 
     await user.click(screen.getByTitle('Accept'));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Accepted (1)' })).toBeInTheDocument();
-      expect(screen.getByText('1/1')).toBeInTheDocument();
+      expect(screen.getByText('1 of 1 accepted')).toBeInTheDocument();
       expect(screen.getByText('1 accepted')).toBeInTheDocument();
     });
   });

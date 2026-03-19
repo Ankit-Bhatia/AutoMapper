@@ -84,6 +84,10 @@ export function ConflictDrawer({
         </div>
 
         {error && <p className="conflict-drawer-error">{error}</p>}
+        <p className="conflict-drawer-note">
+          Picking a winner accepts that mapping and leaves the other candidates unmatched for later review. Use
+          <strong> Reject All</strong> only when none of the candidates should survive.
+        </p>
 
         {localConflicts.length === 0 ? (
           <div className="conflict-drawer-empty">No unresolved conflicts.</div>

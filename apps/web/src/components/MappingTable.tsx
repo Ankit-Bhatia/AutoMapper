@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Entity,
   Field,
@@ -41,6 +41,11 @@ interface MappingTableProps {
 
 type StatusFilter = 'all' | 'suggested' | 'accepted' | 'rejected' | 'modified' | 'unmatched';
 const TRANSFORM_OPTIONS = ['direct', 'concat', 'formatDate', 'lookup', 'static', 'regex', 'split', 'trim'];
+
+interface AuditLogResponse {
+  entries: AuditEntry[];
+  nextBefore: string | null;
+}
 
 function extractPatchedMapping(payload: unknown): FieldMapping | null {
   if (!payload || typeof payload !== 'object') return null;
@@ -128,8 +133,10 @@ export function MappingTable({
   const [focusedMappingId, setFocusedMappingId] = useState<string | null>(null);
   const [reviewTab, setReviewTab] = useState<'mappings' | 'audit'>('mappings');
   const [hasRecentAudit, setHasRecentAudit] = useState(false);
+  const [auditEntryCount, setAuditEntryCount] = useState(0);
   const selectedMappingIds = selectedIds ?? new Set<string>();
   const acknowledgedFormulaIds = acknowledgedFormulaMappingIds ?? new Set<string>();
+  const lastViewedAuditAtRef = useRef(0);
 
   // Build lookup maps
   const fieldMap = useMemo(() => {
@@ -172,6 +179,10 @@ export function MappingTable({
     () => new Set(conflicts.map((conflict) => conflict.targetFieldId)),
     [conflicts],
   );
+  const warningMappingIds = useMemo(
+    () => new Set(validation.warnings.flatMap((warning) => (warning.fieldMappingId ? [warning.fieldMappingId] : []))),
+    [validation.warnings],
+  );
   const schemaInsightsById = useMemo(
     () => new Map(fieldMappings.map((mapping) => [mapping.id, parseSchemaIntelligenceRationale(mapping.rationale)])),
     [fieldMappings],
@@ -203,25 +214,25 @@ export function MappingTable({
         : 0,
     [fieldMappings],
   );
+  const totalReviewBlockers = validation.summary.totalWarnings + unresolvedConflicts + unresolvedRoutingDecisions;
 
   // Counts for active entity
   const entityFMs = fieldMappings.filter((fm) => fm.entityMappingId === activeEntityMappingId);
-  const acceptedCount = entityFMs.filter((fm) => fm.status === 'accepted').length;
-  const rejectedCount = entityFMs.filter((fm) => fm.status === 'rejected').length;
-  const totalCount = entityFMs.length;
 
-  async function refreshRecentAuditIndicator() {
+  async function refreshAuditSummary() {
     try {
-      const data = await api<{ entries: AuditEntry[] }>(`/api/projects/${projectId}/audit?limit=1`);
+      const data = await api<AuditLogResponse>(`/api/projects/${projectId}/audit?limit=50`);
+      setAuditEntryCount(data.entries.length);
       const latest = data.entries[0];
       if (!latest) {
         setHasRecentAudit(false);
         return;
       }
-      const isRecent = (Date.now() - new Date(latest.timestamp).getTime()) <= 24 * 60 * 60 * 1000;
-      setHasRecentAudit(isRecent);
+      const latestTimestamp = new Date(latest.timestamp).getTime();
+      setHasRecentAudit(latestTimestamp > lastViewedAuditAtRef.current);
     } catch {
       setHasRecentAudit(false);
+      setAuditEntryCount(0);
     }
   }
 
@@ -271,7 +282,7 @@ export function MappingTable({
       if (newStatus === 'accepted' || newStatus === 'rejected') {
         recordMappingEvent(updated, newStatus);
       }
-      void refreshRecentAuditIndicator();
+      void refreshAuditSummary();
     } catch {
       // Optimistic fallback — update locally
       const optimistic: FieldMapping = { ...fm, status: newStatus };
@@ -279,7 +290,7 @@ export function MappingTable({
       if (newStatus === 'accepted' || newStatus === 'rejected') {
         recordMappingEvent(optimistic, newStatus);
       }
-      void refreshRecentAuditIndicator();
+      void refreshAuditSummary();
     } finally {
       setSaving(null);
     }
@@ -299,7 +310,7 @@ export function MappingTable({
       };
       onMappingUpdate(updated);
       recordMappingEvent(updated, 'modified');
-      void refreshRecentAuditIndicator();
+      void refreshAuditSummary();
     } catch {
       const optimistic: FieldMapping = {
         ...fm,
@@ -308,7 +319,7 @@ export function MappingTable({
       };
       onMappingUpdate(optimistic);
       recordMappingEvent(optimistic, 'modified');
-      void refreshRecentAuditIndicator();
+      void refreshAuditSummary();
     } finally {
       setSaving(null);
       setEditingTransform(null);
@@ -349,8 +360,14 @@ export function MappingTable({
   }, [fieldMappings, focusedMappingId]);
 
   useEffect(() => {
-    void refreshRecentAuditIndicator();
+    void refreshAuditSummary();
   }, [projectId]);
+
+  useEffect(() => {
+    if (reviewTab !== 'audit') return;
+    lastViewedAuditAtRef.current = Date.now();
+    setHasRecentAudit(false);
+  }, [reviewTab]);
 
   if (entityMappings.length === 0) {
     return (
@@ -420,6 +437,13 @@ export function MappingTable({
             Rejected {globalRejectedCount} · warnings {validation.summary.totalWarnings}
           </div>
         </div>
+        <div className="mapping-summary-card">
+          <div className="mapping-summary-label">Review blockers</div>
+          <div className="mapping-summary-value">{totalReviewBlockers}</div>
+          <div className="mapping-summary-meta">
+            {unresolvedConflicts} conflicts · {validation.summary.totalWarnings} warnings · {unresolvedRoutingDecisions} routing
+          </div>
+        </div>
       </div>
 
       <div className="review-tabs mapping-review-tabs">
@@ -433,13 +457,13 @@ export function MappingTable({
           className={`review-tab ${reviewTab === 'audit' ? 'review-tab--active' : ''}`}
           onClick={() => setReviewTab('audit')}
         >
-          Audit Log
+          Audit Log ({auditEntryCount})
           {hasRecentAudit && <span className="review-tab-dot" aria-hidden="true" />}
         </button>
       </div>
 
       {reviewTab === 'audit' ? (
-        <AuditLogTab projectId={projectId} onRecentEntriesChange={setHasRecentAudit} />
+        <AuditLogTab projectId={projectId} />
       ) : (
         <>
 
@@ -484,6 +508,29 @@ export function MappingTable({
         </div>
       )}
 
+      <div className="review-legend mapping-warning-box">
+        <div className="review-legend-title">Review legend</div>
+        <div className="review-legend-items">
+          <span className="review-legend-item">
+            <span className="review-legend-marker is-conflict" aria-hidden="true" />
+            Conflict target: choose one winner before export
+          </span>
+          <span className="review-legend-item">
+            <span className="review-legend-marker is-warning" aria-hidden="true" />
+            Validation warning: type, coverage, or routing issue
+          </span>
+          <span className="review-legend-item">
+            <span className="review-legend-marker is-required" aria-hidden="true" />
+            Required field
+          </span>
+        </div>
+      </div>
+
+      <div className="entity-tabs-shell">
+        <div className="entity-tabs-meta">
+          <span>Entity pairs</span>
+          {entityMappings.length > 4 && <span>Scroll horizontally to review all {entityMappings.length} pairs</span>}
+        </div>
       {/* Entity tabs */}
       <div className="entity-tabs">
         {entityMappings.map((em) => {
@@ -500,16 +547,18 @@ export function MappingTable({
                 setExpandedRow(null);
                 setFocusedMappingId(null);
               }}
+              title={`${accepted} accepted of ${emFMs.length} mappings`}
             >
               <span className="entity-tab-name">
                 {srcE?.name ?? '?'} → {tgtE?.name ?? '?'}
               </span>
               <span className="entity-tab-count">
-                {accepted}/{emFMs.length}
+                {accepted} of {emFMs.length} accepted
               </span>
             </button>
           );
         })}
+      </div>
       </div>
 
       {/* Filter bar */}
@@ -588,11 +637,18 @@ export function MappingTable({
                 const schemaInsights = schemaInsightsById.get(fm.id) ?? parseSchemaIntelligenceRationale(fm.rationale);
                 const isFormulaAcknowledged = acknowledgedFormulaIds.has(fm.id);
                 const visibleSchemaBadges = schemaInsights.findings.filter((finding) => finding.kind !== 'baseRationale');
+                const hasConflict = conflictingTargetFieldIds.has(fm.targetFieldId);
+                const hasWarning = warningMappingIds.has(fm.id);
+                const rowMarkerTitle = hasConflict
+                  ? 'Conflict target: multiple source fields currently compete for this target'
+                  : hasWarning
+                    ? 'Validation warning on this mapping'
+                    : null;
 
                 return (
                   <React.Fragment key={fm.id}>
                     <tr
-                      className={`mapping-row mapping-row--${confClass(fm.confidence)} ${isExpanded ? 'mapping-row--expanded' : ''} ${isSaving ? 'mapping-row--saving' : ''} ${focusedMappingId === fm.id ? 'mapping-row--focused' : ''} ${conflictingTargetFieldIds.has(fm.targetFieldId) ? 'row-conflict' : ''}`}
+                      className={`mapping-row mapping-row--${confClass(fm.confidence)} ${isExpanded ? 'mapping-row--expanded' : ''} ${isSaving ? 'mapping-row--saving' : ''} ${focusedMappingId === fm.id ? 'mapping-row--focused' : ''} ${hasConflict ? 'row-conflict' : ''} ${hasWarning ? 'row-warning' : ''}`}
                       onClick={() => {
                         setExpandedRow(isExpanded ? null : fm.id);
                         setFocusedMappingId(fm.id);
@@ -623,6 +679,15 @@ export function MappingTable({
                           style={{ width: `${Math.round(fm.confidence * 100)}%` }}
                         />
                         <div className="field-cell">
+                          {rowMarkerTitle && (
+                            <span
+                              className={`mapping-row-indicator ${hasConflict ? 'is-conflict' : 'is-warning'}`}
+                              title={rowMarkerTitle}
+                              aria-label={rowMarkerTitle}
+                            >
+                              ●
+                            </span>
+                          )}
                           <div>
                             <div className="mapping-field-name">{srcF?.name ?? fm.sourceFieldId}</div>
                             {fm.rationale && (

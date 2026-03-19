@@ -8,6 +8,15 @@ interface SeedSummaryCardProps {
 export function SeedSummaryCard({ summary, onContinue }: SeedSummaryCardProps) {
   return (
     <div className="seed-summary-card">
+      <div className="page-header seed-summary-header">
+        <div>
+          <h1 className="page-title">Schema Discovery Results</h1>
+          <p className="page-subtitle">
+            AutoMapper parsed both schemas and seeded the first pass of mapping suggestions.
+          </p>
+        </div>
+      </div>
+
       <div className="seed-summary-row seed-summary-row--derived">
         <span className="seed-summary-icon">✓</span>
         <div>

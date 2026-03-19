@@ -3,6 +3,7 @@ import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   AppState,
+  AuditEntry,
   Entity,
   Field,
   FieldMapping,
@@ -20,6 +21,7 @@ const EMPTY_STATE: AppState = {
   projects: [],
   entityMappings: [],
   fieldMappings: [],
+  auditEntries: [],
 };
 
 export class FsStore {
@@ -39,7 +41,12 @@ export class FsStore {
       fs.writeFileSync(this.dbPath, JSON.stringify(EMPTY_STATE, null, 2), 'utf8');
       return structuredClone(EMPTY_STATE);
     }
-    return JSON.parse(fs.readFileSync(this.dbPath, 'utf8')) as AppState;
+    const loaded = JSON.parse(fs.readFileSync(this.dbPath, 'utf8')) as Partial<AppState>;
+    return {
+      ...EMPTY_STATE,
+      ...loaded,
+      auditEntries: Array.isArray(loaded.auditEntries) ? loaded.auditEntries : [],
+    };
   }
 
   private persist() {
@@ -48,6 +55,27 @@ export class FsStore {
 
   getState(): AppState {
     return this.state;
+  }
+
+  appendAuditEntry(entry: AuditEntry) {
+    this.state.auditEntries.push(entry);
+    this.persist();
+  }
+
+  listAuditEntries(
+    projectId: string,
+    opts: { limit: number; before?: string | null },
+  ): { entries: AuditEntry[]; nextBefore: string | null } {
+    const beforeMs = opts.before ? Date.parse(opts.before) : Number.NaN;
+    const filtered = this.state.auditEntries
+      .filter((entry) => entry.projectId === projectId)
+      .filter((entry) => Number.isNaN(beforeMs) || Date.parse(entry.timestamp) < beforeMs)
+      .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
+    const entries = filtered.slice(0, opts.limit);
+    const nextBefore = filtered.length > opts.limit
+      ? entries[entries.length - 1]?.timestamp ?? null
+      : null;
+    return { entries, nextBefore };
   }
 
   createProject(

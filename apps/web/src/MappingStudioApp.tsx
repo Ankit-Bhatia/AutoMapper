@@ -596,7 +596,6 @@ export function MappingStudioApp() {
       setReviewGateMessage(
         `Resolve ${unresolved} unresolved conflict${unresolved === 1 ? '' : 's'} before export.`,
       );
-      setConflictDrawerOpen(true);
       setStep('review');
       return;
     }

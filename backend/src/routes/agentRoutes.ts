@@ -7,6 +7,7 @@
  */
 import type { Express, Request, Response } from 'express';
 import type { DbStore } from '../db/dbStore.js';
+import type { FsStore } from '../utils/fsStore.js';
 import { OrchestratorAgent } from '../agents/OrchestratorAgent.js';
 import type { AgentContext } from '../agents/types.js';
 import { activeProvider } from '../agents/llm/LLMGateway.js';
@@ -67,11 +68,11 @@ async function withLLMContext<T>(
   );
 }
 
-export function setupAgentRoutes(app: Express, store: DbStore): void {
+export function setupAgentRoutes(app: Express, store: DbStore | FsStore): void {
   const handleOrchestrationSse = async (req: Request, res: Response) => {
     let project;
     try {
-      project = await withTimeout(store.getProject(req.params.id), DB_CALL_TIMEOUT_MS, 'getProject');
+      project = await withTimeout(Promise.resolve(store.getProject(req.params.id)), DB_CALL_TIMEOUT_MS, 'getProject');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not resolve project';
       sendError(req, res, 503, 'DB_TIMEOUT', message);
@@ -84,7 +85,7 @@ export function setupAgentRoutes(app: Express, store: DbStore): void {
 
     let state;
     try {
-      state = await withTimeout(store.getState(), DB_CALL_TIMEOUT_MS, 'getState');
+      state = await withTimeout(Promise.resolve(store.getState()), DB_CALL_TIMEOUT_MS, 'getState');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load project state';
       sendError(req, res, 503, 'DB_TIMEOUT', message);
@@ -155,7 +156,7 @@ export function setupAgentRoutes(app: Express, store: DbStore): void {
 
         // Persist updated mappings
         await withTimeout(
-          store.upsertMappings(project.id, entityMappings, result.updatedFieldMappings),
+          Promise.resolve(store.upsertMappings(project.id, entityMappings, result.updatedFieldMappings)),
           DB_CALL_TIMEOUT_MS,
           'upsertMappings',
         );

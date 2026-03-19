@@ -120,6 +120,7 @@ const baseState = {
       status: 'accepted',
     },
   ],
+  auditEntries: [],
 };
 
 function createContext(): TestContext {
@@ -193,6 +194,10 @@ describe('bulkRoutes', () => {
     const fm2 = state.fieldMappings.find((mapping) => mapping.id === 'fm-2');
     expect(fm1?.status).toBe('accepted');
     expect(fm2?.status).toBe('accepted');
+    expect(state.auditEntries[state.auditEntries.length - 1]).toMatchObject({
+      action: 'mapping_accepted',
+      projectId: 'project-1',
+    });
   });
 
   it('returns 400 when mappingIds exceed 200', async () => {
