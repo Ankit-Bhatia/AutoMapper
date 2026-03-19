@@ -229,6 +229,51 @@ describe('suggestMappings — heuristic path (no AI)', () => {
     expect(['tf-fin-payment', 'tf-fin-monthly']).toContain(paymentMapping?.targetFieldId);
   });
 
+  it('prefers Loan monthly payment targets over generic fee and disbursement fields', async () => {
+    const srcLoan = makeEntity('se-los-loan-payment-loan', 'src-sys', 'LOAN', 'Loan');
+    const tgtLoan = makeEntity('te-fsc-loan-payment', 'tgt-sys', 'Loan', 'Loan');
+
+    const fields: Field[] = [
+      makeField('sf-los-payment-loan', 'se-los-loan-payment-loan', 'AMT_PAYMENT', 'string'),
+      makeField('tf-loan-fee', 'te-fsc-loan-payment', 'Total_Fee_Amount__c', 'decimal'),
+      makeField('tf-loan-disbursement', 'te-fsc-loan-payment', 'Disbursement_Amount__c', 'decimal'),
+      makeField('tf-loan-monthly', 'te-fsc-loan-payment', 'Monthly_Payment__c', 'decimal'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcLoan],
+      targetEntities: [tgtLoan],
+      fields,
+    });
+
+    const paymentMapping = fieldMappings.find((mapping) => mapping.sourceFieldId === 'sf-los-payment-loan');
+    expect(paymentMapping?.targetFieldId).toBe('tf-loan-monthly');
+    expect(paymentMapping?.retrievalShortlist?.candidates[0]?.targetFieldId).toBe('tf-loan-monthly');
+  });
+
+  it('prefers DATE_APPROVAL credit-approved targets over OpenDate', async () => {
+    const srcProduct = makeEntity('se-los-product', 'src-sys', 'PRODUCT', 'Product');
+    const tgtFin = makeEntity('te-fsc-fin-date', 'tgt-sys', 'FinancialAccount', 'Financial Account');
+
+    const fields: Field[] = [
+      makeField('sf-los-date-approval', 'se-los-product', 'DATE_APPROVAL', 'string'),
+      makeField('tf-fin-open-date', 'te-fsc-fin-date', 'OpenDate', 'date'),
+      makeField('tf-fin-credit-approved', 'te-fsc-fin-date', 'Date_Credit_Approved__c', 'date'),
+    ];
+
+    const { fieldMappings } = await suggestMappings({
+      project: PROJECT,
+      sourceEntities: [srcProduct],
+      targetEntities: [tgtFin],
+      fields,
+    });
+
+    const dateMapping = fieldMappings.find((mapping) => mapping.sourceFieldId === 'sf-los-date-approval');
+    expect(dateMapping?.targetFieldId).toBe('tf-fin-credit-approved');
+    expect(dateMapping?.retrievalShortlist?.candidates[0]?.targetFieldId).toBe('tf-fin-credit-approved');
+  });
+
   it('maps LOS entities even when lexical entity similarity is zero', async () => {
     const srcBorrower = makeEntity('se-los-borrower', 'src-sys', 'BORROWER', 'Borrower');
     const tgtParty = makeEntity('te-fsc-party', 'tgt-sys', 'PartyProfile', 'Party Profile');

@@ -120,4 +120,82 @@ describe('candidateRetrieval', () => {
     expect(result.shortlist.topK).toBe(DEFAULT_RETRIEVAL_TOP_K);
     expect(result.shortlist.candidates).toHaveLength(2);
   });
+
+  it('prefers RiskClam payment targets over generic fee and disbursement fields on Loan', () => {
+    const sourceField = makeField({
+      id: 'src-payment',
+      entityId: 'src-loan',
+      name: 'AMT_PAYMENT',
+      dataType: 'string',
+    });
+    const targetFields = [
+      makeField({ id: 'tgt-fee', entityId: 'tgt-loan', name: 'Total_Fee_Amount__c', dataType: 'decimal' }),
+      makeField({ id: 'tgt-disb', entityId: 'tgt-loan', name: 'Disbursement_Amount__c', dataType: 'decimal' }),
+      makeField({ id: 'tgt-monthly', entityId: 'tgt-loan', name: 'Monthly_Payment__c', dataType: 'decimal' }),
+    ];
+
+    const result = retrieveCandidatesForSource(sourceField as never, targetFields as never, {
+      entityNamesById: new Map([
+        ['src-loan', 'LOAN'],
+        ['tgt-loan', 'Loan'],
+      ]),
+    });
+
+    expect(result.shortlist.candidates[0]?.targetFieldName).toBe('Monthly_Payment__c');
+    expect(result.rankedCandidates[0]?.retrievalScore).toBeGreaterThan(result.rankedCandidates[1]?.retrievalScore ?? 0);
+    expect(result.rankedCandidates[0]?.evidence).toContain('schema intelligence high match');
+  });
+
+  it('prefers DATE_APPROVAL credit-approved targets over generic open dates', () => {
+    const sourceField = makeField({
+      id: 'src-approval-date',
+      entityId: 'src-product',
+      name: 'DATE_APPROVAL',
+      dataType: 'string',
+    });
+    const targetFields = [
+      makeField({ id: 'tgt-open-date', entityId: 'tgt-financial-account', name: 'OpenDate', dataType: 'date' }),
+      makeField({
+        id: 'tgt-credit-approved',
+        entityId: 'tgt-financial-account',
+        name: 'Date_Credit_Approved__c',
+        dataType: 'date',
+      }),
+    ];
+
+    const result = retrieveCandidatesForSource(sourceField as never, targetFields as never, {
+      entityNamesById: new Map([
+        ['src-product', 'PRODUCT'],
+        ['tgt-financial-account', 'FinancialAccount'],
+      ]),
+    });
+
+    expect(result.shortlist.candidates[0]?.targetFieldName).toBe('Date_Credit_Approved__c');
+    expect(result.rankedCandidates[0]?.retrievalScore).toBeGreaterThan(result.rankedCandidates[1]?.retrievalScore ?? 0);
+    expect(result.rankedCandidates[0]?.evidence).toContain('schema intelligence high match');
+  });
+
+  it('prefers loan-specific amount targets over generic fee and disbursement fields', () => {
+    const sourceField = makeField({
+      id: 'src-approved-loan',
+      entityId: 'src-loan',
+      name: 'AMT_APPROVED_LOAN',
+      dataType: 'string',
+    });
+    const targetFields = [
+      makeField({ id: 'tgt-fee', entityId: 'tgt-loan', name: 'Total_Fee_Amount__c', dataType: 'decimal' }),
+      makeField({ id: 'tgt-disb', entityId: 'tgt-loan', name: 'Disbursement_Amount__c', dataType: 'decimal' }),
+      makeField({ id: 'tgt-loan-amount', entityId: 'tgt-loan', name: 'Loan_Amount_formula__c', dataType: 'decimal' }),
+    ];
+
+    const result = retrieveCandidatesForSource(sourceField as never, targetFields as never, {
+      entityNamesById: new Map([
+        ['src-loan', 'LOAN'],
+        ['tgt-loan', 'Loan'],
+      ]),
+    });
+
+    expect(result.shortlist.candidates[0]?.targetFieldName).toBe('Loan_Amount_formula__c');
+    expect(result.rankedCandidates[0]?.evidence).toContain('schema intelligence medium match');
+  });
 });
