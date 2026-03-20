@@ -44,11 +44,16 @@ import {
   isRiskClamSourceSystem,
 } from './services/riskClamSalesforceSchema.js';
 import {
+  appendReviewDecision,
+  preloadReviewDecisionLearning,
+} from './services/reviewDecisionLearning.js';
+import {
   CreateProjectSchema,
   SalesforceSchemaSchema,
   PatchFieldMappingSchema,
   ConflictResolutionRequestSchema,
   ResolveOneToManyMappingsSchema,
+  ReviewDecisionSchema,
 } from './validation/schemas.js';
 import { captureException, sendHttpError } from './utils/httpErrors.js';
 import type { AppState, FieldMapping, MappingProject } from './types.js';
@@ -64,6 +69,7 @@ const store: DbStore | FsStore = process.env.DATABASE_URL
   : new FsStore(process.env.DATA_DIR || './data');
 
 configureAuditFallbackStore(store instanceof FsStore ? store : null);
+preloadReviewDecisionLearning();
 
 const defaultCorsOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const allowedCorsOrigins = (
@@ -571,6 +577,33 @@ app.patch('/api/field-mappings/:id', async (req, res) => {
     }
   }
   res.json({ fieldMapping: mapping });
+});
+
+app.post('/api/review-decisions', authMiddleware, async (req, res) => {
+  const parsed = ReviewDecisionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(req, res, 400, 'VALIDATION_ERROR', 'Invalid review decision payload', parsed.error.issues);
+    return;
+  }
+
+  try {
+    appendReviewDecision({
+      ts: new Date().toISOString(),
+      ...parsed.data,
+    });
+    res.status(204).end();
+  } catch (error) {
+    captureException('api', error, {
+      context: {
+        method: req.method,
+        path: req.originalUrl || req.url,
+        userId: req.user?.userId,
+        ip: req.ip,
+      },
+      metadata: { route: '/api/review-decisions' },
+    });
+    sendError(req, res, 500, 'REVIEW_DECISION_WRITE_FAILED', 'Failed to persist review decision');
+  }
 });
 
 app.post('/api/projects/:id/one-to-many-resolutions', async (req, res) => {

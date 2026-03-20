@@ -72,6 +72,13 @@ export const ResolveOneToManyMappingsSchema = z.object({
   ).min(1),
 });
 
+export const ReviewDecisionSchema = z.object({
+  sourceFieldId: z.string().trim().min(1).max(255),
+  targetFieldId: z.string().trim().min(1).max(255),
+  action: z.enum(['accepted', 'rejected']),
+  confidence: z.number().min(0).max(1),
+});
+
 export const RegisterSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
@@ -88,5 +95,6 @@ export type SalesforceSchemaInput = z.infer<typeof SalesforceSchemaSchema>;
 export type PatchFieldMappingInput = z.infer<typeof PatchFieldMappingSchema>;
 export type ConflictResolutionRequestInput = z.infer<typeof ConflictResolutionRequestSchema>;
 export type ResolveOneToManyMappingsInput = z.infer<typeof ResolveOneToManyMappingsSchema>;
+export type ReviewDecisionInput = z.infer<typeof ReviewDecisionSchema>;
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type LoginInput = z.infer<typeof LoginSchema>;

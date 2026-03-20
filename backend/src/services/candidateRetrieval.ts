@@ -13,6 +13,7 @@ import {
 } from './fieldSemantics.js';
 import { getSchemaIntelligencePatternCandidates } from './schemaIntelligencePatterns.js';
 import { fieldEmbeddingText, type EmbeddingCache, cosineSimilarity } from './EmbeddingService.js';
+import { buildReviewDecisionTargetId, getReviewDecisionAdjustment } from './reviewDecisionLearning.js';
 import { jaccard } from '../utils/stringSim.js';
 
 export interface RetrievalCandidate {
@@ -249,6 +250,10 @@ export function scoreRetrievalCandidate(
 
   const lexicalScore = jaccard(sourceContext, targetContext);
   const typeScore = semanticTypeScore(sourceProfile, targetField.dataType);
+  const reviewDecision = getReviewDecisionAdjustment(
+    sourceField.name,
+    buildReviewDecisionTargetId(entityNameFor(targetField, options.entityNamesById), targetField.name),
+  );
 
   let embeddingScore: number | undefined;
   if (options.embeddingCache) {
@@ -259,7 +264,10 @@ export function scoreRetrievalCandidate(
     }
   }
 
-  const semanticBlend = hybridSemanticSimilarity(sourceProfile, targetProfile, embeddingScore);
+  const semanticBlend = hybridSemanticSimilarity(sourceProfile, targetProfile, embeddingScore, {
+    sourceFieldId: sourceField.name,
+    targetFieldId: buildReviewDecisionTargetId(entityNameFor(targetField, options.entityNamesById), targetField.name),
+  });
   const semanticMode = toRetrievalSemanticMode(semanticBlend.mode);
   const complianceScore = complianceIntersectionScore(sourceField, targetField);
   const canonicalScore =
@@ -314,6 +322,9 @@ export function scoreRetrievalCandidate(
   });
   if (strongSemanticAlignment) {
     evidence.push('strong concept alignment');
+  }
+  if (reviewDecision.evidence && !evidence.includes(reviewDecision.evidence)) {
+    evidence.push(reviewDecision.evidence);
   }
   for (const item of riskClamAdjustment.evidence) {
     if (!evidence.includes(item)) evidence.push(item);

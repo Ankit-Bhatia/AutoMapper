@@ -1,0 +1,58 @@
+{"sourceFieldId":"AMT_CREDIT_LIFE","targetFieldId":"Credit_Life_Amount__c","confirmedBy":"BOSL-FSC-v1","notes":"Financial Account HIGH: Insurance amount on live account. Mandatory in Caribbean jurisdictions."}
+{"sourceFieldId":"AMT_CURRENT_BALANCE","targetFieldId":"FinServ__Balance__c","confirmedBy":"BOSL-FSC-v1","notes":"Financial Account HIGH: FSC standard balance field is preferred."}
+{"sourceFieldId":"AMT_FINANCED","targetFieldId":"Amount_Financed__c","confirmedBy":"BOSL-FSC-v1","notes":"Collateral HIGH: Amount financed against collateral."}
+{"sourceFieldId":"AMT_GUARANTEES","targetFieldId":"Guarantee_Amount__c","confirmedBy":"BOSL-FSC-v1","notes":"Collateral HIGH: Guarantee amount on collateral."}
+{"sourceFieldId":"AMT_MO_RESIDUAL_INCOME","targetFieldId":"Residual_Income__c","confirmedBy":"BOSL-FSC-v1","notes":"PIT MEDIUM: Monthly residual income per borrower on Party Involved in Transaction."}
+{"sourceFieldId":"AMT_NET_WORTH","targetFieldId":"FinServ__NetWorth__c","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: FSC standard net worth field — direct match"}
+{"sourceFieldId":"AMT_OVERDRAFT_ACCTS","targetFieldId":"Existing_Overdrafts__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan Package MEDIUM: Overdraft accounts aggregated at loan package level."}
+{"sourceFieldId":"AMT_PAST_DUE","targetFieldId":"Amount_Past_Due__c","confirmedBy":"BOSL-FSC-v1","notes":"Financial Account HIGH: Direct match"}
+{"sourceFieldId":"AMT_REAL_ESTATE","targetFieldId":"Real_State__c","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: ⚠️ SF field has typo: Real_State__c (not Real_Estate__c). Confirm API name in your org."}
+{"sourceFieldId":"AMT_SECURED","targetFieldId":"Secured_Amount__c","confirmedBy":"BOSL-FSC-v1","notes":"Financial Account HIGH: Secured portion of the loan."}
+{"sourceFieldId":"AMT_STOCKS","targetFieldId":"Stock_Bonds__c","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: Stocks field in XML maps to combined stocks+bonds field in SF."}
+{"sourceFieldId":"AMT_TO_BE_DISBURSED","targetFieldId":"Amount_to_be_Posted__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan MEDIUM: \"Disbursed\" = \"posted\" in Jack Henry / core banking parlance."}
+{"sourceFieldId":"AMT_TOTAL_ASSETS","targetFieldId":"Total_Assets__c","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: Direct name match"}
+{"sourceFieldId":"AMT_TOTAL_BOSL","targetFieldId":"Total_Debt_With_Us__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan Package MEDIUM: BOSL = Bank of Saint Lucia = \"with us\". Bank-specific terminology."}
+{"sourceFieldId":"AMT_TOTAL_CURRENT_BALANCE","targetFieldId":"Total_Package_Debt__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan Package MEDIUM: \"Current balance\" = total package debt in BOSL context."}
+{"sourceFieldId":"AMT_TOTAL_DISBURSEMENTS","targetFieldId":"Disbursement_Amount__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan MEDIUM: Plural-to-singular rename."}
+{"sourceFieldId":"AMT_TOTAL_EXISTING_DEBT","targetFieldId":"Current_Balance_of_Existing_Debt__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan Package MEDIUM: \"Existing debt\" = \"current balance of existing debt\"."}
+{"sourceFieldId":"AMT_TOTAL_FORCE_XVALUE","targetFieldId":"Forced_Sale_Value_Calculated__c","confirmedBy":"BOSL-FSC-v1","notes":"Collateral MEDIUM: FORCE_XVALUE = forced sale cross value (~60-80% of market value)."}
+{"sourceFieldId":"AMT_TOTAL_HP_MO_PAYMENTS","targetFieldId":"Preclosing_Hire_Purchase_Monthly__c","confirmedBy":"BOSL-FSC-v1","notes":"PIT MEDIUM: HP = Hire Purchase — Caribbean term for installment lending (vehicles, equipment)."}
+{"sourceFieldId":"AMT_TOTAL_INTEREST","targetFieldId":"Total_Interest__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Direct match"}
+{"sourceFieldId":"AMT_UNPAID_TAXES","targetFieldId":"Unpaid_Taxes__c","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: Direct match"}
+{"sourceFieldId":"CODE_ATTORNEYS","targetFieldId":"Attorney_Code__c","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: Attorney reference code."}
+{"sourceFieldId":"CODE_CLOSING_BRANCH","targetFieldId":"FinServ__BranchCode__c","confirmedBy":"BOSL-FSC-v1","notes":"Financial Account HIGH: Branch code on live account — FSC standard."}
+{"sourceFieldId":"CODE_CURRENCY","targetFieldId":"Currency__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Currency of loan. XCD (EC Dollar) or USD common in Caribbean."}
+{"sourceFieldId":"CODE_DISBURSEMENT_TYPE","targetFieldId":"Disbursement_Type__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Type of disbursement."}
+{"sourceFieldId":"CODE_GL","targetFieldId":"GL_Code__c","confirmedBy":"BOSL-FSC-v1","notes":"Financial Account HIGH: General Ledger code."}
+{"sourceFieldId":"CODE_LOAN_TYPE","targetFieldId":"General_Ledger_Code__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: GL-based loan type code."}
+{"sourceFieldId":"CODE_LOAN_VARIABLE_RATE","targetFieldId":"Loan_Variable_Rate_Code__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Variable rate code. Paired with PERC_LOAN_VARIABLE_RATE."}
+{"sourceFieldId":"CODE_NEW_BS","targetFieldId":"BS_1_Code__pc","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: ⚠️ Person Account field (__pc). Banking Sector classification for ECCB reporting."}
+{"sourceFieldId":"CODE_PROD_CLASSIFICATION","targetFieldId":"Classification__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Product classification code."}
+{"sourceFieldId":"CODE_STATUS","targetFieldId":"Account_Status__c","confirmedBy":"BOSL-FSC-v1","notes":"Financial Account HIGH: Account status picklist. Requires value translation matrix."}
+{"sourceFieldId":"CODE_TYPE_OF_SALE","targetFieldId":"Type_of_Sale__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Sale type code."}
+{"sourceFieldId":"CODE_WATCH_LIST","targetFieldId":"Watchlist_Category__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Watchlist monitoring category."}
+{"sourceFieldId":"CUSTOMER_AUS_MESSAGE","targetFieldId":"Core_Error_Message__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan MEDIUM: AUS = Automated Underwriting System error message from core banking."}
+{"sourceFieldId":"DATE_APPLIED","targetFieldId":"CreatedDate","confirmedBy":"BOSL-FSC-v1","notes":"Loan Package MEDIUM: Application date = package creation date. Standard SF field (set on record creation)."}
+{"sourceFieldId":"DATE_APPROVAL","targetFieldId":"Date_Credit_Approved__c","confirmedBy":"BOSL-FSC-v1","notes":"FA / Loan HIGH: Same field name exists on both Loan and Financial Account."}
+{"sourceFieldId":"DATE_BOARDING","targetFieldId":"Inserted_In_Core__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Boarding = posting to core banking system (Jack Henry). Critical lifecycle marker."}
+{"sourceFieldId":"DATE_FUNDED","targetFieldId":"Date_Funded__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Date funds were disbursed."}
+{"sourceFieldId":"DATE_INTEREST_START","targetFieldId":"InterestStartDate__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Date interest begins accruing."}
+{"sourceFieldId":"DATE_NEXT_REVIEW","targetFieldId":"FinServ__NextReview__c","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: Next scheduled review date — FSC standard."}
+{"sourceFieldId":"DATE_OPEN","targetFieldId":"FinServ__OpenDate__c","confirmedBy":"BOSL-FSC-v1","notes":"Financial Account HIGH: Account open date — FSC standard."}
+{"sourceFieldId":"DATE_PAYMENT_START","targetFieldId":"PaymentStartDate__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Date first payment is due."}
+{"sourceFieldId":"DATE_SCHEDULED_CLOSING","targetFieldId":"Expected_Disbursement_Date__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan MEDIUM: \"Scheduled closing\" = \"expected disbursement\" — confirm business meaning."}
+{"sourceFieldId":"NAME_ALL_BORROWERS","targetFieldId":"Account__c","confirmedBy":"BOSL-FSC-v1","notes":"PIT HIGH: ⚠️ Lookup to Account. XML has text name — name-to-ID resolution required."}
+{"sourceFieldId":"NAME_ATTORNEYS","targetFieldId":"Attorney_Contact__c","confirmedBy":"BOSL-FSC-v1","notes":"Collateral HIGH: ⚠️ Contact lookup — name-to-ID resolution required."}
+{"sourceFieldId":"NAME_CREDIT_OFFICER","targetFieldId":"ApprovalOfficer__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan Package HIGH: ⚠️ User lookup — name-to-ID resolution required."}
+{"sourceFieldId":"NAME_SUFFIX","targetFieldId":"Suffix__pc","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: ⚠️ Person Account field only (__pc). Not available on business accounts."}
+{"sourceFieldId":"NAME_UNDERWRITER","targetFieldId":"Underwriter__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan Package HIGH: ⚠️ User lookup — name-to-ID resolution required."}
+{"sourceFieldId":"PERC_DEFAULT_INTEREST","targetFieldId":"Default_Rate__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Default / penalty interest rate."}
+{"sourceFieldId":"PERC_DI_CURRENT","targetFieldId":"Current_Debt_to_Income__c","confirmedBy":"BOSL-FSC-v1","notes":"PIT HIGH: DI = Debt to Income ratio per borrower."}
+{"sourceFieldId":"PERC_FEE","targetFieldId":"Fee_Percent__c","confirmedBy":"BOSL-FSC-v1","notes":"FEE HIGH: Fee expressed as a percentage."}
+{"sourceFieldId":"PERC_LOAN_VARIABLE_RATE","targetFieldId":"Loan_Variable_Rate__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan HIGH: Variable rate component. Paired with CODE_LOAN_VARIABLE_RATE."}
+{"sourceFieldId":"PERC_RESIDUAL_CURRENT","targetFieldId":"Current_Budgetary_Residual_Income__c","confirmedBy":"BOSL-FSC-v1","notes":"PIT HIGH: Residual income as percentage per borrower."}
+{"sourceFieldId":"Y_EXEMPT_DUE_DILIGENCE","targetFieldId":"Exempt_from_Due_Dilligence__pc","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: ⚠️ Person Account field. Note: SF field name has intentional typo \"Dilligence\". ⚠️ Y/N → boolean transform required."}
+{"sourceFieldId":"Y_FATCA_PERSON","targetFieldId":"US_CRS__c","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: FATCA maps to CRS terminology in SF. ⚠️ XML Y/N string → SF true/false boolean transform required."}
+{"sourceFieldId":"Y_FINANCE_INSURANCE","targetFieldId":"Insurance_Company_Name__c","confirmedBy":"BOSL-FSC-v1","notes":"Loan LOW: ⚠️ Unusual pattern: boolean source → text target. Confirm intended mapping; may need special handling."}
+{"sourceFieldId":"Y_STANDING_ORDER","targetFieldId":"Standing_Order_to_Pay_US_Maintained_Acct__pc","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: ⚠️ Person Account field. Autopay / standing order instruction. Y/N → boolean transform required."}
+{"sourceFieldId":"Y_US_STAY_","targetFieldId":"Stayed_in_US_for_183_days_this_year__pc","confirmedBy":"BOSL-FSC-v1","notes":"Account HIGH: ⚠️ Person Account field. 183-day substantial presence test for FATCA compliance. Y/N → boolean transform required."}
