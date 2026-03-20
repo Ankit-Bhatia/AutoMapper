@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { DbStore } from './db/dbStore.js';
 import { prisma } from './db/prismaClient.js';
 import {
-  materializeAuditEntry,
+  configureAuditFallbackStore,
   writeAuditEntry,
   type AuditActor,
   type AuditAction,
@@ -62,6 +62,8 @@ const port = Number(process.env.PORT || 4000);
 const store: DbStore | FsStore = process.env.DATABASE_URL
   ? new DbStore(prisma)
   : new FsStore(process.env.DATA_DIR || './data');
+
+configureAuditFallbackStore(store instanceof FsStore ? store : null);
 
 const defaultCorsOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const allowedCorsOrigins = (
@@ -122,10 +124,6 @@ function writeAuditEntrySafe(args: {
   before?: unknown;
   after?: unknown;
 }): void {
-  if (store instanceof FsStore) {
-    store.appendAuditEntry(materializeAuditEntry(args));
-    return;
-  }
   void writeAuditEntry(args).catch((error) => {
     console.error('[audit] Failed to write audit entry:', error);
   });

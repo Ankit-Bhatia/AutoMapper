@@ -4,6 +4,12 @@ import type { AuditAction, AuditActor, AuditEntry } from '../types.js';
 
 export type { AuditAction, AuditActor, AuditEntry } from '../types.js';
 
+interface AuditFallbackStore {
+  appendAuditEntry(entry: AuditEntry): void;
+}
+
+let fallbackStore: AuditFallbackStore | null = null;
+
 export interface WriteAuditEntryArgs {
   projectId: string;
   actor: AuditActor;
@@ -32,8 +38,20 @@ export function materializeAuditEntry(args: WriteAuditEntryArgs): AuditEntry {
   };
 }
 
+export function configureAuditFallbackStore(store: AuditFallbackStore | null): void {
+  fallbackStore = store;
+}
+
+export function isDatabaseAvailable(): boolean {
+  return Boolean(process.env.DATABASE_URL?.trim());
+}
+
 export async function writeAuditEntry(args: WriteAuditEntryArgs): Promise<void> {
   const entry = materializeAuditEntry(args);
+  if (!isDatabaseAvailable()) {
+    fallbackStore?.appendAuditEntry(entry);
+    return;
+  }
   await prisma.auditEntry.create({
     data: {
       id: entry.id,
