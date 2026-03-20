@@ -270,6 +270,24 @@ export function MappingTable({
     });
   }
 
+  function recordReviewDecision(mapping: FieldMapping, action: 'accepted' | 'rejected') {
+    const sourceField = fieldMap.get(mapping.sourceFieldId);
+    const targetField = fieldMap.get(mapping.targetFieldId);
+    if (!sourceField || !targetField) return;
+
+    void api('/api/review-decisions', {
+      method: 'POST',
+      body: JSON.stringify({
+        sourceFieldId: sourceField.name,
+        targetFieldId: targetField.name,
+        action,
+        confidence: mapping.confidence,
+      }),
+    }).catch(() => {
+      // Fire-and-forget learning signal; never block review actions on telemetry.
+    });
+  }
+
   async function patchStatus(fm: FieldMapping, newStatus: FieldMapping['status']) {
     setSaving(fm.id);
     try {
@@ -281,6 +299,7 @@ export function MappingTable({
       onMappingUpdate(updated);
       if (newStatus === 'accepted' || newStatus === 'rejected') {
         recordMappingEvent(updated, newStatus);
+        recordReviewDecision(updated, newStatus);
       }
       void refreshAuditSummary();
     } catch {
@@ -289,6 +308,7 @@ export function MappingTable({
       onMappingUpdate(optimistic);
       if (newStatus === 'accepted' || newStatus === 'rejected') {
         recordMappingEvent(optimistic, newStatus);
+        recordReviewDecision(optimistic, newStatus);
       }
       void refreshAuditSummary();
     } finally {

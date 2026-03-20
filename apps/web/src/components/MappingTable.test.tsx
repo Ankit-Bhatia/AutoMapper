@@ -117,6 +117,9 @@ describe('MappingTable', () => {
       if (typeof path === 'string' && path.includes('/api/org/default/mapping-events')) {
         return { ok: true };
       }
+      if (typeof path === 'string' && path.includes('/api/review-decisions')) {
+        return undefined;
+      }
       if (typeof path === 'string' && path.includes('/api/field-mappings/fm-1')) {
         return {
           fieldMapping: {
@@ -147,6 +150,19 @@ describe('MappingTable', () => {
       expect(screen.getByText('1 of 1 accepted')).toBeInTheDocument();
       expect(screen.getByText('1 accepted')).toBeInTheDocument();
     });
+
+    expect(apiMock).toHaveBeenCalledWith(
+      '/api/review-decisions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          sourceFieldId: 'NAME1',
+          targetFieldId: 'Name',
+          action: 'accepted',
+          confidence: 0.82,
+        }),
+      }),
+    );
   });
 
   it('surfaces SchemaIntelligence badges and allows formula warnings to be acknowledged', async () => {

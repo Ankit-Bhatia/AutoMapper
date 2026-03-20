@@ -213,6 +213,10 @@ function mockApiCall<T>(path: string, init?: RequestInit): T {
     return buildMockProjectList() as T;
   }
 
+  if (method === 'POST' && path === '/api/review-decisions') {
+    return undefined as T;
+  }
+
   // POST /api/projects/:id/schema/:connectorId → no-op
   if (method === 'POST' && /\/schema\/[^/]+$/.test(path)) {
     if (path.endsWith('/schema/upload-file')) {

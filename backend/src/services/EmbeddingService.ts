@@ -1,3 +1,5 @@
+import { preloadReviewDecisionLearning } from './reviewDecisionLearning.js';
+
 /**
  * EmbeddingService — batch field embedding generation for semantic similarity.
  *
@@ -227,6 +229,8 @@ export async function buildEmbeddingCache(
   fields: EmbeddingFieldInput[],
   options: EmbeddingBuildOptions = {},
 ): Promise<EmbeddingBuildResult> {
+  preloadReviewDecisionLearning();
+
   if (fields.length === 0) {
     return { status: 'disabled', cache: null, attemptedProviders: [], reason: 'no fields supplied' };
   }

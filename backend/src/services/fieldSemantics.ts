@@ -1,5 +1,6 @@
 import type { DataType } from '../types.js';
 import { typeCompatibilityScore } from '../utils/typeUtils.js';
+import { getReviewDecisionAdjustment } from './reviewDecisionLearning.js';
 
 export type FieldIntent =
   | 'amount'
@@ -402,14 +403,20 @@ export function hybridSemanticSimilarity(
   source: FieldSemanticProfile,
   target: FieldSemanticProfile,
   embeddingScore?: number,
+  options: { sourceFieldId?: string; targetFieldId?: string } = {},
 ): {
   score: number;
   mode: 'embed' | 'concept' | 'intent';
   intentScore: number;
   conceptScore: number;
+  reviewAdjustment: number;
 } {
   const intentScore = intentSimilarity(source, target);
-  const conceptScore = conceptSimilarity(source, target);
+  const baseConceptScore = conceptSimilarity(source, target);
+  const reviewAdjustment = options.sourceFieldId && options.targetFieldId
+    ? getReviewDecisionAdjustment(options.sourceFieldId, options.targetFieldId).scoreDelta
+    : 0;
+  const conceptScore = Math.max(0, Math.min(1, baseConceptScore + reviewAdjustment));
 
   if (typeof embeddingScore === 'number') {
     return {
@@ -421,6 +428,7 @@ export function hybridSemanticSimilarity(
       mode: 'embed',
       intentScore,
       conceptScore,
+      reviewAdjustment,
     };
   }
 
@@ -434,6 +442,7 @@ export function hybridSemanticSimilarity(
     mode: conceptScore > intentScore ? 'concept' : 'intent',
     intentScore,
     conceptScore,
+    reviewAdjustment,
   };
 }
 

@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_RETRIEVAL_TOP_K, retrieveCandidatesForSource } from '../services/candidateRetrieval.js';
 
@@ -9,6 +12,10 @@ const makeField = (overrides: Record<string, unknown>) => ({
   dataType: 'string',
   complianceTags: [],
   ...overrides,
+});
+
+afterEach(() => {
+  delete process.env.REVIEW_DECISIONS_FILE;
 });
 
 describe('candidateRetrieval', () => {
@@ -197,5 +204,66 @@ describe('candidateRetrieval', () => {
 
     expect(result.shortlist.candidates[0]?.targetFieldName).toBe('Loan_Amount_formula__c');
     expect(result.rankedCandidates[0]?.evidence).toContain('schema intelligence medium match');
+  });
+
+  it('boosts accepted review-decision pairs above equivalent unboosted retrieval scores', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'automapper-review-learning-'));
+    const reviewFile = path.join(tempDir, 'review-decisions.jsonl');
+    process.env.REVIEW_DECISIONS_FILE = reviewFile;
+    fs.writeFileSync(reviewFile, '', 'utf8');
+
+    const sourceField = makeField({
+      id: 'src-tenure',
+      entityId: 'src-borrower',
+      name: 'CUST_TENURE_MONTHS',
+      label: 'Customer Tenure Months',
+      description: 'Months customer has been with institution',
+      dataType: 'integer',
+    });
+    const targetFields = [
+      makeField({
+        id: 'tgt-years',
+        entityId: 'tgt-party',
+        name: 'YearsWithFirm__c',
+        label: 'Years With Firm',
+        description: 'Customer relationship length',
+        dataType: 'integer',
+      }),
+      makeField({
+        id: 'tgt-relationship',
+        entityId: 'tgt-party',
+        name: 'RelationshipTenure__c',
+        label: 'Relationship Tenure',
+        description: 'Length of relationship in months',
+        dataType: 'integer',
+      }),
+    ];
+    const options = {
+      entityNamesById: new Map([
+        ['src-borrower', 'Borrower'],
+        ['tgt-party', 'PartyProfile'],
+      ]),
+    };
+
+    const baseline = retrieveCandidatesForSource(sourceField as never, targetFields as never, options);
+    const baselineYears = baseline.rankedCandidates.find((candidate) => candidate.targetField.id === 'tgt-years');
+
+    fs.writeFileSync(
+      reviewFile,
+      `${JSON.stringify({
+        ts: '2026-03-21T00:00:00.000Z',
+        sourceFieldId: 'CUST_TENURE_MONTHS',
+        targetFieldId: 'YearsWithFirm__c',
+        action: 'accepted',
+        confidence: 0.91,
+      })}\n`,
+      'utf8',
+    );
+
+    const boosted = retrieveCandidatesForSource(sourceField as never, targetFields as never, options);
+    const boostedYears = boosted.rankedCandidates.find((candidate) => candidate.targetField.id === 'tgt-years');
+
+    expect(boostedYears?.retrievalScore ?? 0).toBeGreaterThan(baselineYears?.retrievalScore ?? 0);
+    expect(boostedYears?.evidence).toContain('review learning +0.15 (accepted pair)');
   });
 });
