@@ -450,7 +450,10 @@ export function MappingStudioApp() {
       void loadProjectHistory();
       setStep('orchestrate');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Setup failed';
+      const rawMsg = err instanceof Error ? err.message : 'Setup failed';
+      const msg = rawMsg === 'Failed to fetch'
+        ? 'Cannot connect to the backend server. Make sure it is running on port 4000 (npm run dev in the backend folder).'
+        : rawMsg;
       void reportFrontendError({
         source: 'frontend',
         code: 'SETUP_FLOW_ERROR',

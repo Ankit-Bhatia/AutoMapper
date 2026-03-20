@@ -12,7 +12,13 @@ import cors from 'cors';
 import { createServer } from 'http';
 
 const app = express();
-app.use(cors());
+// Reflect the request origin (never '*') so credentials: 'include' works in the browser.
+// cors() without options sets Access-Control-Allow-Origin: * which the browser rejects
+// when fetch is called with credentials: 'include', producing "Failed to fetch".
+app.use(cors({
+  origin: (origin, cb) => cb(null, origin || 'http://localhost:5173'),
+  credentials: true,
+}));
 app.use(express.json({ limit: '4mb' }));
 
 const PORT = Number(process.env.PORT || 4000);
