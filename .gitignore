@@ -113,3 +113,6 @@ apps/web/vite.config.ts.timestamp-*.mjs
 # Local env backup and scratch directories
 backend/.env.save
 local-archive/
+
+# Benchmark runner output
+backend/benchmark-results.json
