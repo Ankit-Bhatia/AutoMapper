@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-20
+> **Last updated:** 2026-03-21
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -100,22 +100,27 @@ AutoMapper/
 
 ---
 
-## Current Board State (2026-03-16)
+## Current Board State (2026-03-21)
 
 ### ✅ Done — Stable
 
 | Area | What's shipped |
 |---|---|
 | **Core architecture** | Backend/frontend split, SSE orchestration, connector registry, FsStore + Prisma dual persistence |
-| **Connectors** | Jack Henry (SilverLake, CoreDirector, Symitar) — mock + live; Salesforce FSC — jsforce + mock; SAP S/4HANA — OData + sapParser; jXchange MCP stub |
-| **Agent pipeline** | 8-agent orchestration: SchemaDiscovery, Compliance, BankingDomain, CRMDomain, ERPDomain, **RiskClamDomain**, MappingProposal, MappingRationale, Validation |
+| **Connectors** | Jack Henry (SilverLake, CoreDirector, Symitar) — mock + live; Salesforce FSC — jsforce + mock + enriched FSC catalog; SAP S/4HANA — OData + sapParser; jXchange MCP stub |
+| **Agent pipeline** | 9-agent orchestration: SchemaDiscovery → SchemaIntelligence → Compliance → Banking/CRM/ERP/RiskClam → MappingProposal → MappingRationale → Validation |
 | **RiskClam / BOSL** | `RiskClamDomainAgent` with 3-layer confidence boost (synonym +0.22, prefix-type +0.10/−0.20, FSC namespace +0.06); `riskclam` added to `SystemType`; `inferSystemType()` detects BOSL/RiskClam names; entity boost table; registered in OrchestratorAgent |
-| **Schema Intelligence** | `SchemaIntelligenceAgent` (Step 2, active when `targetSystemType === 'salesforce'`): 6-step pipeline — field classification (system audit −0.40, formula −0.28, Person Account annotation, FSC namespace +0.06), XML taxonomy recognition (±type-compatibility), 212-entry BOSL→FSC confirmed pattern boost (+0.30 exact / +0.08 family), one-to-many detection (23 flagged fields), Caribbean domain glossary annotation, confidence & rationale enrichment. Data compiled in `schemaIntelligenceData.ts`. Reference markdowns in `backend/data/schema-intelligence/`. |
+| **Schema Intelligence** | `SchemaIntelligenceAgent` (Step 2): 6-step pipeline — field classification, XML taxonomy recognition, 212-entry BOSL→FSC confirmed pattern boost (+0.30 exact / +0.08 family), one-to-many detection (23 flagged fields), Caribbean domain glossary annotation. `GET /api/schema-intelligence/patterns` and `/one-to-many` endpoints. Sync script at `backend/src/scripts/syncSchemaIntelligence.ts`. |
+| **Schema Intelligence UI (KAN-78)** | `MappingTable` + `FieldMappingCard` surface all SchemaIntelligenceAgent metadata: confirmed-pattern green badge, formula-target amber warning (blocks Accept), one-to-many orange flag, Person Account blue annotation, Caribbean domain context. `SchemaIntelligenceMetadata` interface in `packages/contracts/types.ts`. |
+| **One-to-many resolver (KAN-79)** | `OneToManyResolverPanel.tsx` — dedicated routing step in workflow for 23 flagged BOSL source fields. Lists all candidate Salesforce targets with confidence and rationale. Pre/post-boarding lifecycle toggle hint. Export gated until all routing decisions confirmed. Persisted to `resolvedOneToManyMappings` on project. |
 | **Semantic mapping engine** | `fieldSemantics.ts` with semantic intent profiling, hard type-compatibility gates, LOS-prefix inference; `MappingProposalAgent` uses semantic+lexical+domain scoring |
 | **LLM multi-provider** | `LLMGateway`: Gemini 1.5 Flash → Anthropic → OpenAI → heuristic fallback; per-call timeout/retry; output token cap; env-configurable ambiguity band |
 | **BYOL (Bring Your Own LLM)** | `llmSettingsStore` (per-user config + usage, file-backed); `llmRuntimeContext` (AsyncLocalStorage injection); `GET/PUT /api/llm/config`, `GET /api/llm/usage`; `LLMSettingsPanel` UI: mode toggle, provider select, API key, model, custom base URL, pause toggle, "Use AutoMapper Default" button; usage dashboard: calls/tokens/failures/avg response/event log |
+| **LLM Settings global page (KAN-81)** | `LLMSettingsPage.tsx` — standalone sidebar destination reachable from any workflow step; `llm-settings` added as `WorkflowStep`; breadcrumb topbar + stat summary bar; dark/light theme toggle |
+| **Salesforce connector enrichment (KAN-83)** | `RecordType` model in Prisma (`sfRecordTypeId`, `name`, `label`, `isDefault`, `isActive`); `Entity.recordTypes` relation; live path reads `recordTypeInfos` from jsforce describe; mock includes rep. record types for Account/IndividualApplication/FinancialAccount. `isUpsertKey` on `ConnectorField`; `upsertKeys` map on `ConnectorSchema`. FSC objects (`FinServ__FinancialAccount__c`, `FinServ__FinancialAccountTransaction__c`, `FinServ__BillingStatement__c`, `FinServ__IndividualApplication__c`, `FinServ__FinancialGoal__c`, `FinServ__ReciprocalRole__c`) added to mock catalog with domain-correct field lists including `ExternalAccountId__c`. |
+| **Upsert key + record type scoring (KAN-84)** | `MappingProposalAgent.scoreTargetCandidate()` — `externalIdScore`: +0.25 (source key → SF upsert key), +0.15 (source key → SF externalId), −0.10 penalty (non-key source → upsert key target). `AgentContext.targetRecordTypes` populated from ConnectorSchema. Rationale annotated with applicable record type variants. `upsertKeyMappings` + `recordTypeAnnotations` in step summary event. |
 | **Project history** | `GET /api/projects` list endpoint (sorted by updatedAt, per-user owner filter, canExport flag); `ProjectHistoryPanel` UI: past projects with source→target, mapping count, conflict count, "Open Review" / "Open Export" buttons; reopen bypass (loads stored mappings, skips pipeline re-run) |
-| **Export** | 6 formats: JSON, YAML, CSV, MuleSoft DataWeave, Dell Boomi, Workato; `GET /api/projects/:id/export?format=...`; no pipeline re-run needed for past projects |
+| **Export (KAN-77)** | 6 formats: JSON, YAML, CSV, MuleSoft DataWeave, Dell Boomi, Workato; live mode uses `fetch(..., { credentials: 'include' })` against `API_BASE`; standalone/demo mode routes through `api<string>()` → `mockApiCall()`; inline `exportError` state shown on failure |
 | **Conflict resolution** | `conflicts.ts` service; `GET /api/projects/:id/conflicts`; `POST .../resolve`; `ConflictDrawer` slide-in with pick-winner UX |
 | **Audit trail** | `writeAuditEntry` helper; 7 action types; `GET /api/projects/:id/audit` cursor-paginated; `AuditLogTab` with icons, relative time, Load older |
 | **Bulk field ops** | `POST /api/mappings/bulk`, `POST /api/mappings/bulk-select`; `BulkActionBar` UI |
@@ -123,29 +128,30 @@ AutoMapper/
 | **Canonical schema** | 62-field ontology (4 domains); 100 system→canonical mappings; `GET /api/canonical/...` routes |
 | **BOSL workbook ingestion** | `mappingWorkbookParser.ts` reads Excel mapping sheets; `POST /api/projects/:projectId/import-mapping-workbook` upserts derived mappings; returns import summary + unresolved rows |
 | **Custom connectors** | Add Your Own System modal (REST/file tabs); PostgreSQL persistence via Prisma `CustomConnector` model + file-store fallback; rehydrated on login/session refresh |
-| **Auth** | JWT header-based; bcryptjs; `GET /api/auth/setup` (first-user auto-admin); httpOnly cookie path; `REQUIRE_AUTH=false` for local dev |
-| **Frontend workflow** | LandingPage → Connect (ConnectorGrid + ProjectHistory + LLMSettings) → Orchestrate (AgentPipeline SSE) → Review (MappingTable + ConflictDrawer + AuditLog) → Export |
-| **Orchestration reliability** | SSE completes cleanly on socket close after `orchestrate_complete`; stall detection uses heartbeat absence (not progress absence); ValidationAgent yields event loop in chunks; MappingRationaleAgent enforces LLM budget + degrades gracefully |
-| **KAN-85 — Embedding semantic scoring** | `EmbeddingService` with OpenAI-first / Gemini fallback; `embeddingCache` on `AgentContext`; `embeddings_ready/skipped/failed` orchestration events; `MappingProposalAgent` hybrid semantic scoring; `(embed)` in rationale when embeddings participate |
-| **KAN-86 — Top-K retrieval shortlist** | `candidateRetrieval.ts`, `DEFAULT_RETRIEVAL_TOP_K = 5`; `FieldMapping.retrievalShortlist` persisted on all mappings; `retrieval_ready` event; shortlist-consistency guard (AI/LLM overrides cannot select outside top-K); isolated `automapper_vitest` Postgres test database via `globalSetup.ts` + `setupEnv.ts` |
-| **KAN-87 — Structured reranker** | `structuredReranker.ts` — bounded to shortlist only; `buildRerankerPayload` with sibling context (2 before/after) + compliance cues; `FieldMapping.rerankerDecision: RerankerDecision` persisted; `reranker_complete` step event; `combinedConfidence = clamp01(0.65 × reranker + 0.35 × retrievalScore)`; BOSL→FSC fixture 20 pairs — baseline 8/20 → reranker 20/20 (mock) |
+| **Auth** | JWT header-based; bcryptjs; `GET /api/auth/setup` (first-user auto-admin); httpOnly cookie path; all async route handlers wrapped in try/catch (Express 4 safety); demo server includes auth stub endpoints; `SetupRoute` no longer redirects `unauthenticated` users away from `/setup` |
+| **Frontend workflow** | LandingPage → Connect → Orchestrate → Routing (one-to-many resolver) → Review → Export |
+| **Orchestration reliability** | SSE completes cleanly; stall detection uses heartbeat absence; ValidationAgent yields event loop in chunks; MappingRationaleAgent enforces LLM budget + degrades gracefully |
+| **KAN-85 — Embedding semantic scoring** | `EmbeddingService` with OpenAI-first / Gemini fallback; `embeddingCache` on `AgentContext`; `embeddings_ready/skipped/failed` events; `MappingProposalAgent` hybrid semantic scoring |
+| **KAN-86 — Top-K retrieval shortlist** | `candidateRetrieval.ts`, `DEFAULT_RETRIEVAL_TOP_K = 5`; `FieldMapping.retrievalShortlist` persisted; shortlist-consistency guard; isolated `automapper_vitest` Postgres test DB |
+| **KAN-87 — Structured reranker** | `structuredReranker.ts` — bounded to shortlist; sibling context + compliance cues; `FieldMapping.rerankerDecision` persisted; `reranker_complete` event; BOSL→FSC fixture 20/20 (mock) |
+| **KAN-88 — Global mapping optimizer** | `mappingOptimizer.ts` — 3-pass greedy: validity sweep, duplicate-target resolution, required field coverage. `optimizer_complete` event. `optimizerDisplacement` + `lowConfidenceFallback` on `FieldMapping`. |
+| **KAN-82 — Schema Intelligence sync** | `GET /api/schema-intelligence/patterns` (full corpus + `?field=` filter); `GET /api/schema-intelligence/one-to-many`; `backend/src/scripts/syncSchemaIntelligence.ts` diff script; `npm run sync:schema-intelligence`; `backend/data/schema-intelligence/README.md` |
+| **KAN-99 — Seed dedup fix** | `suggest-mappings` path now runs the global mapping optimizer over seed output before persisting — eliminates the 100+ duplicate-target collision bug where `CurrentBalance` had 101 source field claimants |
+| **KAN-100 — RiskClam FSC target universe** | Expanded mock FinancialAccount and related FSC objects to include domain-correct fields: `FinServ__PaymentAmount__c`, `FinServ__LoanAmount__c`, `Date_Credit_Approved__c`, `Residual_Income__c`, `Monthly_Payment__c` — fixes collapse onto generic balance fields |
+| **KAN-101 — RiskClam retrieval ranking** | `candidateRetrieval.ts` — Schema Intelligence match boost for same-object confirmed patterns; generic distractors penalized when source concept mismatches. Key deltas: `AMT_PAYMENT` → `Monthly_Payment__c` 0.777 (was 0.528); `DATE_APPROVAL` → `Date_Credit_Approved__c` 0.733 (was 0.520). 193/193 tests passing. |
+| **Open bug sweep (PR #24)** | Sweep of remaining Jira-tracked open bugs merged to main. |
 
 ### 🔄 In Progress / Known Gaps
 
 | Gap | Detail | Priority |
 |---|---|---|
-| **🔴 KAN-77 — Export downloads broken** | `ExportPanel.tsx` calls `fetch()` directly without `credentials: 'include'` — auth cookies never sent, so backend returns 401. In standalone/demo mode `apiBase()` returns `''` (empty string), making the request relative and hitting nothing. No user-facing error message shown on failure — error is silently swallowed to console only. | **HIGH — blocks demo** |
-| **🟠 KAN-78 — SchemaIntelligence UI invisible** | `SchemaIntelligenceAgent` is live in the pipeline and emits rich metadata (`confirmedPattern`, `isOneToMany`, `formulaTarget`, `personAccountOnly`) via `AgentStep.metadata`, but `MappingTable` and `FieldMappingCard` render none of it. Confirmed pattern hits, formula warnings, one-to-many flags, and FSC namespace badges need to surface in the Mapping Review UI. | HIGH |
-| **🟠 KAN-79 — One-to-many routing unresolved** | In progress on branch `codex/KAN-79-one-to-many-resolver`: adds `/api/schema-intelligence/patterns`, persisted `resolvedOneToManyMappings`, a dedicated `routing` workflow step, `OneToManyResolverPanel`, and export gating until routing decisions are confirmed. Pending PR review/merge. | HIGH |
-| **🟡 KAN-88 — Global mapping optimizer** | 3-pass greedy optimizer: (1) validity sweep — hard bans, type-compat, out-of-scope lookups; (2) duplicate target resolution — keep highest-confidence claimant, demote rest through shortlist; (3) required field coverage — promote only if `retrievalScore ≥ 0.30`. `optimizer_complete` step event. **Depends on KAN-87 (done) + KAN-90 for scope enforcement (in progress).** | HIGH — next dispatch |
-| **🟡 KAN-90 — Entity relationship graph** | `RelationshipGraph` on `AgentContext` with `buildRelationshipGraph`, `topologicalOrder`, `isInScope`; used by KAN-88 optimizer for lookup scope enforcement. Dispatched to Codex. | MEDIUM |
-| **🟡 KAN-95 — Audit logging crashes in no-DB mode** | `backend/src/db/audit.ts:28` calls `prisma.auditEntry.create()` unconditionally even when `DATABASE_URL` is unset. Produces repeated `PrismaClientInitializationError` log noise on every project creation and orchestration run. Needs a `isDatabaseAvailable()` guard that routes to a file-backed sink (or no-op) in FsStore mode. | MEDIUM |
-| **🟡 KAN-89 — Eval harness** | Gold benchmark + precision/recall tracking across pipeline runs. Depends on KAN-87 (done). Still in Backlog. | MEDIUM |
-| BYOL persistence (KAN-80) | `llm-configs.json` / `llm-usage.json` are file-backed — should migrate to Prisma `LLMUserConfig` + `LLMUsageEvent` models before hosted/multi-tenant deployment | Medium |
-| LLM Settings as global page (KAN-81) | Currently only accessible on the Connect step; a sidebar-reachable settings page would be cleaner | Medium |
-| Schema Intelligence sync (KAN-82) | `schemaIntelligenceData.ts` is a hand-compiled TypeScript snapshot of the markdown reference files. A `syncSchemaIntelligence.ts` diff script + `GET /api/schema-intelligence/patterns` endpoint is needed to keep them in sync and expose the corpus to external tools. | Low |
-| `GET /api/projects` pagination | List reads from in-memory FsStore; needs `limit`/`cursor` pagination at scale | Low |
-| **Reranker runtime wins** | No `rerankerDecision` was persisted in the first real-LLM smoke run (2026-03-16). `shouldUseReranker` may not be triggering at runtime because all mappings are already decisive, or the LLM is returning confidence < 0.55 threshold. Needs investigation alongside KAN-88 domain work. | Low (observation) |
+| **Auth fix branch pending push** | Branch `fix/auth-setup-and-landing-bugs` (commit `aa08c87`) fixes 4 bugs: try/catch in all async auth routes, demo server auth stubs, `SetupRoute` redirect loop, landing page timing bars. Committed locally — needs `git push -u origin fix/auth-setup-and-landing-bugs` from Ankit's Mac then a PR. | HIGH |
+| **🟡 KAN-90 — Entity relationship graph** | `RelationshipGraph` on `AgentContext` with `buildRelationshipGraph`, `topologicalOrder`, `isInScope`; used by KAN-88 optimizer for lookup scope enforcement (`TODO(KAN-90)` stub in `mappingOptimizer.ts`). In Backlog. | MEDIUM |
+| **🟡 KAN-89 — Eval harness + active learning** | Gold benchmark + precision/recall tracking across pipeline runs; active learning loop feeding accepted mappings back into the corpus. Foundation of the mapping intelligence flywheel. In Backlog. | MEDIUM |
+| **🟡 KAN-91 — Salesforce validation rule extraction** | Extract Salesforce validation rules from jsforce describe output and surface them as mapping constraints/warnings in the Review screen. In Backlog. | MEDIUM |
+| **🟡 KAN-95 — Audit logging crashes in no-DB mode** | `backend/src/db/audit.ts` calls `prisma.auditEntry.create()` unconditionally even when `DATABASE_URL` is unset — repeated `PrismaClientInitializationError` log noise. Needs `isDatabaseAvailable()` guard + file-backed fallback. | MEDIUM |
+| **BYOL persistence (KAN-80)** | `llm-configs.json` / `llm-usage.json` are file-backed — should migrate to Prisma `LLMUserConfig` + `LLMUsageEvent` models before hosted/multi-tenant deployment. | Medium |
+| **`GET /api/projects` pagination** | List reads from in-memory FsStore; needs `limit`/`cursor` pagination at scale. | Low |
 
 ### 🟡 Parked (H2)
 
@@ -216,10 +222,28 @@ cd apps/web && npm test
 
 ---
 
+## Next Codex Work Queue (2026-03-21)
+
+Board is clear. All Testing tickets moved to Done. Next dispatch in priority order:
+
+1. **KAN-89** — Phase 5 matcher upgrade: benchmark harness + active learning loop from accepted mappings. This is the flywheel — every accepted mapping feeds confidence scores back into the corpus. Foundation of durable mapping intelligence. (Medium priority, no dependencies.)
+2. **KAN-90** — Entity relationship graph: `RelationshipGraph` on `AgentContext`, `buildRelationshipGraph`, `topologicalOrder`, `isInScope`. Unblocks the `TODO(KAN-90)` scope-enforcement stub in `mappingOptimizer.ts`. (Medium priority.)
+3. **KAN-91** — Salesforce validation rule extraction: surface validation rule constraints from jsforce describe output as mapping warnings in the Review screen. (Medium priority.)
+4. **KAN-95** — Audit logging no-DB crash: add `isDatabaseAvailable()` guard in `backend/src/db/audit.ts`. (Medium priority, quick fix.)
+5. **KAN-80** — BYOL LLM config migrate to Prisma. (Medium priority, pre-multi-tenant requirement.)
+
+---
+
 ## Recent Delivery Log
 
-### 2026-03-20 — Codex
-- **KAN-79 implemented on branch `codex/KAN-79-one-to-many-resolver`** — one-to-many routing decision flow added end-to-end.
+### 2026-03-21 — Codex (PRs #21–24, main)
+- **KAN-99 — Seed dedup fix (PR #21):** `suggest-mappings` now runs the global mapping optimizer before persisting seed output. Eliminates the duplicate-target explosion (101 source fields mapping to `CurrentBalance`).
+- **KAN-100 — RiskClam FSC target universe (PR #22):** Expanded mock FinancialAccount to include `FinServ__PaymentAmount__c`, `FinServ__LoanAmount__c`, `Date_Credit_Approved__c`, `Residual_Income__c`, `Monthly_Payment__c`, `Total_Assets__c` and related fields. Fixes collapse onto generic balance targets.
+- **KAN-101 — RiskClam retrieval ranking (PR #23):** `candidateRetrieval.ts` — Schema Intelligence confirmed-pattern boost for same-object matches; generic distractors penalized on concept mismatch. `AMT_PAYMENT` → `Monthly_Payment__c` 0.777 (was 0.528); `DATE_APPROVAL` → `Date_Credit_Approved__c` 0.733 (was 0.520). 193/193 tests passing.
+- **Open bug sweep (PR #24):** Remaining tracked Jira bugs resolved.
+
+### 2026-03-20 — Codex (PR #20)
+- **KAN-79 — One-to-many resolver** — one-to-many routing decision flow added end-to-end.
   - Added `GET /api/schema-intelligence/patterns` and `POST /api/projects/:id/one-to-many-resolutions` in `backend/src/index.ts`.
   - Added `resolvedOneToManyMappings` persistence in both Prisma-backed and FsStore-backed project paths (`backend/src/db/dbStore.ts`, `backend/src/utils/fsStore.ts`, Prisma migration `20260318023500_add_one_to_many_routing_resolutions`).
   - Added `schemaIntelligencePatterns.ts` helper service + backend tests.
