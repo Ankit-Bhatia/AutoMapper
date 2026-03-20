@@ -362,6 +362,14 @@ export interface OrchestrationEvent {
   totalMappings?: number;
   complianceFlags?: number;
   processingMs?: number;
+  /** Source system type emitted in the 'start' SSE event (e.g. 'jackhenry', 'sap'). */
+  sourceSystemType?: string;
+  /** Target system type emitted in the 'start' SSE event (e.g. 'salesforce'). */
+  targetSystemType?: string;
+  /** LLM provider key emitted in the 'start' SSE event. */
+  llmProvider?: string;
+  /** Whether an LLM is available, emitted in the 'start' SSE event. */
+  hasLLM?: boolean;
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────

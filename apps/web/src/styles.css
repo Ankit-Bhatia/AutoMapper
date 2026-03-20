@@ -952,6 +952,26 @@ body {
   display: none;
 }
 
+.pipeline-diagnostic-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 36px 12px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.pipeline-diagnostic-icon {
+  flex-shrink: 0;
+  color: var(--accent-primary);
+  opacity: 0.8;
+}
+
 .pipeline-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

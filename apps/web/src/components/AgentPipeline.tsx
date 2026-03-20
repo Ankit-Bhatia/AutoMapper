@@ -2,12 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentStepState, EntityMapping, FieldMapping, OrchestrationEvent, ValidationReport } from '@contracts';
 import { api, apiBase, getEventSource, isDemoUiMode, MockEventSource } from '@core/api-client';
 
-// The 7 agents in orchestration order
-const AGENT_DEFS: { id: string; label: string; description: string }[] = [
+// All 10 agents in pipeline execution order.
+// Core agents always run; domain agents are conditional on source/target system type.
+const AGENT_DEFS: { id: string; label: string; description: string; domain?: boolean }[] = [
   {
     id: 'SchemaDiscoveryAgent',
     label: 'Schema Discovery',
     description: 'Validates ingested schemas and computes entity-level statistics.',
+  },
+  {
+    id: 'SchemaIntelligenceAgent',
+    label: 'Schema Intelligence',
+    description: 'Applies semantic schema understanding and cross-system metadata enrichment.',
   },
   {
     id: 'ComplianceAgent',
@@ -17,12 +23,26 @@ const AGENT_DEFS: { id: string; label: string; description: string }[] = [
   {
     id: 'BankingDomainAgent',
     label: 'Banking Domain',
-    description: 'Detects numeric code fields and short-code enumerations.',
+    description: 'Detects numeric code fields and short-code enumerations (Jack Henry / core banking).',
+    domain: true,
   },
   {
     id: 'CRMDomainAgent',
     label: 'CRM Domain',
-    description: 'Analyses CRM object relationships and picklist coverage.',
+    description: 'Analyses CRM object relationships and picklist coverage (Salesforce FSC).',
+    domain: true,
+  },
+  {
+    id: 'ERPDomainAgent',
+    label: 'ERP Domain',
+    description: 'Analyses SAP/ERP entity structures and finance field patterns.',
+    domain: true,
+  },
+  {
+    id: 'RiskClamDomainAgent',
+    label: 'Risk Domain',
+    description: 'Detects risk, claims, and actuarial field patterns.',
+    domain: true,
   },
   {
     id: 'MappingProposalAgent',
@@ -40,6 +60,27 @@ const AGENT_DEFS: { id: string; label: string; description: string }[] = [
     description: 'Checks type compatibility, required coverage, picklist gaps.',
   },
 ];
+
+// Core agents that always run regardless of source/target system types.
+const CORE_AGENT_IDS = new Set([
+  'SchemaDiscoveryAgent',
+  'SchemaIntelligenceAgent',
+  'ComplianceAgent',
+  'MappingProposalAgent',
+  'MappingRationaleAgent',
+  'ValidationAgent',
+]);
+
+// Which domain agent is activated by each source/target system type.
+// Keys are lowercase system type strings; values are agent IDs.
+const SOURCE_TYPE_DOMAIN_AGENT: Record<string, string> = {
+  jackhenry: 'BankingDomainAgent',
+  sap: 'ERPDomainAgent',
+  riskclam: 'RiskClamDomainAgent',
+};
+const TARGET_TYPE_DOMAIN_AGENT: Record<string, string> = {
+  salesforce: 'CRMDomainAgent',
+};
 
 const MIN_STEP_VISIBLE_MS = 750;
 const MIN_PIPELINE_VISIBLE_MS = 6000;
@@ -62,8 +103,8 @@ const MAJOR_STAGE_DEFS: Array<{
   {
     id: 'schema-discovery',
     label: 'Schema Discovery',
-    description: 'Validate source and target metadata before orchestration.',
-    agents: ['SchemaDiscoveryAgent'],
+    description: 'Validate source and target metadata; apply cross-system schema enrichment.',
+    agents: ['SchemaDiscoveryAgent', 'SchemaIntelligenceAgent'],
   },
   {
     id: 'compliance-scan',
@@ -74,8 +115,9 @@ const MAJOR_STAGE_DEFS: Array<{
   {
     id: 'domain-analysis',
     label: 'Domain Analysis',
-    description: 'Apply banking and CRM context before mapping selection.',
-    agents: ['BankingDomainAgent', 'CRMDomainAgent'],
+    description: 'Apply source/target domain context before mapping selection.',
+    // All four domain agents listed; visibleAgentIds filtering trims non-applicable ones at runtime.
+    agents: ['BankingDomainAgent', 'CRMDomainAgent', 'ERPDomainAgent', 'RiskClamDomainAgent'],
   },
   {
     id: 'mapping-and-validation',
@@ -103,6 +145,10 @@ interface AgentPipelineProps {
   targetConnectorName?: string;
   sourceSchemaMode?: 'live' | 'mock' | 'uploaded';
   targetSchemaMode?: 'live' | 'mock' | 'uploaded';
+  /** System type key for the source connector (e.g. 'jackhenry', 'sap', 'riskclam'). Used to pre-select applicable domain agents before the pipeline runs. Updated from the SSE start event. */
+  sourceSystemType?: string;
+  /** System type key for the target connector (e.g. 'salesforce'). */
+  targetSystemType?: string;
 }
 
 function normalizeAgentToken(value: string): string {
@@ -125,10 +171,13 @@ const AGENT_ALIAS_MAP: Map<string, string> = (() => {
 function inferAgentFromAction(action?: string): string | null {
   if (!action) return null;
   const normalized = action.trim().toLowerCase();
+  if (normalized.startsWith('schema_intel')) return 'SchemaIntelligenceAgent';
   if (normalized.startsWith('schema_')) return 'SchemaDiscoveryAgent';
   if (normalized.startsWith('compliance_')) return 'ComplianceAgent';
   if (normalized.startsWith('banking_')) return 'BankingDomainAgent';
   if (normalized.startsWith('crm_')) return 'CRMDomainAgent';
+  if (normalized.startsWith('erp_')) return 'ERPDomainAgent';
+  if (normalized.startsWith('riskclam_') || normalized.startsWith('risk_clam_')) return 'RiskClamDomainAgent';
   if (normalized.startsWith('mapping_proposal_') || normalized.startsWith('llm_')) return 'MappingProposalAgent';
   if (normalized.startsWith('rationale_')) return 'MappingRationaleAgent';
   if (normalized.startsWith('validation_')) return 'ValidationAgent';
@@ -222,6 +271,8 @@ export function AgentPipeline({
   targetConnectorName,
   sourceSchemaMode,
   targetSchemaMode,
+  sourceSystemType: sourceSystemTypeProp,
+  targetSystemType: targetSystemTypeProp,
 }: AgentPipelineProps) {
   const demoUiMode = isDemoUiMode();
   const [steps, setSteps] = useState<AgentStepState[]>(() => createInitialSteps());
@@ -245,6 +296,9 @@ export function AgentPipeline({
   const [elapsedMs, setElapsedMs] = useState(0);
   const [hasLLM, setHasLLM] = useState(false);
   const [llmProvider, setLlmProvider] = useState<string | null>(null);
+  // Detected system types — initialised from props, authoritative update comes from SSE 'start' event.
+  const [detectedSourceType, setDetectedSourceType] = useState<string | null>(sourceSystemTypeProp ?? null);
+  const [detectedTargetType, setDetectedTargetType] = useState<string | null>(targetSystemTypeProp ?? null);
   const esCurrent = useRef<EventSource | MockEventSource | null>(null);
   const logBodyRef = useRef<HTMLDivElement | null>(null);
   const finishedRef = useRef(false);
@@ -518,6 +572,9 @@ export function AgentPipeline({
         if (eventType === 'start') {
           setHasLLM(Boolean(data.hasLLM));
           setLlmProvider(data.llmProvider ?? null);
+          // Authoritative system type info from the backend — overrides prop values.
+          if (data.sourceSystemType) setDetectedSourceType(String(data.sourceSystemType).toLowerCase());
+          if (data.targetSystemType) setDetectedTargetType(String(data.targetSystemType).toLowerCase());
           return;
         }
 
@@ -747,36 +804,70 @@ export function AgentPipeline({
     setElapsedMs(result.processingMs);
   }, [done, result]);
 
+  // ── Visible agent computation ─────────────────────────────────────────────
+  // Mirrors backend OrchestratorAgent domain-agent selection logic.
+  // Core agents always run; domain agents are activated by detected system types.
+  // If neither system type is known yet, show all agents as a safe fallback.
+  const visibleAgentIds = useMemo<Set<string>>(() => {
+    const ids = new Set<string>(CORE_AGENT_IDS);
+    const src = detectedSourceType?.toLowerCase() ?? null;
+    const tgt = detectedTargetType?.toLowerCase() ?? null;
+
+    if (!src && !tgt) {
+      // System types unknown — show all agents so the UI isn't unexpectedly sparse.
+      for (const def of AGENT_DEFS) ids.add(def.id);
+    } else {
+      if (src && SOURCE_TYPE_DOMAIN_AGENT[src]) ids.add(SOURCE_TYPE_DOMAIN_AGENT[src]);
+      if (tgt && TARGET_TYPE_DOMAIN_AGENT[tgt]) ids.add(TARGET_TYPE_DOMAIN_AGENT[tgt]);
+    }
+    return ids;
+  }, [detectedSourceType, detectedTargetType]);
+
+  // Filtered view of steps for UI rendering and progress tracking.
+  // The underlying `steps` state still holds all agents so event handling works correctly.
+  const visibleSteps = useMemo(
+    () => steps.filter((step) => visibleAgentIds.has(step.id)),
+    [steps, visibleAgentIds],
+  );
+
   const completedAgents = useMemo(
-    () => steps.filter((step) => step.status === 'done').length,
-    [steps],
+    () => visibleSteps.filter((step) => step.status === 'done').length,
+    [visibleSteps],
   );
 
   const activeAgent = useMemo(
-    () => steps.find((step) => step.status === 'running') ?? null,
-    [steps],
+    () => visibleSteps.find((step) => step.status === 'running') ?? null,
+    [visibleSteps],
   );
 
   const selectedAgent = useMemo(
-    () => steps.find((step) => step.id === selectedAgentId) ?? activeAgent ?? steps[0] ?? null,
-    [activeAgent, selectedAgentId, steps],
+    () => visibleSteps.find((step) => step.id === selectedAgentId) ?? activeAgent ?? visibleSteps[0] ?? null,
+    [activeAgent, selectedAgentId, visibleSteps],
   );
 
-  const majorStages = useMemo(
-    () => MAJOR_STAGE_DEFS.map((stage) => {
-      const stageSteps = steps.filter((step) => stage.agents.includes(step.id));
+  const majorStages = useMemo(() => {
+    // For each stage, restrict domain-analysis to only visible domain agents so
+    // non-applicable agents don't permanently block the stage from reaching 'done'.
+    const effectiveDefs = MAJOR_STAGE_DEFS.map((stage) => ({
+      ...stage,
+      agents: stage.agents.filter((id) => visibleAgentIds.has(id)),
+    })).filter((stage) => stage.agents.length > 0); // hide empty stages entirely
+
+    return effectiveDefs.map((stage) => {
+      const stageSteps = visibleSteps.filter((step) => stage.agents.includes(step.id));
       const completed = stageSteps.filter((step) => step.status === 'done').length;
       return {
         ...stage,
-        status: stageStatusForAgents(steps, stage.agents),
+        status: stageStatusForAgents(visibleSteps, stage.agents),
         completed,
         total: stageSteps.length,
       };
-    }),
-    [steps],
-  );
+    });
+  }, [visibleSteps, visibleAgentIds]);
 
-  const progressPct = Math.round((completedAgents / AGENT_DEFS.length) * 100);
+  const progressPct = visibleSteps.length > 0
+    ? Math.round((completedAgents / visibleSteps.length) * 100)
+    : 0;
 
   const pipelineStatus = done
     ? 'completed'
@@ -789,7 +880,7 @@ export function AgentPipeline({
   const statusLabel = done
     ? 'Completed'
     : running
-      ? `Agent ${Math.min(AGENT_DEFS.length, completedAgents + 1)}/${AGENT_DEFS.length}`
+      ? `Agent ${Math.min(visibleSteps.length, completedAgents + 1)}/${visibleSteps.length}`
       : error
         ? 'Error'
         : 'Ready';
@@ -808,9 +899,25 @@ export function AgentPipeline({
       ? `${llmProvider.toUpperCase()} + Context`
       : 'LLM + Context')
     : 'Context Only';
-  const subtitle = `${sourceConnectorName ?? 'Source'} → ${targetConnectorName ?? 'Target'} · 7-agent automated mapping workflow`;
+  const subtitle = `${sourceConnectorName ?? 'Source'} → ${targetConnectorName ?? 'Target'} · ${visibleSteps.length}-agent automated mapping workflow`;
 
   const selectedAgentDef = selectedAgent ? AGENT_DEFS.find((agent) => agent.id === selectedAgent.id) : null;
+
+  // ── Diagnostic banner data ─────────────────────────────────────────────────
+  const activeDomainAgentLabels = useMemo(() => {
+    return AGENT_DEFS
+      .filter((def) => def.domain && visibleAgentIds.has(def.id))
+      .map((def) => def.label.replace(' Domain', '').replace(' (', '').replace(')', ''));
+  }, [visibleAgentIds]);
+
+  const diagnosticBannerVisible = Boolean(detectedSourceType || detectedTargetType);
+
+  const diagnosticLabel = useMemo(() => {
+    const srcLabel = detectedSourceType ? detectedSourceType.charAt(0).toUpperCase() + detectedSourceType.slice(1) : '–';
+    const tgtLabel = detectedTargetType ? detectedTargetType.charAt(0).toUpperCase() + detectedTargetType.slice(1) : '–';
+    const domainStr = activeDomainAgentLabels.length > 0 ? activeDomainAgentLabels.join(', ') : 'None';
+    return `Detected domains: Source=${srcLabel}, Target=${tgtLabel}. Active domain agents: ${domainStr}.`;
+  }, [detectedSourceType, detectedTargetType, activeDomainAgentLabels]);
 
   return (
     <div className="pipeline-page">
@@ -840,10 +947,20 @@ export function AgentPipeline({
         </div>
       </div>
 
+      {diagnosticBannerVisible && (
+        <div className="pipeline-diagnostic-banner" role="status" aria-live="polite">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="pipeline-diagnostic-icon">
+            <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M8 5v4M8 11v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <span>{diagnosticLabel}</span>
+        </div>
+      )}
+
       <div className="pipeline-summary-grid">
         <div className="pipeline-summary-card">
           <div className="pipeline-summary-label">Completed agents</div>
-          <div className="pipeline-summary-value">{completedAgents}/{AGENT_DEFS.length}</div>
+          <div className="pipeline-summary-value">{completedAgents}/{visibleSteps.length}</div>
         </div>
         <div className="pipeline-summary-card">
           <div className="pipeline-summary-label">Runtime</div>
@@ -905,7 +1022,7 @@ export function AgentPipeline({
         <div className="pipeline-main-stack">
           <div className="pipeline-main">
             <div className="pipeline-graph" role="list" aria-label="Agent pipeline graph">
-              {steps.map((step, i) => {
+              {visibleSteps.map((step, i) => {
                 const nodeDone = done || step.status === 'done';
                 const nodeStatus = nodeDone ? 'done' : step.status;
                 const nodeCount = fieldCounts[step.id];
@@ -932,7 +1049,7 @@ export function AgentPipeline({
                         <div className="pipeline-node-count">{nodeCount} fields</div>
                       )}
                     </button>
-                    {i < steps.length - 1 && (
+                    {i < visibleSteps.length - 1 && (
                       <div className={`pipeline-beam ${nodeDone ? 'pipeline-beam--active' : ''}`} aria-hidden />
                     )}
                   </div>
