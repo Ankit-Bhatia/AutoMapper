@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Prisma } from '@prisma/client';
 import type { DbStore } from '../db/dbStore.js';
+import type { FsStore } from '../utils/fsStore.js';
 import { prisma } from '../db/prismaClient.js';
 import { defaultRegistry } from '../../../packages/connectors/ConnectorRegistry.js';
 import type { ConnectorCredentials } from '../../../packages/connectors/IConnector.js';
@@ -448,7 +449,7 @@ function defaultSalesforceObjectsForProject(
   return SALESFORCE_STANDARD_OBJECTS;
 }
 
-export function setupConnectorRoutes(app: Express, store: DbStore): void {
+export function setupConnectorRoutes(app: Express, store: DbStore | FsStore): void {
   const upload = multer({ limits: { fileSize: 8 * 1024 * 1024 } });
   void ensureCustomConnectorBackfill();
 

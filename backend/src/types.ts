@@ -223,6 +223,7 @@ export interface AppState {
   projects: MappingProject[];
   entityMappings: EntityMapping[];
   fieldMappings: FieldMapping[];
+  auditEntries: AuditEntry[];
 }
 
 export interface SuggestMappingsResponse {
@@ -236,4 +237,33 @@ export interface SeedSummary {
   fromCanonical: number;
   fromAgent: number;
   total: number;
+}
+
+export type AuditAction =
+  | 'mapping_suggested'
+  | 'mapping_accepted'
+  | 'mapping_rejected'
+  | 'mapping_modified'
+  | 'conflict_resolved'
+  | 'project_created'
+  | 'project_exported';
+
+export interface AuditActor {
+  userId: string;
+  email: string;
+  role: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  projectId: string;
+  actor: AuditActor;
+  action: AuditAction;
+  targetType: 'field_mapping' | 'project' | 'conflict';
+  targetId: string;
+  diff?: {
+    before?: unknown;
+    after?: unknown;
+  };
+  timestamp: string;
 }

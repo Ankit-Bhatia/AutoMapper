@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AuditAction, AuditEntry } from '@contracts';
 import { api } from '@core/api-client';
 
@@ -9,11 +9,10 @@ interface AuditLogResponse {
 
 interface AuditLogTabProps {
   projectId: string;
-  onRecentEntriesChange?: (hasRecent: boolean) => void;
 }
 
 const ACTION_LABELS: Record<AuditAction, string> = {
-  mapping_suggested: 'suggested mappings',
+  mapping_suggested: 'generated mappings',
   mapping_accepted: 'accepted a mapping',
   mapping_rejected: 'rejected a mapping',
   mapping_modified: 'modified a mapping',
@@ -47,19 +46,82 @@ function formatRelativeTime(timestamp: string): string {
   return new Date(timestamp).toLocaleString();
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function formatActor(entry: AuditEntry): string {
+  if (entry.actor.userId === 'demo-admin' || entry.actor.email === 'demo.admin@automapper.local') {
+    return 'Demo Admin';
+  }
+  if (entry.actor.email === 'unknown' || entry.actor.userId === 'unknown') {
+    return 'Anonymous';
+  }
+  return entry.actor.email || entry.actor.userId || 'Anonymous';
+}
+
+function formatAuditSummary(entry: AuditEntry): string | null {
+  const before = asRecord(entry.diff?.before);
+  const after = asRecord(entry.diff?.after);
+
+  switch (entry.action) {
+    case 'project_created':
+      return typeof after?.name === 'string' ? `Project: ${after.name}` : 'Project workspace initialized.';
+    case 'mapping_suggested': {
+      const entityCount = typeof after?.entityMappings === 'number' ? after.entityMappings : null;
+      const fieldCount = typeof after?.fieldMappings === 'number' ? after.fieldMappings : null;
+      if (fieldCount !== null && entityCount !== null) {
+        return `${fieldCount} initial field mappings across ${entityCount} entity pairs.`;
+      }
+      return 'Initial mapping suggestions generated.';
+    }
+    case 'mapping_accepted':
+    case 'mapping_rejected':
+    case 'mapping_modified': {
+      const nextStatus = typeof after?.status === 'string' ? after.status : null;
+      const prevStatus = typeof before?.status === 'string' ? before.status : null;
+      const nextTransform = asRecord(after?.transform);
+      const transformType = typeof nextTransform?.type === 'string' ? nextTransform.type : null;
+      if (prevStatus && nextStatus && prevStatus !== nextStatus) {
+        return `Status changed from ${prevStatus} to ${nextStatus}.`;
+      }
+      if (transformType) {
+        return `Transform set to ${transformType}.`;
+      }
+      return 'Mapping state updated.';
+    }
+    case 'conflict_resolved': {
+      const unresolved = typeof after?.unresolvedConflicts === 'number' ? after.unresolvedConflicts : null;
+      const statuses = Array.isArray(after?.statuses) ? after.statuses.length : null;
+      if (unresolved !== null && statuses !== null) {
+        return `${statuses} competing mappings reviewed; ${unresolved} unresolved conflicts remain.`;
+      }
+      return 'Conflict resolution saved.';
+    }
+    case 'project_exported': {
+      const format = typeof after?.format === 'string' ? after.format.toUpperCase() : null;
+      return format ? `${format} export downloaded.` : 'Project export downloaded.';
+    }
+    default:
+      return null;
+  }
+}
+
 function AuditEntryRow({ entry }: { entry: AuditEntry }) {
   const label = ACTION_LABELS[entry.action] ?? entry.action;
   const icon = ACTION_ICONS[entry.action] ?? '•';
-  const diffText = entry.diff?.after ? JSON.stringify(entry.diff.after) : '';
+  const summary = formatAuditSummary(entry);
 
   return (
     <div className="audit-entry">
       <div className="audit-entry-icon">{icon}</div>
       <div className="audit-entry-body">
-        <span className="audit-actor">{entry.actor.email}</span>
-        {' '}
-        <span className="audit-action">{label}</span>
-        {diffText && <span className="audit-diff"> → {diffText}</span>}
+        <div className="audit-entry-title-row">
+          <span className="audit-actor">{formatActor(entry)}</span>
+          <span className="audit-action">{label}</span>
+        </div>
+        {summary && <div className="audit-diff">{summary}</div>}
       </div>
       <div className="audit-entry-time" title={new Date(entry.timestamp).toLocaleString()}>
         {formatRelativeTime(entry.timestamp)}
@@ -68,19 +130,10 @@ function AuditEntryRow({ entry }: { entry: AuditEntry }) {
   );
 }
 
-export function AuditLogTab({ projectId, onRecentEntriesChange }: AuditLogTabProps) {
+export function AuditLogTab({ projectId }: AuditLogTabProps) {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const hasRecent = useMemo(() => {
-    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-    return entries.some((entry) => new Date(entry.timestamp).getTime() >= dayAgo);
-  }, [entries]);
-
-  useEffect(() => {
-    onRecentEntriesChange?.(hasRecent);
-  }, [hasRecent, onRecentEntriesChange]);
 
   async function loadEntries(before?: string) {
     setLoading(true);
@@ -99,22 +152,30 @@ export function AuditLogTab({ projectId, onRecentEntriesChange }: AuditLogTabPro
   }, [projectId]);
 
   return (
-    <div className="audit-log">
-      {entries.map((entry) => (
-        <AuditEntryRow key={entry.id} entry={entry} />
-      ))}
-      {nextBefore && (
-        <button
-          className="btn btn--ghost"
-          onClick={() => void loadEntries(nextBefore)}
-          disabled={loading}
-        >
-          {loading ? 'Loading...' : 'Load older entries'}
-        </button>
-      )}
-      {entries.length === 0 && !loading && (
-        <p className="audit-empty">No activity recorded yet.</p>
-      )}
+    <div className="audit-log-shell">
+      <div className="audit-log-toolbar">
+        <div>
+          <div className="audit-log-title">Project Activity</div>
+          <div className="audit-log-subtitle">{entries.length} recent entr{entries.length === 1 ? 'y' : 'ies'}</div>
+        </div>
+      </div>
+      <div className="audit-log">
+        {entries.map((entry) => (
+          <AuditEntryRow key={entry.id} entry={entry} />
+        ))}
+        {nextBefore && (
+          <button
+            className="btn btn--ghost audit-log-more"
+            onClick={() => void loadEntries(nextBefore)}
+            disabled={loading}
+          >
+            {loading ? 'Loading...' : 'Load older entries'}
+          </button>
+        )}
+        {entries.length === 0 && !loading && (
+          <p className="audit-empty">No activity recorded yet.</p>
+        )}
+      </div>
     </div>
   );
 }

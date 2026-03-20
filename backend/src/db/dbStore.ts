@@ -165,6 +165,7 @@ export class DbStore {
         rationale: em.rationale,
       })),
       fieldMappings: fieldMappings.map(toFieldMapping),
+      auditEntries: [],
     };
   }
 

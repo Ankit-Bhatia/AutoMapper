@@ -1,10 +1,12 @@
 import { Router, type Request, type Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { authMiddleware } from '../auth/authMiddleware.js';
 import type { AuditAction } from '../db/audit.js';
-import { writeAuditEntry } from '../db/audit.js';
+import { materializeAuditEntry, writeAuditEntry } from '../db/audit.js';
 import type { AppState, Field, FieldMapping } from '../types.js';
 import { sendHttpError } from '../utils/httpErrors.js';
+import { FsStore } from '../utils/fsStore.js';
 
 const COMPLIANCE_TAGS = ['GLBA_NPI', 'BSA_AML', 'SOX_FINANCIAL', 'FFIEC_AUDIT', 'PCI_CARD'] as const;
 const BULK_OPERATIONS = [
@@ -99,12 +101,34 @@ function scopeProjectMappings(state: AppState, projectId: string): {
 }
 
 async function writeBulkAudit(
+  store: BulkStore,
   req: Request,
   projectId: string,
   operation: BulkOperation,
   result: BulkOperationResult,
   requestedCount: number,
 ): Promise<void> {
+  if (store instanceof FsStore) {
+    store.appendAuditEntry(materializeAuditEntry({
+      projectId,
+      actor: {
+        userId: req.user?.userId ?? 'unknown',
+        email: req.user?.email ?? 'unknown',
+        role: req.user?.role ?? 'unknown',
+      },
+      action: actionForBulkOperation(operation),
+      targetType: 'field_mapping',
+      targetId: randomUUID(),
+      after: {
+        operation,
+        requestedCount,
+        applied: result.applied,
+        skipped: result.skipped,
+        errorCount: result.errors.length,
+      },
+    }));
+    return;
+  }
   if (!process.env.DATABASE_URL) return;
   try {
     await writeAuditEntry({
@@ -116,7 +140,7 @@ async function writeBulkAudit(
       },
       action: actionForBulkOperation(operation),
       targetType: 'field_mapping',
-      targetId: projectId,
+      targetId: randomUUID(),
       after: {
         operation,
         requestedCount,
@@ -286,7 +310,7 @@ export function createBulkRouter(store: BulkStore) {
       }
     }
 
-    await writeBulkAudit(req, projectId, operation, result, mappingIds.length);
+    await writeBulkAudit(store, req, projectId, operation, result, mappingIds.length);
     res.json(result);
   });
 

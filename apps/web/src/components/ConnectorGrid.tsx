@@ -1008,7 +1008,7 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
               </div>
 
               {addTab === 'rest' ? (
-                <div className="connector-modal-grid">
+                <div key="rest-tab" className="connector-modal-grid">
                   <label className="connector-upload-field connector-upload-field--full">
                     <span className="form-label">Base URL</span>
                     <input
@@ -1069,7 +1069,7 @@ export function ConnectorGrid({ onProceed, loading = false }: ConnectorGridProps
                   )}
                 </div>
               ) : (
-                <div className="connector-modal-grid">
+                <div key="file-tab" className="connector-modal-grid">
                   <label className="connector-upload-field connector-upload-field--full">
                     <span className="form-label">Schema file</span>
                     <input

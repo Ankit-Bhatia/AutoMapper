@@ -278,19 +278,13 @@ export function LandingPage({ onEnterStudio }: LandingPageProps) {
                   {displayStageDurations.map((stage) => (
                     <div className="landing-stage-row" key={stage.id}>
                       <span>{stage.label}</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div
-                          style={{
-                            height: 4,
-                            borderRadius: 2,
-                            background: 'var(--primary)',
-                            opacity: 0.7,
-                            width: `${Math.round((stage.ms / Math.max(totalMs, 1)) * 100)}%`,
-                            minWidth: 8,
-                            maxWidth: 160,
-                            transition: 'width var(--transition-slow)',
-                          }}
-                        />
+                      <div className="landing-stage-metric">
+                        <div className="landing-stage-bar-track" aria-hidden="true">
+                          <div
+                            className="landing-stage-bar-fill"
+                            style={{ width: `${Math.max(16, Math.round((stage.ms / Math.max(totalMs, 1)) * 100))}%` }}
+                          />
+                        </div>
                         <strong>{stage.ms} ms</strong>
                       </div>
                     </div>

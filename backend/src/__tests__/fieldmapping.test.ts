@@ -78,8 +78,27 @@ describe('PATCH /api/field-mappings/:id in FsStore mode', () => {
           entities: [],
           fields: [],
           relationships: [],
-          projects: [],
-          entityMappings: [],
+          projects: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              name: 'FsStore Audit Project',
+              sourceSystemId: '22222222-2222-4222-8222-222222222222',
+              targetSystemId: '33333333-3333-4333-8333-333333333333',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          entityMappings: [
+            {
+              id: 'em-test-1',
+              projectId: '11111111-1111-4111-8111-111111111111',
+              sourceEntityId: '44444444-4444-4444-8444-444444444444',
+              targetEntityId: '55555555-5555-4555-8555-555555555555',
+              confidence: 0.64,
+              rationale: 'seed',
+            },
+          ],
+          auditEntries: [],
           fieldMappings: [
             {
               id: 'fm-test-1',
@@ -133,5 +152,19 @@ describe('PATCH /api/field-mappings/:id in FsStore mode', () => {
         status: 'accepted',
       },
     });
+
+    const persisted = JSON.parse(fs.readFileSync(dbPath, 'utf8')) as {
+      auditEntries?: Array<{ action: string; actor: { email: string } }>;
+    };
+    expect(persisted.auditEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'mapping_accepted',
+          actor: expect.objectContaining({
+            email: 'demo.admin@automapper.local',
+          }),
+        }),
+      ]),
+    );
   });
 });
