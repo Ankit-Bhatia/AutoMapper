@@ -12,8 +12,10 @@
  *     └─ ValidationAgent        (type-compatibility + coverage checks)
  */
 import type { SystemType, Entity, Field, EntityMapping, FieldMapping } from '../types.js';
+import type { Relationship } from '../types.js';
 import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
 import type { EmbeddingCache } from '../services/EmbeddingService.js';
+import type { RelationshipGraph } from '../services/relationshipGraph.js';
 
 /**
  * Context passed to every agent.run() call.
@@ -29,6 +31,8 @@ export interface AgentContext {
   targetEntities: Entity[];
   /** All fields (source + target). Use field.entityId to identify ownership. */
   fields: (Field | ConnectorField)[];
+  /** All scoped relationships (source + target systems) for the project. */
+  relationships?: Relationship[];
   entityMappings: EntityMapping[];
   fieldMappings: FieldMapping[];
   /**
@@ -38,6 +42,8 @@ export interface AgentContext {
    * intent-based semantic scoring transparently.
    */
   embeddingCache?: EmbeddingCache;
+  /** Relationship graph built once per pipeline run for scope checks and ordering. */
+  relationshipGraph?: RelationshipGraph;
   /** Called by agents to emit progress events (used for SSE streaming) */
   onStep?: (step: AgentStep) => void;
 }

@@ -31,6 +31,7 @@ import { ValidationAgent } from './ValidationAgent.js';
 import type { AgentContext, AgentResult, AgentStep, ComplianceReport } from './types.js';
 import type { FieldMapping } from '../types.js';
 import { buildEmbeddingCache } from '../services/EmbeddingService.js';
+import { buildRelationshipGraph } from '../services/relationshipGraph.js';
 
 export interface OrchestratorResult {
   updatedFieldMappings: FieldMapping[];
@@ -81,6 +82,11 @@ export class OrchestratorAgent extends AgentBase {
     const wrappedContext: AgentContext = {
       ...context,
       embeddingCache: embeddingResult.cache ?? undefined,
+      relationshipGraph: context.relationshipGraph
+        ?? buildRelationshipGraph(
+          [...context.sourceEntities, ...context.targetEntities],
+          context.relationships ?? [],
+        ),
       onStep: (step) => {
         allSteps.push(step);
         context.onStep?.(step);
