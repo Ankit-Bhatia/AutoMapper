@@ -77,21 +77,32 @@ export class OrchestratorAgent extends AgentBase {
     ]);
     const embeddingResult = await buildEmbeddingCache(context.fields, { entityNamesById });
     const embedMs = Date.now() - embedStart;
+    const relationshipGraph = context.relationshipGraph
+      ?? buildRelationshipGraph(
+        [...context.sourceEntities, ...context.targetEntities],
+        context.relationships ?? [],
+      );
 
     // Wrap onStep to collect all steps
     const wrappedContext: AgentContext = {
       ...context,
       embeddingCache: embeddingResult.cache ?? undefined,
-      relationshipGraph: context.relationshipGraph
-        ?? buildRelationshipGraph(
-          [...context.sourceEntities, ...context.targetEntities],
-          context.relationships ?? [],
-        ),
+      relationshipGraph,
       onStep: (step) => {
         allSteps.push(step);
         context.onStep?.(step);
       },
     };
+
+    this.info(
+      wrappedContext,
+      'relationship_graph_ready',
+      `Relationship graph ready with ${context.relationships?.length ?? 0} relationships across ${context.sourceEntities.length + context.targetEntities.length} entities`,
+      {
+        relationshipCount: context.relationships?.length ?? 0,
+        entityCount: context.sourceEntities.length + context.targetEntities.length,
+      },
+    );
 
     if (embeddingResult.status === 'ready' && embeddingResult.cache) {
       this.info(

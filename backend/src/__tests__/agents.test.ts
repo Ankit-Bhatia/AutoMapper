@@ -1143,6 +1143,33 @@ describe('OrchestratorAgent', () => {
     spy.mockRestore();
   });
 
+  it('emits relationship_graph_ready once the relationship graph is prepared', async () => {
+    const spy = vi.spyOn(EmbeddingService, 'buildEmbeddingCache').mockResolvedValue({
+      status: 'disabled',
+      cache: null,
+      attemptedProviders: [],
+      reason: 'no embedding provider key found',
+    });
+
+    const parentEntity = makeEntity({ id: 'parent-ent', systemId: 'tgt-sys', name: 'ParentAccount' });
+    const relationship = {
+      fromEntityId: 'tgt-ent',
+      toEntityId: 'parent-ent',
+      type: 'lookup' as const,
+      viaField: 'ParentId',
+    };
+    const result = await new OrchestratorAgent().orchestrate(makeContext({
+      targetEntities: [makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' }), parentEntity],
+      relationships: [relationship],
+    }));
+
+    expect(result.allSteps.find((step) => step.action === 'relationship_graph_ready')?.metadata).toMatchObject({
+      relationshipCount: 1,
+      entityCount: 3,
+    });
+    spy.mockRestore();
+  });
+
   it('emits embeddings_ready when embedding cache builds successfully', async () => {
     const spy = vi.spyOn(EmbeddingService, 'buildEmbeddingCache').mockResolvedValue({
       status: 'ready',
