@@ -241,6 +241,14 @@ Board is clear. All Testing tickets moved to Done. Next dispatch in priority ord
 
 ## Recent Delivery Log
 
+### 2026-03-25 — Codex (KAN-91 branch)
+- **KAN-91 — Salesforce validation rule extraction** — active Salesforce validation rules are now extracted through the existing jsforce connection and surfaced as review warnings.
+  - Added `packages/connectors/salesforceValidationRules.ts` to query active `ValidationRule` metadata and attach rule summaries to affected target fields.
+  - Updated both Salesforce schema paths (`packages/connectors/salesforce.ts`, `packages/connectors/SalesforceConnector.ts`) so fetched target fields can carry `validationRules` metadata in live mode; mock `Opportunity` metadata now includes a representative rule for local validation coverage.
+  - Extended field contracts and persistence to carry validation-rule hints (`packages/contracts/types.ts`, `packages/connectors/types.ts`, `backend/src/types.ts`, `backend/src/db/dbStore.ts`, Prisma migration `20260325094500_add_field_validation_rules`).
+  - `backend/src/services/validator.ts` now emits `validation_rule` warnings into the existing `ValidationReport`, which automatically surfaces in the Review screen and Export summary.
+  - Validation on branch: backend `tsc --noEmit` **pass**, backend `npm test -- --run` **201/201**, frontend typecheck **pass**, frontend `npm test -- --run` **41/41**, frontend build **pass**.
+
 ### 2026-03-21 — Codex (PRs #21–24, main)
 - **KAN-99 — Seed dedup fix (PR #21):** `suggest-mappings` now runs the global mapping optimizer before persisting seed output. Eliminates the duplicate-target explosion (101 source fields mapping to `CurrentBalance`).
 - **KAN-100 — RiskClam FSC target universe (PR #22):** Expanded mock FinancialAccount to include `FinServ__PaymentAmount__c`, `FinServ__LoanAmount__c`, `Date_Credit_Approved__c`, `Residual_Income__c`, `Monthly_Payment__c`, `Total_Assets__c` and related fields. Fixes collapse onto generic balance targets.

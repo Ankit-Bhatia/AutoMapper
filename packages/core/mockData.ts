@@ -194,7 +194,7 @@ export const mockValidation: ValidationReport = {
     { type: 'missing_required', message: 'Salesforce Account.Name is required. Ensure ShortName is always populated in source CIF records.' },
     { type: 'missing_required', message: 'Opportunity.CloseDate is required. MaturityDt must be present on all LoanAccount records before export.' },
   ],
-  summary: { totalWarnings: 5, typeMismatch: 2, missingRequired: 2, picklistCoverage: 1 },
+  summary: { totalWarnings: 5, typeMismatch: 2, missingRequired: 2, picklistCoverage: 1, validationRule: 0 },
 };
 
 // ── Full project payload ───────────────────────────────────────────────────────

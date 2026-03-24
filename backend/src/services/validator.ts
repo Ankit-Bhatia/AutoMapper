@@ -45,6 +45,20 @@ export function validateMappings(input: {
         });
       }
     }
+
+    for (const rule of target.validationRules ?? []) {
+      const referencedFields = rule.referencedFields?.filter((fieldName) => fieldName !== target.name) ?? [];
+      const referencedFieldText = referencedFields.length
+        ? ` Referenced fields: ${referencedFields.join(', ')}.`
+        : '';
+      const ruleDetail = rule.errorMessage ?? rule.description ?? 'Review target-side validation constraints before export.';
+      warnings.push({
+        type: 'validation_rule',
+        entityMappingId: fieldMapping.entityMappingId,
+        fieldMappingId: fieldMapping.id,
+        message: `Target field ${target.name} is governed by validation rule "${rule.name}" on ${rule.entityName}. ${ruleDetail}${referencedFieldText}`,
+      });
+    }
   }
 
   const fieldMappingsByEntityMap = new Map<string, FieldMapping[]>();
@@ -80,6 +94,7 @@ export function validateMappings(input: {
       typeMismatch: warnings.filter((w) => w.type === 'type_mismatch').length,
       missingRequired: warnings.filter((w) => w.type === 'missing_required').length,
       picklistCoverage: warnings.filter((w) => w.type === 'picklist_coverage').length,
+      validationRule: warnings.filter((w) => w.type === 'validation_rule').length,
     },
   };
 }

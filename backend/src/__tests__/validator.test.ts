@@ -116,6 +116,37 @@ describe('validateMappings', () => {
     expect(warning).toBeDefined();
   });
 
+  it('should surface validation_rule warnings when the target field carries Salesforce rule metadata', () => {
+    const srcField = makeField('sf4', 'se4', 'StageCode', 'picklist', {
+      picklistValues: ['Closed Won', 'Prospecting'],
+    });
+    const tgtField = makeField('tf4', 'te4', 'StageName', 'picklist', {
+      picklistValues: ['Closed Won', 'Prospecting'],
+      validationRules: [{
+        name: 'Closed_Won_Requires_Amount_And_CloseDate',
+        entityName: 'Opportunity',
+        errorMessage: 'Closed Won opportunities require Amount and CloseDate.',
+        referencedFields: ['StageName', 'Amount', 'CloseDate'],
+      }],
+    });
+
+    const em = makeEntityMapping('em4', 'se4', 'te4');
+    const fm = makeFieldMapping('fm4', 'em4', 'sf4', 'tf4');
+
+    const report = validateMappings({
+      entityMappings: [em],
+      fieldMappings: [fm],
+      fields: [srcField, tgtField],
+      entities: [],
+    });
+
+    expect(report.summary.validationRule).toBe(1);
+    const warning = report.warnings.find((w) => w.type === 'validation_rule');
+    expect(warning?.fieldMappingId).toBe('fm4');
+    expect(warning?.message).toContain('Closed_Won_Requires_Amount_And_CloseDate');
+    expect(warning?.message).toContain('Amount, CloseDate');
+  });
+
   it('should correctly populate summary counts', () => {
     const sf1 = makeField('sf1', 'se1', 'CreatedAt', 'string');
     const tf1 = makeField('tf1', 'te1', 'CreatedDate', 'date');
@@ -123,7 +154,7 @@ describe('validateMappings', () => {
     const tf2 = makeField('tf2', 'te1', 'Status__c', 'picklist', { picklistValues: ['A', 'B'] });
     const tf3 = makeField('tf3', 'te1', 'RequiredField', 'string', { required: true });
 
-    const em = makeEntityMapping('em4', 'se1', 'te1');
+    const em = makeEntityMapping('em5', 'se1', 'te1');
     const fm1 = makeFieldMapping('fm1', 'em4', 'sf1', 'tf1');
     const fm2 = makeFieldMapping('fm2', 'em4', 'sf2', 'tf2');
     // tf3 is required but not mapped
@@ -145,7 +176,10 @@ describe('validateMappings', () => {
     expect(report.summary.picklistCoverage).toBeGreaterThanOrEqual(1);
     expect(report.summary.missingRequired).toBeGreaterThanOrEqual(1);
     expect(report.summary.totalWarnings).toBe(
-      report.summary.typeMismatch + report.summary.missingRequired + report.summary.picklistCoverage,
+      report.summary.typeMismatch
+        + report.summary.missingRequired
+        + report.summary.picklistCoverage
+        + report.summary.validationRule,
     );
   });
 });

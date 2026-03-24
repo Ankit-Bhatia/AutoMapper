@@ -384,6 +384,9 @@ export function ExportPanel({
             {validation.summary.picklistCoverage > 0 && (
               <li>{validation.summary.picklistCoverage} picklist gap{validation.summary.picklistCoverage !== 1 ? 's' : ''} — some target picklist values have no source equivalent.</li>
             )}
+            {validation.summary.validationRule > 0 && (
+              <li>{validation.summary.validationRule} validation rule warning{validation.summary.validationRule !== 1 ? 's' : ''} — target-side Salesforce rules may require additional mapped fields.</li>
+            )}
           </ul>
         </div>
       )}

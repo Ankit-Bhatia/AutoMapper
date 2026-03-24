@@ -4,6 +4,7 @@ import type {
   AppState,
   Entity,
   Field,
+  FieldValidationRule,
   FieldMapping,
   MappingProject,
   OneToManyResolution,
@@ -42,6 +43,7 @@ function toField(f: {
   isKey: boolean;
   isExternalId: boolean;
   picklistValues: string[];
+  validationRules?: unknown | null;
   jxchangeXPath: string | null;
   jxchangeXtendElemKey: string | null;
   iso20022Name: string | null;
@@ -61,6 +63,7 @@ function toField(f: {
     isKey: f.isKey,
     isExternalId: f.isExternalId,
     picklistValues: f.picklistValues,
+    validationRules: (f.validationRules ?? undefined) as FieldValidationRule[] | undefined,
     jxchangeXPath: f.jxchangeXPath ?? undefined,
     jxchangeXtendElemKey: f.jxchangeXtendElemKey ?? undefined,
     iso20022Name: f.iso20022Name ?? undefined,
@@ -300,6 +303,7 @@ export class DbStore {
             isKey: f.isKey ?? false,
             isExternalId: f.isExternalId ?? false,
             picklistValues: f.picklistValues ?? [],
+            validationRules: (f.validationRules ?? undefined) as Prisma.InputJsonValue | undefined,
             jxchangeXPath: f.jxchangeXPath ?? null,
             jxchangeXtendElemKey: f.jxchangeXtendElemKey ?? null,
             iso20022Name: f.iso20022Name ?? null,

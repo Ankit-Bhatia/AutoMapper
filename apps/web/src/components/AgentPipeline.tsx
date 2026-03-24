@@ -91,7 +91,7 @@ type LogFilter = 'all' | 'agent' | 'warning' | 'error';
 
 const EMPTY_VALIDATION_REPORT: ValidationReport = {
   warnings: [],
-  summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+  summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
 };
 
 const MAJOR_STAGE_DEFS: Array<{

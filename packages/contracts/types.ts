@@ -64,6 +64,16 @@ export interface Field {
   iso20022Name?: string;
   complianceTags?: string[];
   complianceNote?: string;
+  validationRules?: FieldValidationRule[];
+}
+
+export interface FieldValidationRule {
+  name: string;
+  entityName: string;
+  errorMessage?: string;
+  description?: string;
+  errorDisplayField?: string;
+  referencedFields?: string[];
 }
 
 export interface EntityMapping {
@@ -225,6 +235,7 @@ export interface ValidationReport {
     typeMismatch: number;
     missingRequired: number;
     picklistCoverage: number;
+    validationRule: number;
   };
 }
 

@@ -64,6 +64,16 @@ export interface Field {
   iso20022Name?: string;         // ISO 20022 canonical name e.g. "TaxIdentification"
   complianceTags?: string[];     // e.g. ["GLBA_NPI", "BSA_AML"]
   complianceNote?: string;       // human-readable compliance caveat
+  validationRules?: FieldValidationRule[];
+}
+
+export interface FieldValidationRule {
+  name: string;
+  entityName: string;
+  errorMessage?: string;
+  description?: string;
+  errorDisplayField?: string;
+  referencedFields?: string[];
 }
 
 export interface Relationship {
@@ -116,7 +126,7 @@ export interface FieldMapping {
 }
 
 export interface ValidationWarning {
-  type: 'type_mismatch' | 'missing_required' | 'picklist_coverage';
+  type: 'type_mismatch' | 'missing_required' | 'picklist_coverage' | 'validation_rule';
   entityMappingId: string;
   fieldMappingId?: string;
   message: string;
@@ -129,6 +139,7 @@ export interface ValidationReport {
     typeMismatch: number;
     missingRequired: number;
     picklistCoverage: number;
+    validationRule: number;
   };
 }
 
