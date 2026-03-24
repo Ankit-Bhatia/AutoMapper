@@ -82,6 +82,7 @@ export interface FieldValidationRule {
   description?: string;
   errorDisplayField?: string;
   referencedFields?: string[];
+  kind?: 'rule' | 'unavailable';
 }
 
 export interface Relationship {
@@ -209,10 +210,24 @@ export interface FieldMapping {
 }
 
 export interface ValidationWarning {
-  type: 'type_mismatch' | 'missing_required' | 'picklist_coverage' | 'validation_rule';
+  type:
+    | 'type_mismatch'
+    | 'missing_required'
+    | 'picklist_coverage'
+    | 'validation_rule'
+    | 'partial_coverage_risk'
+    | 'validation_rules_unavailable';
   entityMappingId: string;
   fieldMappingId?: string;
   message: string;
+}
+
+export interface ValidationRuleSafetySummary {
+  evaluatedRuleCount: number;
+  fullyCoveredRuleCount: number;
+  partialCoverageRiskCount: number;
+  genericWarningCount: number;
+  unavailableCount: number;
 }
 
 export interface ValidationReport {
@@ -223,7 +238,10 @@ export interface ValidationReport {
     missingRequired: number;
     picklistCoverage: number;
     validationRule: number;
+    partialCoverageRisk?: number;
+    validationRulesUnavailable?: number;
   };
+  validationRuleSafety?: ValidationRuleSafetySummary;
 }
 
 export interface AppState {

@@ -116,11 +116,50 @@ describe('validateMappings', () => {
     expect(warning).toBeDefined();
   });
 
-  it('should surface validation_rule warnings when the target field carries Salesforce rule metadata', () => {
+  it('does not warn when all referenced validation-rule fields are fully covered', () => {
     const srcField = makeField('sf4', 'se4', 'StageCode', 'picklist', {
       picklistValues: ['Closed Won', 'Prospecting'],
     });
-    const tgtField = makeField('tf4', 'te4', 'StageName', 'picklist', {
+    const srcAmountField = makeField('sf5', 'se4', 'ApprovedAmount', 'decimal');
+    const srcCloseDateField = makeField('sf6', 'se4', 'ProjectedCloseDate', 'date');
+    const tgtStageField = makeField('tf4', 'te4', 'StageName', 'picklist', {
+      picklistValues: ['Closed Won', 'Prospecting'],
+      validationRules: [{
+        name: 'Closed_Won_Requires_Amount_And_CloseDate',
+        entityName: 'Opportunity',
+        errorMessage: 'Closed Won opportunities require Amount and CloseDate.',
+        referencedFields: ['StageName', 'Amount', 'CloseDate'],
+      }],
+    });
+    const tgtAmountField = makeField('tf5', 'te4', 'Amount', 'decimal');
+    const tgtCloseDateField = makeField('tf6', 'te4', 'CloseDate', 'date');
+
+    const em = makeEntityMapping('em4', 'se4', 'te4');
+    const stageMapping = makeFieldMapping('fm4', 'em4', 'sf4', 'tf4');
+    const amountMapping = makeFieldMapping('fm5', 'em4', 'sf5', 'tf5');
+    const closeDateMapping = makeFieldMapping('fm6', 'em4', 'sf6', 'tf6');
+
+    const report = validateMappings({
+      entityMappings: [em],
+      fieldMappings: [stageMapping, amountMapping, closeDateMapping],
+      fields: [srcField, srcAmountField, srcCloseDateField, tgtStageField, tgtAmountField, tgtCloseDateField],
+      entities: [],
+    });
+
+    expect(report.summary.validationRule).toBe(0);
+    expect(report.validationRuleSafety).toMatchObject({
+      evaluatedRuleCount: 1,
+      fullyCoveredRuleCount: 1,
+      partialCoverageRiskCount: 0,
+    });
+    expect(report.warnings.find((w) => w.type === 'partial_coverage_risk')).toBeUndefined();
+  });
+
+  it('emits partial_coverage_risk when referenced validation-rule fields are missing', () => {
+    const srcField = makeField('sf7', 'se4', 'StageCode', 'picklist', {
+      picklistValues: ['Closed Won', 'Prospecting'],
+    });
+    const tgtField = makeField('tf7', 'te4', 'StageName', 'picklist', {
       picklistValues: ['Closed Won', 'Prospecting'],
       validationRules: [{
         name: 'Closed_Won_Requires_Amount_And_CloseDate',
@@ -130,21 +169,57 @@ describe('validateMappings', () => {
       }],
     });
 
-    const em = makeEntityMapping('em4', 'se4', 'te4');
-    const fm = makeFieldMapping('fm4', 'em4', 'sf4', 'tf4');
+    const em = makeEntityMapping('em7', 'se4', 'te4');
+    const fm = makeFieldMapping('fm7', 'em7', 'sf7', 'tf7');
 
     const report = validateMappings({
       entityMappings: [em],
       fieldMappings: [fm],
       fields: [srcField, tgtField],
-      entities: [],
+      entities: [{ id: 'te4', systemId: 'tgt', name: 'Opportunity' }],
     });
 
     expect(report.summary.validationRule).toBe(1);
-    const warning = report.warnings.find((w) => w.type === 'validation_rule');
-    expect(warning?.fieldMappingId).toBe('fm4');
+    expect(report.summary.partialCoverageRisk).toBe(1);
+    expect(report.validationRuleSafety).toMatchObject({
+      evaluatedRuleCount: 1,
+      fullyCoveredRuleCount: 0,
+      partialCoverageRiskCount: 1,
+    });
+    const warning = report.warnings.find((w) => w.type === 'partial_coverage_risk');
+    expect(warning?.fieldMappingId).toBe('fm7');
     expect(warning?.message).toContain('Closed_Won_Requires_Amount_And_CloseDate');
-    expect(warning?.message).toContain('Amount, CloseDate');
+    expect(warning?.message).toContain('Covered: StageName');
+    expect(warning?.message).toContain('Missing: Amount, CloseDate');
+  });
+
+  it('emits validation_rules_unavailable when rule extraction failed for the target object', () => {
+    const srcField = makeField('sf8', 'se4', 'StageCode', 'picklist');
+    const tgtField = makeField('tf8', 'te4', 'StageName', 'picklist', {
+      validationRules: [{
+        name: 'validation_rules_unavailable',
+        entityName: 'Opportunity',
+        kind: 'unavailable',
+      }],
+    });
+
+    const em = makeEntityMapping('em8', 'se4', 'te4');
+    const fm = makeFieldMapping('fm8', 'em8', 'sf8', 'tf8');
+
+    const report = validateMappings({
+      entityMappings: [em],
+      fieldMappings: [fm],
+      fields: [srcField, tgtField],
+      entities: [{ id: 'te4', systemId: 'tgt', name: 'Opportunity' }],
+    });
+
+    expect(report.summary.validationRule).toBe(1);
+    expect(report.summary.validationRulesUnavailable).toBe(1);
+    expect(report.validationRuleSafety).toMatchObject({
+      unavailableCount: 1,
+    });
+    const warning = report.warnings.find((w) => w.type === 'validation_rules_unavailable');
+    expect(warning?.message).toContain('could not be loaded');
   });
 
   it('should correctly populate summary counts', () => {

@@ -25,12 +25,42 @@ function extractReferencedFieldNames(formula: string, fieldNames: string[]): str
   const matches: string[] = [];
   const orderedFieldNames = [...fieldNames].sort((left, right) => right.length - left.length);
   for (const fieldName of orderedFieldNames) {
-    const pattern = new RegExp(`(^|[^A-Za-z0-9_])${escapeRegex(fieldName)}([^A-Za-z0-9_]|$)`, 'i');
-    if (pattern.test(formula)) {
+    const pattern = new RegExp(escapeRegex(fieldName), 'ig');
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(formula)) !== null) {
+      const before = formula[match.index - 1];
+      const after = formula[match.index + fieldName.length];
+      const validBefore = before == null || /[^A-Za-z0-9_.$]/.test(before);
+      const validAfter = after == null || /[^A-Za-z0-9_]/.test(after);
+      if (!validBefore || !validAfter) continue;
       matches.push(fieldName);
+      break;
     }
   }
   return matches;
+}
+
+function buildUnavailableValidationRuleIndex(
+  objectFieldNames: Map<string, string[]>,
+): Map<string, Map<string, FieldValidationRule[]>> {
+  const byObject = new Map<string, Map<string, FieldValidationRule[]>>();
+
+  for (const [objectName, fieldNames] of objectFieldNames.entries()) {
+    if (!fieldNames.length) continue;
+    const unavailableRule: FieldValidationRule = {
+      name: 'validation_rules_unavailable',
+      entityName: objectName,
+      description: `Active Salesforce validation rules could not be loaded for ${objectName}.`,
+      kind: 'unavailable',
+    };
+    const objectIndex = new Map<string, FieldValidationRule[]>();
+    for (const fieldName of fieldNames) {
+      objectIndex.set(fieldName, [unavailableRule]);
+    }
+    byObject.set(objectName, objectIndex);
+  }
+
+  return byObject;
 }
 
 export function buildValidationRuleIndex(input: {
@@ -61,6 +91,7 @@ export function buildValidationRuleIndex(input: {
       description: record.Description ?? undefined,
       errorDisplayField: record.ErrorDisplayField ?? undefined,
       referencedFields: referencedFields.length ? referencedFields : undefined,
+      kind: 'rule',
     };
 
     const objectIndex = byObject.get(objectName) ?? new Map<string, FieldValidationRule[]>();
@@ -98,6 +129,6 @@ export async function loadSalesforceValidationRuleIndex(input: {
       records: result.records ?? [],
     });
   } catch {
-    return new Map();
+    return buildUnavailableValidationRuleIndex(input.objectFieldNames);
   }
 }

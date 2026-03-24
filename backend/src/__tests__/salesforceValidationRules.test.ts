@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildValidationRuleIndex } from '../../../packages/connectors/salesforceValidationRules.js';
+import {
+  buildValidationRuleIndex,
+  loadSalesforceValidationRuleIndex,
+} from '../../../packages/connectors/salesforceValidationRules.js';
 
 describe('salesforceValidationRules', () => {
   it('indexes active validation rules onto referenced and error-display fields', () => {
@@ -40,5 +43,44 @@ describe('salesforceValidationRules', () => {
     });
 
     expect(index.get('Account')).toBeUndefined();
+  });
+
+  it('ignores scoped identifiers when extracting referenced field names', () => {
+    const index = buildValidationRuleIndex({
+      objectFieldNames: new Map([
+        ['Account', ['Id', 'Name', 'OwnerId']],
+      ]),
+      records: [{
+        ValidationName: 'Owner_Review_Required',
+        ErrorConditionFormula: '$User.Id <> OwnerId && ISBLANK(Account.Name)',
+        EntityDefinition: { QualifiedApiName: 'Account' },
+      }],
+    });
+
+    expect(index.get('Account')?.get('Id')).toBeUndefined();
+    expect(index.get('Account')?.get('Name')).toBeUndefined();
+    expect(index.get('Account')?.get('OwnerId')).toHaveLength(1);
+  });
+
+  it('marks validation rules unavailable when the tooling query fails', async () => {
+    const index = await loadSalesforceValidationRuleIndex({
+      conn: {
+        tooling: {
+          query: async () => {
+            throw new Error('tooling unavailable');
+          },
+        },
+      } as never,
+      objectFieldNames: new Map([
+        ['Opportunity', ['StageName', 'Amount']],
+      ]),
+    });
+
+    expect(index.get('Opportunity')?.get('StageName')?.[0]).toMatchObject({
+      name: 'validation_rules_unavailable',
+      entityName: 'Opportunity',
+      kind: 'unavailable',
+    });
+    expect(index.get('Opportunity')?.get('Amount')?.[0]?.kind).toBe('unavailable');
   });
 });

@@ -242,12 +242,13 @@ Board is clear. All Testing tickets moved to Done. Next dispatch in priority ord
 ## Recent Delivery Log
 
 ### 2026-03-25 — Codex (KAN-91 branch)
-- **KAN-91 — Salesforce validation rule extraction** — active Salesforce validation rules are now extracted through the existing jsforce connection and surfaced as review warnings.
-  - Added `packages/connectors/salesforceValidationRules.ts` to query active `ValidationRule` metadata and attach rule summaries to affected target fields.
+- **KAN-91 — Salesforce validation rule extraction** — active Salesforce validation rules are now extracted through the existing jsforce connection, classified into full-coverage vs partial-coverage risk during validation, and surfaced in both Review and export metadata.
+  - Added `packages/connectors/salesforceValidationRules.ts` to query active `ValidationRule` metadata, ignore scoped identifiers like `$User.Id` / `Account.Name`, and attach rule summaries to affected target fields.
   - Updated both Salesforce schema paths (`packages/connectors/salesforce.ts`, `packages/connectors/SalesforceConnector.ts`) so fetched target fields can carry `validationRules` metadata in live mode; mock `Opportunity` metadata now includes a representative rule for local validation coverage.
   - Extended field contracts and persistence to carry validation-rule hints (`packages/contracts/types.ts`, `packages/connectors/types.ts`, `backend/src/types.ts`, `backend/src/db/dbStore.ts`, Prisma migration `20260325094500_add_field_validation_rules`).
-  - `backend/src/services/validator.ts` now emits `validation_rule` warnings into the existing `ValidationReport`, which automatically surfaces in the Review screen and Export summary.
-  - Validation on branch: backend `tsc --noEmit` **pass**, backend `npm test -- --run` **201/201**, frontend typecheck **pass**, frontend `npm test -- --run` **41/41**, frontend build **pass**.
+  - `backend/src/services/validator.ts` now distinguishes fully covered rules from `partial_coverage_risk`, emits `validation_rules_unavailable` when tooling extraction fails, and writes a structured `validationRuleSafety` summary into the `ValidationReport`.
+  - `backend/src/services/exporter.ts` now includes `validationRuleSafety` in canonical JSON export so downstream consumers can see whether rules were fully covered, partially covered, or unavailable.
+  - Added regression coverage for scoped/cross-object formulas, unavailable rule loading, rule classification, and export output.
 
 ### 2026-03-21 — Codex (PRs #21–24, main)
 - **KAN-99 — Seed dedup fix (PR #21):** `suggest-mappings` now runs the global mapping optimizer before persisting seed output. Eliminates the duplicate-target explosion (101 source fields mapping to `CurrentBalance`).

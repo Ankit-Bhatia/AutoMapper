@@ -236,6 +236,7 @@ export function ExportPanel({
 
   const pendingReview = fieldMappingCount - acceptedCount;
   const hasWarnings = validation.summary.totalWarnings > 0;
+  const validationRuleSafety = validation.validationRuleSafety;
 
   return (
     <div className="export-page">
@@ -385,7 +386,12 @@ export function ExportPanel({
               <li>{validation.summary.picklistCoverage} picklist gap{validation.summary.picklistCoverage !== 1 ? 's' : ''} — some target picklist values have no source equivalent.</li>
             )}
             {validation.summary.validationRule > 0 && (
-              <li>{validation.summary.validationRule} validation rule warning{validation.summary.validationRule !== 1 ? 's' : ''} — target-side Salesforce rules may require additional mapped fields.</li>
+              <li>
+                {validation.summary.validationRule} validation rule warning{validation.summary.validationRule !== 1 ? 's' : ''} — target-side Salesforce rules may require additional mapped fields.
+                {validationRuleSafety && (
+                  <> Fully covered: {validationRuleSafety.fullyCoveredRuleCount}; partial coverage risks: {validationRuleSafety.partialCoverageRiskCount}; unavailable objects: {validationRuleSafety.unavailableCount}.</>
+                )}
+              </li>
             )}
           </ul>
         </div>
