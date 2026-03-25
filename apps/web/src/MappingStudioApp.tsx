@@ -123,7 +123,7 @@ export function MappingStudioApp() {
   const [acknowledgedFormulaMappingIds, setAcknowledgedFormulaMappingIds] = useState<Set<string>>(new Set());
   const [validation, setValidation] = useState<ValidationReport>({
     warnings: [],
-    summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+    summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
   });
   const [isOrchestrated, setIsOrchestrated] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfigResponse | null>(null);
@@ -500,7 +500,7 @@ export function MappingStudioApp() {
     setFields([]);
     setEntityMappings([]);
     setFieldMappings([]);
-    setValidation({ warnings: [], summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 } });
+    setValidation({ warnings: [], summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 } });
     setIsOrchestrated(false);
     setSetupError(null);
     setSeedSummary(null);
@@ -650,7 +650,7 @@ export function MappingStudioApp() {
     setFields([]);
     setEntityMappings([]);
     setFieldMappings([]);
-    setValidation({ warnings: [], summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 } });
+    setValidation({ warnings: [], summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 } });
     setIsOrchestrated(false);
     setSetupError(null);
     setSeedSummary(null);

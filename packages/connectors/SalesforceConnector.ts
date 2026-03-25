@@ -24,6 +24,7 @@ import {
   getSalesforceMockObjectTemplatesForConnector,
   listSalesforceMockObjectNames,
 } from './salesforceMockCatalog.js';
+import { loadSalesforceValidationRuleIndex } from './salesforceValidationRules.js';
 
 interface SalesforceCredentials {
   accessToken?: string;
@@ -33,6 +34,27 @@ interface SalesforceCredentials {
   password?: string;
   securityToken?: string;
   loginUrl?: string;
+}
+
+interface SalesforceDescribeField {
+  name: string;
+  label?: string;
+  type: string;
+  length?: number;
+  precision?: number;
+  scale?: number;
+  nillable?: boolean;
+  defaultedOnCreate?: boolean;
+  externalId?: boolean;
+  picklistValues?: Array<{ value?: string | null }> | null;
+  referenceTo?: string[];
+}
+
+interface SalesforceObjectDescribe {
+  name: string;
+  label: string;
+  labelPlural?: string;
+  fields: SalesforceDescribeField[];
 }
 
 export class SalesforceConnector implements IConnector {
@@ -144,9 +166,16 @@ export class SalesforceConnector implements IConnector {
 
     if (this.mode === 'live' && this.conn) {
       try {
+        const describedObjects: Array<{
+          objectName: string;
+          entityId: string;
+          desc: SalesforceObjectDescribe;
+        }> = [];
+
         for (const objectName of objects) {
-          const desc = await this.conn.sobject(objectName).describe();
+          const desc = await this.conn.sobject(objectName).describe() as unknown as SalesforceObjectDescribe;
           const entityId = uuidv4();
+          describedObjects.push({ objectName, entityId, desc });
           entities.push({
             id: entityId,
             systemId: '', // Set by the route handler
@@ -154,7 +183,17 @@ export class SalesforceConnector implements IConnector {
             label: desc.label,
             description: desc.labelPlural,
           });
+        }
 
+        const validationRuleIndex = await loadSalesforceValidationRuleIndex({
+          conn: this.conn,
+          objectFieldNames: new Map(
+            describedObjects.map(({ objectName, desc }) => [objectName, desc.fields.map((field) => field.name)]),
+          ),
+        });
+
+        for (const { objectName, entityId, desc } of describedObjects) {
+          const objectValidationRules = validationRuleIndex.get(objectName);
           for (const f of desc.fields) {
             const picklistValues = Array.isArray(f.picklistValues)
               ? f.picklistValues
@@ -175,6 +214,7 @@ export class SalesforceConnector implements IConnector {
               isKey: f.type === 'id',
               isExternalId: !!f.externalId,
               picklistValues,
+              validationRules: objectValidationRules?.get(f.name),
             });
 
             if (f.referenceTo?.length) {
@@ -290,9 +330,44 @@ function buildMockSalesforceSchema(objectNames: string[]): ConnectorSchema {
     Opportunity: [
       { name: 'Id', label: 'ID', dataType: 'id', isKey: true, required: true },
       { name: 'Name', label: 'Opportunity Name', dataType: 'string', length: 120, required: true },
-      { name: 'Amount', label: 'Amount', dataType: 'decimal', precision: 18, scale: 2 },
-      { name: 'StageName', label: 'Stage', dataType: 'picklist', picklistValues: ['Prospecting', 'Qualification', 'Negotiation/Review', 'Closed Won', 'Closed Lost'], required: true },
-      { name: 'CloseDate', label: 'Close Date', dataType: 'date', required: true },
+      {
+        name: 'Amount',
+        label: 'Amount',
+        dataType: 'decimal',
+        precision: 18,
+        scale: 2,
+        validationRules: [{
+          name: 'Closed_Won_Requires_Amount_And_CloseDate',
+          entityName: 'Opportunity',
+          errorMessage: 'Closed Won opportunities require Amount and CloseDate.',
+          referencedFields: ['StageName', 'Amount', 'CloseDate'],
+        }],
+      },
+      {
+        name: 'StageName',
+        label: 'Stage',
+        dataType: 'picklist',
+        picklistValues: ['Prospecting', 'Qualification', 'Negotiation/Review', 'Closed Won', 'Closed Lost'],
+        required: true,
+        validationRules: [{
+          name: 'Closed_Won_Requires_Amount_And_CloseDate',
+          entityName: 'Opportunity',
+          errorMessage: 'Closed Won opportunities require Amount and CloseDate.',
+          referencedFields: ['StageName', 'Amount', 'CloseDate'],
+        }],
+      },
+      {
+        name: 'CloseDate',
+        label: 'Close Date',
+        dataType: 'date',
+        required: true,
+        validationRules: [{
+          name: 'Closed_Won_Requires_Amount_And_CloseDate',
+          entityName: 'Opportunity',
+          errorMessage: 'Closed Won opportunities require Amount and CloseDate.',
+          referencedFields: ['StageName', 'Amount', 'CloseDate'],
+        }],
+      },
       { name: 'Probability', label: 'Probability', dataType: 'number' },
       { name: 'AccountId', label: 'Account ID', dataType: 'reference', required: true },
     ],

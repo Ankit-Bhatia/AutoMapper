@@ -3,6 +3,7 @@ import jsforce from 'jsforce';
 import type { Entity, Field, Relationship } from './types.js';
 import { normalizeSalesforceType } from './utils/typeUtils.js';
 import { getSalesforceMockObjectTemplates } from './salesforceMockCatalog.js';
+import { loadSalesforceValidationRuleIndex } from './salesforceValidationRules.js';
 
 export interface SalesforceConnectionInput {
   objects: string[];
@@ -14,6 +15,27 @@ export interface SalesforceConnectionInput {
     accessToken?: string;
     instanceUrl?: string;
   };
+}
+
+interface SalesforceDescribeField {
+  name: string;
+  label?: string;
+  type: string;
+  length?: number;
+  precision?: number;
+  scale?: number;
+  nillable?: boolean;
+  defaultedOnCreate?: boolean;
+  externalId?: boolean;
+  picklistValues?: Array<{ value?: string | null }> | null;
+  referenceTo?: string[];
+}
+
+interface SalesforceObjectDescribe {
+  name: string;
+  label: string;
+  labelPlural?: string;
+  fields: SalesforceDescribeField[];
 }
 
 export async function fetchSalesforceSchema(
@@ -44,10 +66,16 @@ export async function fetchSalesforceSchema(
     const fields: Field[] = [];
     // Collect pending relationships to resolve after all entities are known
     const pendingRelationships: Array<{ fromEntityId: string; referenceTo: string; viaField: string }> = [];
+    const describedObjects: Array<{
+      objectName: string;
+      entityId: string;
+      desc: SalesforceObjectDescribe;
+    }> = [];
 
     for (const objectName of input.objects) {
-      const desc = await conn.sobject(objectName).describe();
+      const desc = await conn.sobject(objectName).describe() as unknown as SalesforceObjectDescribe;
       const entityId = uuidv4();
+      describedObjects.push({ objectName, entityId, desc });
       entities.push({
         id: entityId,
         systemId,
@@ -55,7 +83,17 @@ export async function fetchSalesforceSchema(
         label: desc.label,
         description: desc.labelPlural,
       });
+    }
 
+    const validationRuleIndex = await loadSalesforceValidationRuleIndex({
+      conn,
+      objectFieldNames: new Map(
+        describedObjects.map(({ objectName, desc }) => [objectName, desc.fields.map((field) => field.name)]),
+      ),
+    });
+
+    for (const { objectName, entityId, desc } of describedObjects) {
+      const objectValidationRules = validationRuleIndex.get(objectName);
       for (const f of desc.fields) {
         fields.push({
           id: uuidv4(),
@@ -68,7 +106,8 @@ export async function fetchSalesforceSchema(
           scale: f.scale,
           required: !f.nillable && !f.defaultedOnCreate,
           isExternalId: !!f.externalId,
-          picklistValues: f.picklistValues?.map((p) => p.value).filter(Boolean),
+          picklistValues: f.picklistValues?.map((p) => p.value).filter((value): value is string => Boolean(value)),
+          validationRules: objectValidationRules?.get(f.name),
         });
 
         if (f.referenceTo?.length) {
@@ -152,6 +191,40 @@ function buildMockSalesforceSchema(
       { name: 'ParticipantRole', dataType: 'picklist', picklistValues: ['Primary Owner', 'Joint Owner', 'Authorized Signer', 'Beneficiary'] },
       { name: 'StartDate', dataType: 'date' },
       { name: 'EndDate', dataType: 'date' },
+    ],
+    Opportunity: [
+      { name: 'Name', dataType: 'string', required: true },
+      {
+        name: 'StageName',
+        dataType: 'picklist',
+        picklistValues: ['Prospecting', 'Qualification', 'Closed Won', 'Closed Lost'],
+        validationRules: [{
+          name: 'Closed_Won_Requires_Amount_And_CloseDate',
+          entityName: 'Opportunity',
+          errorMessage: 'Closed Won opportunities require Amount and CloseDate.',
+          referencedFields: ['StageName', 'Amount', 'CloseDate'],
+        }],
+      },
+      {
+        name: 'Amount',
+        dataType: 'decimal',
+        validationRules: [{
+          name: 'Closed_Won_Requires_Amount_And_CloseDate',
+          entityName: 'Opportunity',
+          errorMessage: 'Closed Won opportunities require Amount and CloseDate.',
+          referencedFields: ['StageName', 'Amount', 'CloseDate'],
+        }],
+      },
+      {
+        name: 'CloseDate',
+        dataType: 'date',
+        validationRules: [{
+          name: 'Closed_Won_Requires_Amount_And_CloseDate',
+          entityName: 'Opportunity',
+          errorMessage: 'Closed Won opportunities require Amount and CloseDate.',
+          referencedFields: ['StageName', 'Amount', 'CloseDate'],
+        }],
+      },
     ],
   };
 

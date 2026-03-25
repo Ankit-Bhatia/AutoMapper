@@ -149,6 +149,7 @@ vi.mock('./components/AgentPipeline', () => ({
           typeMismatch: number;
           missingRequired: number;
           picklistCoverage: number;
+          validationRule: number;
         };
       };
       totalMappings: number;
@@ -164,7 +165,7 @@ vi.mock('./components/AgentPipeline', () => ({
           fieldMappings: pipelineFieldMappings,
           validation: {
             warnings: [],
-            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
           },
           totalMappings: 1,
           complianceFlags: 0,
@@ -234,7 +235,7 @@ describe('MappingStudioApp export gating', () => {
           fieldMappings: [fieldMapping],
           validation: {
             warnings: [],
-            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
           },
         };
       }
@@ -324,7 +325,7 @@ describe('MappingStudioApp export gating', () => {
           fieldMappings: [formulaFieldMapping],
           validation: {
             warnings: [],
-            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
           },
         };
       }
@@ -405,7 +406,7 @@ describe('MappingStudioApp export gating', () => {
           fieldMappings: pipelineFieldMappings,
           validation: {
             warnings: [],
-            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+            summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
           },
         };
       }

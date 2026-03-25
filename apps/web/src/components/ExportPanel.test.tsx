@@ -60,7 +60,7 @@ function renderPanel(fields: Field[], fieldMappings: FieldMapping[]) {
       acceptedCount={fieldMappings.filter((mapping) => mapping.status === 'accepted').length}
       validation={{
         warnings: [],
-        summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+        summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
       }}
       fields={fields}
       fieldMappings={fieldMappings}
