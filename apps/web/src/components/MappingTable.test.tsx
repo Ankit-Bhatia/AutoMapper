@@ -64,7 +64,7 @@ const fields: Field[] = [
 
 const validation: ValidationReport = {
   warnings: [],
-  summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+  summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
 };
 
 const initialMapping: FieldMapping = {

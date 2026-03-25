@@ -232,7 +232,7 @@ function mockApiCall<T>(path: string, init?: RequestInit): T {
       fieldMappings: getLiveMappings(),
       validation: {
         warnings: [],
-        summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0 },
+        summary: { totalWarnings: 0, typeMismatch: 0, missingRequired: 0, picklistCoverage: 0, validationRule: 0 },
       },
     } as T;
   }

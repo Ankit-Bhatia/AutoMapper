@@ -64,6 +64,17 @@ export interface Field {
   iso20022Name?: string;
   complianceTags?: string[];
   complianceNote?: string;
+  validationRules?: FieldValidationRule[];
+}
+
+export interface FieldValidationRule {
+  name: string;
+  entityName: string;
+  errorMessage?: string;
+  description?: string;
+  errorDisplayField?: string;
+  referencedFields?: string[];
+  kind?: 'rule' | 'unavailable';
 }
 
 export interface EntityMapping {
@@ -218,6 +229,14 @@ export interface ValidationWarning {
   message: string;
 }
 
+export interface ValidationRuleSafetySummary {
+  evaluatedRuleCount: number;
+  fullyCoveredRuleCount: number;
+  partialCoverageRiskCount: number;
+  genericWarningCount: number;
+  unavailableCount: number;
+}
+
 export interface ValidationReport {
   warnings: ValidationWarning[];
   summary: {
@@ -225,7 +244,11 @@ export interface ValidationReport {
     typeMismatch: number;
     missingRequired: number;
     picklistCoverage: number;
+    validationRule: number;
+    partialCoverageRisk?: number;
+    validationRulesUnavailable?: number;
   };
+  validationRuleSafety?: ValidationRuleSafetySummary;
 }
 
 export interface ProjectPayload {

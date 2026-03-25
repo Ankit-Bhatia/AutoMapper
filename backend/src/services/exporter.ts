@@ -172,6 +172,7 @@ export function buildJsonExport(input: BuildInput): object {
         };
       }),
       compliance: input.validation ?? null,
+      validationRuleSafety: input.validation?.validationRuleSafety ?? null,
       metadata: {
         totalEntityMappings: input.entityMappings.length,
         totalFieldMappings: input.fieldMappings.filter((fm) => isActiveFieldMapping(fm)).length,

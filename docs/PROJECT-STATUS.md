@@ -242,6 +242,14 @@ Two PRs awaiting fixes before re-review. One fresh dispatch in flight.
 
 ## Recent Delivery Log
 
+### 2026-03-25 — Codex (KAN-91 branch)
+- **KAN-91 — Salesforce validation rule extraction** — active Salesforce validation rules are now extracted through the existing jsforce connection, classified into full-coverage vs partial-coverage risk during validation, and surfaced in both Review and export metadata.
+  - Added `packages/connectors/salesforceValidationRules.ts` to query active `ValidationRule` metadata, ignore scoped identifiers like `$User.Id` / `Account.Name`, and attach rule summaries to affected target fields.
+  - Updated both Salesforce schema paths (`packages/connectors/salesforce.ts`, `packages/connectors/SalesforceConnector.ts`) so fetched target fields can carry `validationRules` metadata in live mode; mock `Opportunity` metadata now includes a representative rule for local validation coverage.
+  - Extended field contracts and persistence to carry validation-rule hints (`packages/contracts/types.ts`, `packages/connectors/types.ts`, `backend/src/types.ts`, `backend/src/db/dbStore.ts`, Prisma migration `20260325094500_add_field_validation_rules`).
+  - `backend/src/services/validator.ts` now distinguishes fully covered rules from `partial_coverage_risk`, emits `validation_rules_unavailable` when tooling extraction fails, and writes a structured `validationRuleSafety` summary into the `ValidationReport`.
+  - `backend/src/services/exporter.ts` now includes `validationRuleSafety` in canonical JSON export so downstream consumers can see whether rules were fully covered, partially covered, or unavailable.
+  - Added regression coverage for scoped/cross-object formulas, unavailable rule loading, rule classification, and export output.
 ### 2026-03-25 — Claude (Cowork)
 - **KAN-80 implemented for review.** Added legacy startup seeding from `llm-configs.json` / `llm-usage.json` into Prisma-backed `LLMUserConfig`, plus explicit file-fallback test coverage for `llmSettingsStore`.
 - **KAN-89 reviewed + approved → Done.** PR #25 passed all 6 acceptance criteria: benchmark harness, 58-pair fixture, 5 metrics, review-decision file write, retrieval boost on next run, correct `.gitignore` exclusions.

@@ -62,6 +62,7 @@ model Field {
   isKey                Boolean        @default(false)
   isExternalId         Boolean        @default(false)
   picklistValues       String[]       @default([])
+  validationRules      Json?
   // Connector metadata — persisted from jack henry / sap / salesforce connector fields
   jxchangeXPath        String?        // e.g. "CIFInq.Rs.CIFRec.CIFInfo.TaxId"
   jxchangeXtendElemKey String?        // Core Director XtendElem override key

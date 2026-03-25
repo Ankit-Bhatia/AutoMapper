@@ -228,6 +228,7 @@ async function main() {
       typeMismatchWarnings: validation.summary.typeMismatch,
       missingRequiredWarnings: validation.summary.missingRequired,
       picklistCoverageWarnings: validation.summary.picklistCoverage,
+      validationRuleWarnings: validation.summary.validationRule,
     },
     entityMappingGroups: grouped,
     validationWarnings: validation.warnings,
