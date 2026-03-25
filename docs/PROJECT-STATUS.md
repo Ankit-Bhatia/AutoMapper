@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-21
+> **Last updated:** 2026-03-25
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -140,23 +140,18 @@ AutoMapper/
 | **KAN-100 — RiskClam FSC target universe** | Expanded mock FinancialAccount and related FSC objects to include domain-correct fields: `FinServ__PaymentAmount__c`, `FinServ__LoanAmount__c`, `Date_Credit_Approved__c`, `Residual_Income__c`, `Monthly_Payment__c` — fixes collapse onto generic balance fields |
 | **KAN-101 — RiskClam retrieval ranking** | `candidateRetrieval.ts` — Schema Intelligence match boost for same-object confirmed patterns; generic distractors penalized when source concept mismatches. Key deltas: `AMT_PAYMENT` → `Monthly_Payment__c` 0.777 (was 0.528); `DATE_APPROVAL` → `Date_Credit_Approved__c` 0.733 (was 0.520). 193/193 tests passing. |
 | **Open bug sweep (PR #24)** | Sweep of remaining Jira-tracked open bugs merged to main. |
+| **KAN-89 — Benchmark harness + active learning (PR #25)** | `backend/src/__tests__/benchmark/` with `npm run benchmark`; 58-pair `benchmark-pairs.jsonl` gold set; `review-decisions.jsonl` file-backed active learning; `POST /api/review-decisions`; `candidateRetrieval.ts` applies accepted/rejected score boosts. Merged 2026-03-20. |
+| **KAN-80 — BYOL LLM config Prisma migration** | `LLMUserConfig` + `LLMUsageEvent` Prisma models; AES-256-GCM encrypted API keys at rest; `apiKeyHint` masking; dual Prisma/file persistence; migration `20260325101500_add_llm_settings_tables`; startup seed from legacy `llm-configs.json` / `llm-usage.json`; file-fallback store test coverage. |
 
 ### 🔄 In Progress / Known Gaps
 
 | Gap | Detail | Priority |
 |---|---|---|
-| **🔴 KAN-77 — Export downloads broken** | `ExportPanel.tsx` calls `fetch()` directly without `credentials: 'include'` — auth cookies never sent, so backend returns 401. In standalone/demo mode `apiBase()` returns `''` (empty string), making the request relative and hitting nothing. No user-facing error message shown on failure — error is silently swallowed to console only. | **HIGH — blocks demo** |
-| **🟠 KAN-78 — SchemaIntelligence UI invisible** | `SchemaIntelligenceAgent` is live in the pipeline and emits rich metadata (`confirmedPattern`, `isOneToMany`, `formulaTarget`, `personAccountOnly`) via `AgentStep.metadata`, but `MappingTable` and `FieldMappingCard` render none of it. Confirmed pattern hits, formula warnings, one-to-many flags, and FSC namespace badges need to surface in the Mapping Review UI. | HIGH |
-| **🟠 KAN-79 — One-to-many routing unresolved** | In progress on branch `codex/KAN-79-one-to-many-resolver`: adds `/api/schema-intelligence/patterns`, persisted `resolvedOneToManyMappings`, a dedicated `routing` workflow step, `OneToManyResolverPanel`, and export gating until routing decisions are confirmed. Pending PR review/merge. | HIGH |
-| **🟡 KAN-88 — Global mapping optimizer** | 3-pass greedy optimizer: (1) validity sweep — hard bans, type-compat, out-of-scope lookups; (2) duplicate target resolution — keep highest-confidence claimant, demote rest through shortlist; (3) required field coverage — promote only if `retrievalScore ≥ 0.30`. `optimizer_complete` step event. **Depends on KAN-87 (done) + KAN-90 for scope enforcement (in progress).** | HIGH — next dispatch |
-| **🟡 KAN-90 — Entity relationship graph** | `RelationshipGraph` on `AgentContext` with `buildRelationshipGraph`, `topologicalOrder`, `isInScope`; used by KAN-88 optimizer for lookup scope enforcement. Dispatched to Codex. | MEDIUM |
+| **🟠 KAN-90 — Entity relationship graph (PR #27 — changes requested)** | `RelationshipGraph`, `buildRelationshipGraph`, optimizer scope wiring all implemented. Missing: (1) `loadOrder` array in export spec — `topologicalOrder()` exists but never called from `exporter.ts`; (2) `relationship_graph_ready` step event not emitted from `OrchestratorAgent`. Awaiting Codex fix. | HIGH |
+| **🟠 KAN-91 — Salesforce validation rule extraction (PR #28 — changes requested)** | Rule extraction, formula parsing, schema propagation all solid. Missing: (1) `partial_coverage_risk` detection — validator warns on all rules unconditionally, not just where some referenced fields are unmapped; (2) no `validationRuleSafety` export section (`suppressBeforeLoad`, `loadBlockingRules`, `partialCoverageRisks`); (3) silent error suppression without `validation_rules_unavailable` warning; (4) only 1 formula fixture tested vs 3 required; no classification tests. Awaiting Codex fix. | HIGH |
 | **🟡 KAN-95 — Audit logging crashes in no-DB mode** | `backend/src/db/audit.ts:28` calls `prisma.auditEntry.create()` unconditionally even when `DATABASE_URL` is unset. Produces repeated `PrismaClientInitializationError` log noise on every project creation and orchestration run. Needs a `isDatabaseAvailable()` guard that routes to a file-backed sink (or no-op) in FsStore mode. | MEDIUM |
-| **🟡 KAN-89 — Eval harness + active learning** | In progress on branch `codex/KAN-89-benchmark-and-active-learning`: adds committed `backend/data/benchmark-pairs.jsonl` gold set (58 BOSL→FSC pairs), `npm run benchmark` harness with precision/recall + duplicate/coverage metrics, file-backed `review-decisions.jsonl`, `POST /api/review-decisions`, and retrieval weighting from accepted/rejected review actions. Pending PR review/merge. | MEDIUM |
-| BYOL persistence (KAN-80) | `llm-configs.json` / `llm-usage.json` are file-backed — should migrate to Prisma `LLMUserConfig` + `LLMUsageEvent` models before hosted/multi-tenant deployment | Medium |
-| LLM Settings as global page (KAN-81) | Currently only accessible on the Connect step; a sidebar-reachable settings page would be cleaner | Medium |
-| Schema Intelligence sync (KAN-82) | `schemaIntelligenceData.ts` is a hand-compiled TypeScript snapshot of the markdown reference files. A `syncSchemaIntelligence.ts` diff script + `GET /api/schema-intelligence/patterns` endpoint is needed to keep them in sync and expose the corpus to external tools. | Low |
 | `GET /api/projects` pagination | List reads from in-memory FsStore; needs `limit`/`cursor` pagination at scale | Low |
-| **Reranker runtime wins** | No `rerankerDecision` was persisted in the first real-LLM smoke run (2026-03-16). `shouldUseReranker` may not be triggering at runtime because all mappings are already decisive, or the LLM is returning confidence < 0.55 threshold. Needs investigation alongside KAN-88 domain work. | Low (observation) |
+| **Reranker runtime wins** | No `rerankerDecision` was persisted in the first real-LLM smoke run (2026-03-16). `shouldUseReranker` may not be triggering at runtime because all mappings are already decisive, or the LLM is returning confidence < 0.55 threshold. Needs investigation. | Low (observation) |
 
 ### 🟡 Parked (H2)
 
@@ -227,19 +222,27 @@ cd apps/web && npm test
 
 ---
 
-## Next Codex Work Queue (2026-03-21)
+## Next Codex Work Queue (2026-03-25)
 
-Board is clear. All Testing tickets moved to Done. Next dispatch in priority order:
+Two PRs awaiting fixes before re-review. One fresh dispatch in flight.
 
-1. **KAN-89** — Phase 5 matcher upgrade: benchmark harness + active learning loop from accepted mappings. This is the flywheel — every accepted mapping feeds confidence scores back into the corpus. Foundation of durable mapping intelligence. (Medium priority, no dependencies.)
-2. **KAN-90** — Entity relationship graph: `RelationshipGraph` on `AgentContext`, `buildRelationshipGraph`, `topologicalOrder`, `isInScope`. Unblocks the `TODO(KAN-90)` scope-enforcement stub in `mappingOptimizer.ts`. (Medium priority.)
-3. **KAN-91** — Salesforce validation rule extraction: surface validation rule constraints from jsforce describe output as mapping warnings in the Review screen. (Medium priority.)
-4. **KAN-95** — Audit logging no-DB crash: add `isDatabaseAvailable()` guard in `backend/src/db/audit.ts`. (Medium priority, quick fix.)
-5. **KAN-80** — BYOL LLM config migrate to Prisma. (Medium priority, pre-multi-tenant requirement.)
+**Awaiting Codex fixes (changes-requested):**
+1. **KAN-90 (PR #27)** — Add `loadOrder` to export spec + emit `relationship_graph_ready` step event. Both missing from the current PR.
+2. **KAN-91 (PR #28)** — Add `partial_coverage_risk` logic to validator, `validationRuleSafety` export section, `validation_rules_unavailable` warning on permission error, and 2 additional formula fixture tests + classification tests.
+
+**Next after those clear:**
+3. **KAN-95** — Audit no-DB crash: `isDatabaseAvailable()` guard in `backend/src/db/audit.ts`. Quick fix, low risk.
 
 ---
 
 ## Recent Delivery Log
+
+### 2026-03-25 — Claude (Cowork)
+- **KAN-80 implemented for review.** Added legacy startup seeding from `llm-configs.json` / `llm-usage.json` into Prisma-backed `LLMUserConfig`, plus explicit file-fallback test coverage for `llmSettingsStore`.
+- **KAN-89 reviewed + approved → Done.** PR #25 passed all 6 acceptance criteria: benchmark harness, 58-pair fixture, 5 metrics, review-decision file write, retrieval boost on next run, correct `.gitignore` exclusions.
+- **KAN-90 (PR #27) — changes requested.** 2 gaps: `loadOrder` missing from export spec; `relationship_graph_ready` step event not emitted. Graph construction, optimizer wiring, and tests all pass.
+- **KAN-91 (PR #28) — changes requested.** 4 gaps: `partial_coverage_risk` detection not implemented (unconditional per-field warn); no `validationRuleSafety` export section; silent error suppression without `validation_rules_unavailable` warning; insufficient formula fixtures and no classification tests. Foundation (extraction, formula parsing, type plumbing) is solid.
+- **`CLAUDE.md` created** at repo root — auto-loaded session instructions for Claude Code and Cowork covering team model, Jira constants, PR workflow, key entry points, architecture invariants, review standards, and session startup checklist.
 
 ### 2026-03-21 — Codex (PRs #21–24, main)
 - **KAN-99 — Seed dedup fix (PR #21):** `suggest-mappings` now runs the global mapping optimizer before persisting seed output. Eliminates the duplicate-target explosion (101 source fields mapping to `CurrentBalance`).

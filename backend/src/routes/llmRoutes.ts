@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { authMiddleware } from '../auth/authMiddleware.js';
 import { activeProvider } from '../agents/llm/LLMGateway.js';
 import { runWithLLMRuntimeContext } from '../services/llmRuntimeContext.js';
-import { llmSettingsStore } from '../services/llmSettingsStore.js';
+import { llmSettingsStore, type LLMSettingsStore } from '../services/llmSettingsStore.js';
 import { sendHttpError } from '../utils/httpErrors.js';
 
 function sendError(
@@ -28,15 +28,15 @@ function isValidMode(value: unknown): value is 'default' | 'byol' {
   return value === 'default' || value === 'byol';
 }
 
-export function setupLLMRoutes(app: Express): void {
-  app.get('/api/llm/config', authMiddleware, (req: Request, res: Response) => {
+export function setupLLMRoutes(app: Express, settingsStore: LLMSettingsStore = llmSettingsStore): void {
+  app.get('/api/llm/config', authMiddleware, async (req: Request, res: Response) => {
     const userId = toUserId(req);
-    const runtimeConfig = llmSettingsStore.getRuntimeConfig(userId);
+    const runtimeConfig = await settingsStore.getRuntimeConfig(userId);
     const effectiveProvider = runWithLLMRuntimeContext(
       { llmConfig: runtimeConfig },
       () => activeProvider(),
     );
-    const config = llmSettingsStore.getPublicConfig(userId);
+    const config = await settingsStore.getPublicConfig(userId);
     res.json({
       config,
       effectiveProvider,
@@ -44,7 +44,7 @@ export function setupLLMRoutes(app: Express): void {
     });
   });
 
-  app.put('/api/llm/config', authMiddleware, (req: Request, res: Response) => {
+  app.put('/api/llm/config', authMiddleware, async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const modeRaw = body.mode;
     const providerRaw = body.provider;
@@ -78,7 +78,7 @@ export function setupLLMRoutes(app: Express): void {
       return;
     }
     const userId = toUserId(req);
-    const existingConfig = llmSettingsStore.getUserConfig(userId);
+    const existingConfig = await settingsStore.getUserConfig(userId);
     const effectiveMode = (modeRaw ?? existingConfig.mode) as 'default' | 'byol';
     const nextProvider = (providerRaw ?? existingConfig.provider) as 'openai' | 'anthropic' | 'gemini' | 'custom' | undefined;
     const effectiveBaseUrl =
@@ -91,7 +91,7 @@ export function setupLLMRoutes(app: Express): void {
       return;
     }
 
-    llmSettingsStore.upsertUserConfig(userId, {
+    await settingsStore.upsertUserConfig(userId, {
       mode: modeRaw as 'default' | 'byol' | undefined,
       provider: providerRaw as 'openai' | 'anthropic' | 'gemini' | 'custom' | undefined,
       paused: pausedRaw as boolean | undefined,
@@ -100,28 +100,28 @@ export function setupLLMRoutes(app: Express): void {
       model: modelRaw as string | undefined,
     });
 
-    const runtimeConfig = llmSettingsStore.getRuntimeConfig(userId);
+    const runtimeConfig = await settingsStore.getRuntimeConfig(userId);
     const effectiveProvider = runWithLLMRuntimeContext(
       { llmConfig: runtimeConfig },
       () => activeProvider(),
     );
 
     res.json({
-      config: llmSettingsStore.getPublicConfig(userId),
+      config: await settingsStore.getPublicConfig(userId),
       effectiveProvider,
       usingDefaultProvider: runtimeConfig.useDefault,
     });
   });
 
-  app.get('/api/llm/usage', authMiddleware, (req: Request, res: Response) => {
+  app.get('/api/llm/usage', authMiddleware, async (req: Request, res: Response) => {
     const userId = toUserId(req);
     const limitRaw = typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : 50;
     const hoursRaw = typeof req.query.windowHours === 'string' ? Number.parseInt(req.query.windowHours, 10) : 24;
     const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
     const windowHours = Number.isFinite(hoursRaw) ? hoursRaw : 24;
 
-    const summary = llmSettingsStore.summarizeUsage(userId, windowHours);
-    const events = llmSettingsStore.listUsage(userId, limit);
+    const summary = await settingsStore.summarizeUsage(userId, windowHours);
+    const events = await settingsStore.listUsage(userId, limit);
 
     res.json({
       summary,
