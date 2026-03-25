@@ -856,6 +856,7 @@ app.get('/api/projects/:id/export', async (req, res) => {
     fieldMappings,
     entities: state.entities,
     fields: state.fields,
+    relationships: state.relationships,
     validation,
   });
   writeAuditEntrySafe({

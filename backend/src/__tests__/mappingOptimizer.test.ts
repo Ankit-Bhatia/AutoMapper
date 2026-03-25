@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Field, FieldMapping } from '../types.js';
 import { runMappingOptimizer } from '../services/mappingOptimizer.js';
+import { buildRelationshipGraph } from '../services/relationshipGraph.js';
 
 function makeField(overrides: Partial<Field> = {}): Field {
   return {
@@ -183,5 +184,70 @@ describe('runMappingOptimizer', () => {
     expect(activeTargetIds).toContain('tgt-required-tax');
     expect(activeTargetIds).not.toContain('tgt-formula');
     expect(activeTargetIds).not.toContain('tgt-stage');
+  });
+
+  it('rejects lookup targets whose referenced entity is out of scope when a relationship graph is present', () => {
+    const sourceFields = [
+      makeField({ id: 'src-ref', entityId: 'src-ent', name: 'ACCOUNT_ID', dataType: 'reference' }),
+    ];
+    const targetFields = [
+      makeField({
+        id: 'tgt-out',
+        entityId: 'financial-account-id',
+        name: 'ExternalAccount__c',
+        dataType: 'reference',
+        referenceTo: ['OutOfScopeObject'],
+      }),
+      makeField({
+        id: 'tgt-in',
+        entityId: 'financial-account-id',
+        name: 'AccountId',
+        dataType: 'reference',
+        referenceTo: ['Account'],
+      }),
+    ];
+
+    const graph = buildRelationshipGraph(
+      [
+        { id: 'financial-account-id', systemId: 'sys', name: 'FinancialAccount' },
+        { id: 'account-id', systemId: 'sys', name: 'Account' },
+        { id: 'out-of-scope-id', systemId: 'sys', name: 'OutOfScopeObject' },
+      ],
+      [
+        { fromEntityId: 'financial-account-id', toEntityId: 'account-id', type: 'lookup', viaField: 'AccountId' },
+        { fromEntityId: 'financial-account-id', toEntityId: 'out-of-scope-id', type: 'lookup', viaField: 'ExternalAccount__c' },
+      ],
+    );
+
+    const optimized = runMappingOptimizer([
+      makeMapping({
+        id: 'fm-lookup',
+        sourceFieldId: 'src-ref',
+        targetFieldId: 'tgt-out',
+        confidence: 0.74,
+        retrievalShortlist: {
+          sourceFieldId: 'src-ref',
+          topK: 3,
+          candidates: [
+            { targetFieldId: 'tgt-out', targetFieldName: 'ExternalAccount__c', retrievalScore: 0.74, semanticMode: 'alias', evidence: ['lookup'] },
+            { targetFieldId: 'tgt-in', targetFieldName: 'AccountId', retrievalScore: 0.69, semanticMode: 'alias', evidence: ['lookup'] },
+          ],
+        },
+      }),
+    ], targetFields, {
+      sourceFieldsById: new Map(sourceFields.map((field) => [field.id, field])),
+      relationshipGraph: graph,
+      scopedEntityIds: ['financial-account-id', 'account-id'],
+    });
+
+    expect(optimized[0]).toMatchObject({
+      id: 'fm-lookup',
+      targetFieldId: 'tgt-in',
+      optimizerDisplacement: {
+        originalTargetFieldId: 'tgt-out',
+        reason: 'lookup_out_of_scope',
+        finalAssignment: 'tgt-in',
+      },
+    });
   });
 });

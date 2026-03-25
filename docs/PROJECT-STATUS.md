@@ -147,6 +147,11 @@ AutoMapper/
 
 | Gap | Detail | Priority |
 |---|---|---|
+| **🔴 KAN-77 — Export downloads broken** | `ExportPanel.tsx` calls `fetch()` directly without `credentials: 'include'` — auth cookies never sent, so backend returns 401. In standalone/demo mode `apiBase()` returns `''` (empty string), making the request relative and hitting nothing. No user-facing error message shown on failure — error is silently swallowed to console only. | **HIGH — blocks demo** |
+| **🟠 KAN-78 — SchemaIntelligence UI invisible** | `SchemaIntelligenceAgent` is live in the pipeline and emits rich metadata (`confirmedPattern`, `isOneToMany`, `formulaTarget`, `personAccountOnly`) via `AgentStep.metadata`, but `MappingTable` and `FieldMappingCard` render none of it. Confirmed pattern hits, formula warnings, one-to-many flags, and FSC namespace badges need to surface in the Mapping Review UI. | HIGH |
+| **🟠 KAN-79 — One-to-many routing unresolved** | In progress on branch `codex/KAN-79-one-to-many-resolver`: adds `/api/schema-intelligence/patterns`, persisted `resolvedOneToManyMappings`, a dedicated `routing` workflow step, `OneToManyResolverPanel`, and export gating until routing decisions are confirmed. Pending PR review/merge. | HIGH |
+| **🟡 KAN-88 — Global mapping optimizer** | 3-pass greedy optimizer: (1) validity sweep — hard bans, type-compat, out-of-scope lookups; (2) duplicate target resolution — keep highest-confidence claimant, demote rest through shortlist; (3) required field coverage — promote only if `retrievalScore ≥ 0.30`. `optimizer_complete` step event. **Depends on KAN-87 (done) + KAN-90 for scope enforcement (in progress).** | HIGH — next dispatch |
+| **🟡 KAN-90 — Entity relationship graph** | In review on branch `codex/KAN-90-relationship-graph`: adds `relationshipGraph.ts`, wires `RelationshipGraph` + scoped `relationships` onto `AgentContext`, emits `relationship_graph_ready`, passes target-entity scope into the optimizer so lookup targets can be rejected when `referenceTo` points outside the loaded target schema, and now surfaces graph-driven `loadOrder` metadata in export specs. | MEDIUM |
 | **🟠 KAN-90 — Entity relationship graph (PR #27 — changes requested)** | `RelationshipGraph`, `buildRelationshipGraph`, optimizer scope wiring all implemented. Missing: (1) `loadOrder` array in export spec — `topologicalOrder()` exists but never called from `exporter.ts`; (2) `relationship_graph_ready` step event not emitted from `OrchestratorAgent`. Awaiting Codex fix. | HIGH |
 | **🟠 KAN-91 — Salesforce validation rule extraction (PR #28 — changes requested)** | Rule extraction, formula parsing, schema propagation all solid. Missing: (1) `partial_coverage_risk` detection — validator warns on all rules unconditionally, not just where some referenced fields are unmapped; (2) no `validationRuleSafety` export section (`suppressBeforeLoad`, `loadBlockingRules`, `partialCoverageRisks`); (3) silent error suppression without `validation_rules_unavailable` warning; (4) only 1 formula fixture tested vs 3 required; no classification tests. Awaiting Codex fix. | HIGH |
 | **🟡 KAN-95 — Audit logging crashes in no-DB mode** | `backend/src/db/audit.ts:28` calls `prisma.auditEntry.create()` unconditionally even when `DATABASE_URL` is unset. Produces repeated `PrismaClientInitializationError` log noise on every project creation and orchestration run. Needs a `isDatabaseAvailable()` guard that routes to a file-backed sink (or no-op) in FsStore mode. | MEDIUM |
@@ -719,7 +724,7 @@ Scope completed:
 - Persisted optimizer metadata through Prisma + FS store (`optimizerDisplacement`, `lowConfidenceFallback`) and added migration `backend/prisma/migrations/20260317131500_add_field_mapping_optimizer_metadata/migration.sql`.
 - Wired the optimizer into `backend/src/agents/MappingProposalAgent.ts` after the structured reranker and before final emission, with a new `optimizer_complete` step event that reports duplicate resolution, uncovered required fields, and low-confidence AI fallback flags.
 - Updated backend consumers (`index.ts`, `validator.ts`, `conflicts.ts`, `exporter.ts`, `agentRefiner.ts`) to treat `unmatched` as an inactive mapping state.
-- KAN-90 relationship scope is not merged in this repo baseline, so the optimizer currently skips lookup-scope rejection and leaves the TODO in place.
+- KAN-90 relationship scope is implemented on branch `codex/KAN-90-relationship-graph`; until that branch merges, `main` still skips lookup-scope rejection in the optimizer.
 
 Files changed:
 - `packages/contracts/types.ts`
@@ -752,7 +757,8 @@ Acceptance notes:
 - Required/key coverage is only promoted from unmatched sources when the shortlist score is `>= 0.30`; weak candidates remain uncovered rather than being force-assigned.
 - Hard-banned targets do not survive the optimizer when a valid alternative exists.
 - `optimizer_complete` is emitted from `MappingProposalAgent` with the required metadata shape, including the Jira-specified `aiFailbackFlagged` key.
-- Relationship scope checks remain gated behind the future `KAN-90` graph implementation.
+- Relationship scope checks are now covered on the active KAN-90 branch through `RelationshipGraph.isInScope()` and optimizer displacement tests.
+- KAN-90 review fixes now add `relationship_graph_ready` SSE telemetry and `loadOrder` export metadata driven by `RelationshipGraph.topologicalOrder()`.
 
 ## 2026-03-17 KAN-77 Export Download Fix (Implemented by Codex)
 

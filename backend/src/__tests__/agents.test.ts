@@ -20,6 +20,7 @@ import { sanitizeFields, countRedactedFields, buildSafeSchemaDescription } from 
 import { activeProvider } from '../agents/llm/LLMGateway.js';
 import * as LLMGateway from '../agents/llm/LLMGateway.js';
 import * as EmbeddingService from '../services/EmbeddingService.js';
+import { buildRelationshipGraph } from '../services/relationshipGraph.js';
 
 import type { AgentContext } from '../agents/types.js';
 import type { Entity, Field, EntityMapping, FieldMapping } from '../types.js';
@@ -772,6 +773,106 @@ describe('MappingProposalAgent', () => {
     if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
     if (original.google) process.env.GOOGLE_API_KEY = original.google;
   });
+
+  it('uses the relationship graph to displace out-of-scope lookup targets', async () => {
+    const original = {
+      openai: process.env.OPENAI_API_KEY,
+      anthropic: process.env.ANTHROPIC_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+      geminiLegacy: process.env.GEMINI_KEY,
+      google: process.env.GOOGLE_API_KEY,
+    };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_KEY;
+    delete process.env.GOOGLE_API_KEY;
+
+    const agent = new MappingProposalAgent();
+    const steps: Array<{ action: string; metadata?: Record<string, unknown> }> = [];
+    const srcEnt = makeEntity({ id: 'src-ent', systemId: 'src-sys', name: 'Borrower' });
+    const tgtEnt = makeEntity({ id: 'financial-account-id', systemId: 'tgt-sys', name: 'FinancialAccount' });
+    const accountEnt = makeEntity({ id: 'account-id', systemId: 'tgt-sys', name: 'Account' });
+    const outEnt = makeEntity({ id: 'lead-id', systemId: 'tgt-sys', name: 'Lead' });
+    const srcField = makeField({ id: 'src-account-id', entityId: 'src-ent', name: 'EXTERNAL_ACCOUNT', dataType: 'reference' });
+    const outTarget = makeField({
+      id: 'tgt-external-account',
+      entityId: 'financial-account-id',
+      name: 'ExternalAccount__c',
+      dataType: 'reference',
+      referenceTo: ['Lead'],
+    });
+    const inTarget = makeField({
+      id: 'tgt-account-id',
+      entityId: 'financial-account-id',
+      name: 'LinkedAccountId',
+      dataType: 'reference',
+      referenceTo: ['Account'],
+    });
+    const em: EntityMapping = {
+      id: 'em-1',
+      projectId: 'proj-1',
+      sourceEntityId: 'src-ent',
+      targetEntityId: 'financial-account-id',
+      confidence: 0.8,
+      rationale: 'test',
+    };
+    const fm: FieldMapping = {
+      id: 'fm-lookup',
+      entityMappingId: 'em-1',
+      sourceFieldId: 'src-account-id',
+      targetFieldId: 'tgt-external-account',
+      confidence: 0.74,
+      status: 'suggested',
+      transform: { type: 'direct', config: {} },
+      rationale: 'initial',
+      retrievalShortlist: {
+        sourceFieldId: 'src-account-id',
+        topK: 3,
+        candidates: [
+          { targetFieldId: 'tgt-external-account', targetFieldName: 'ExternalAccount__c', retrievalScore: 0.74, semanticMode: 'alias', evidence: ['lookup'] },
+          { targetFieldId: 'tgt-account-id', targetFieldName: 'LinkedAccountId', retrievalScore: 0.69, semanticMode: 'alias', evidence: ['lookup'] },
+        ],
+      },
+    };
+    const relationshipGraph = buildRelationshipGraph(
+      [srcEnt, tgtEnt, accountEnt, outEnt],
+      [
+        { fromEntityId: 'financial-account-id', toEntityId: 'account-id', type: 'lookup', viaField: 'LinkedAccountId' },
+        { fromEntityId: 'financial-account-id', toEntityId: 'lead-id', type: 'lookup', viaField: 'ExternalAccount__c' },
+      ],
+    );
+
+    const result = await agent.run({
+      ...makeContext(),
+      sourceEntities: [srcEnt],
+      targetEntities: [tgtEnt, accountEnt],
+      fields: [srcField, outTarget, inTarget],
+      entityMappings: [em],
+      fieldMappings: [fm],
+      relationshipGraph,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.updatedFieldMappings[0]).toMatchObject({
+      id: 'fm-lookup',
+      targetFieldId: 'tgt-account-id',
+      optimizerDisplacement: {
+        originalTargetFieldId: 'tgt-external-account',
+        reason: 'lookup_out_of_scope',
+        finalAssignment: 'tgt-account-id',
+      },
+    });
+    expect(steps.find((step) => step.action === 'optimizer_complete')?.metadata).toMatchObject({
+      lookupOutOfScopeRemoved: 1,
+    });
+
+    if (original.openai) process.env.OPENAI_API_KEY = original.openai;
+    if (original.anthropic) process.env.ANTHROPIC_API_KEY = original.anthropic;
+    if (original.gemini) process.env.GEMINI_API_KEY = original.gemini;
+    if (original.geminiLegacy) process.env.GEMINI_KEY = original.geminiLegacy;
+    if (original.google) process.env.GOOGLE_API_KEY = original.google;
+  });
 });
 
 // ─── MappingRationaleAgent ───────────────────────────────────────────────────
@@ -1039,6 +1140,33 @@ describe('OrchestratorAgent', () => {
     const result = await orchestrator.orchestrate(makeContext());
 
     expect(result.allSteps.some((step) => step.action === 'embeddings_skipped')).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('emits relationship_graph_ready once the relationship graph is prepared', async () => {
+    const spy = vi.spyOn(EmbeddingService, 'buildEmbeddingCache').mockResolvedValue({
+      status: 'disabled',
+      cache: null,
+      attemptedProviders: [],
+      reason: 'no embedding provider key found',
+    });
+
+    const parentEntity = makeEntity({ id: 'parent-ent', systemId: 'tgt-sys', name: 'ParentAccount' });
+    const relationship = {
+      fromEntityId: 'tgt-ent',
+      toEntityId: 'parent-ent',
+      type: 'lookup' as const,
+      viaField: 'ParentId',
+    };
+    const result = await new OrchestratorAgent().orchestrate(makeContext({
+      targetEntities: [makeEntity({ id: 'tgt-ent', systemId: 'tgt-sys', name: 'Account' }), parentEntity],
+      relationships: [relationship],
+    }));
+
+    expect(result.allSteps.find((step) => step.action === 'relationship_graph_ready')?.metadata).toMatchObject({
+      relationshipCount: 1,
+      entityCount: 3,
+    });
     spy.mockRestore();
   });
 

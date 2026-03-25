@@ -399,6 +399,8 @@ export class MappingProposalAgent extends AgentBase {
     const requiredCoverageBefore = requiredTargetCoverageCount(targetFieldUniverse, optimizerInput);
     const optimizedMappings = runMappingOptimizer(optimizerInput, targetFieldUniverse, {
       sourceFieldsById,
+      relationshipGraph: context.relationshipGraph,
+      scopedEntityIds: targetEntities.map((entity) => entity.id),
     });
     const requiredCoverageAfter = requiredTargetCoverageCount(targetFieldUniverse, optimizedMappings);
     const optimizerImproved = optimizedMappings.filter((mapping, index) => {

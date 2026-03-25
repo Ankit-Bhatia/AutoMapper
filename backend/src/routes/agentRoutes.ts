@@ -96,6 +96,10 @@ export function setupAgentRoutes(app: Express, store: DbStore | FsStore): void {
 
     const sourceEntities = state.entities.filter((e) => e.systemId === project.sourceSystemId);
     const targetEntities = state.entities.filter((e) => e.systemId === project.targetSystemId);
+    const scopedEntityIds = new Set([...sourceEntities, ...targetEntities].map((entity) => entity.id));
+    const relationships = state.relationships.filter(
+      (relationship) => scopedEntityIds.has(relationship.fromEntityId) && scopedEntityIds.has(relationship.toEntityId),
+    );
 
     const entityMappings = state.entityMappings.filter((m) => m.projectId === project.id);
     const entityMappingIds = new Set(entityMappings.map((e) => e.id));
@@ -144,6 +148,7 @@ export function setupAgentRoutes(app: Express, store: DbStore | FsStore): void {
           sourceEntities,
           targetEntities,
           fields: state.fields,
+          relationships,
           entityMappings,
           fieldMappings,
           onStep: (step) => {
