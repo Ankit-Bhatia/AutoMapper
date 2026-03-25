@@ -228,7 +228,7 @@ async function withLLMContext<T>(
   handler: () => Promise<T>,
 ): Promise<T> {
   const userId = req.user?.userId ?? 'demo-admin';
-  const runtimeConfig = llmSettingsStore.getRuntimeConfig(userId);
+  const runtimeConfig = await llmSettingsStore.getRuntimeConfig(userId);
   return runWithLLMRuntimeContext(
     {
       llmConfig: runtimeConfig,
@@ -239,7 +239,7 @@ async function withLLMContext<T>(
       },
       onUsage: (capture, meta) => {
         if (!meta?.userId) return;
-        llmSettingsStore.captureUsage(meta.userId, capture, {
+        void llmSettingsStore.captureUsage(meta.userId, capture, {
           projectId: meta.projectId,
           requestId: meta.requestId,
         });
