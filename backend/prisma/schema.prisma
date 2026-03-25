@@ -287,3 +287,35 @@ model CustomConnector {
   @@index([createdAt])
   @@index([createdByUserId])
 }
+
+model LLMUserConfig {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  mode            String   @default("default")
+  provider        String?
+  encryptedApiKey String?
+  apiKeyHint      String?
+  baseUrl         String?
+  model           String?
+  paused          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model LLMUsageEvent {
+  id         String   @id @default(uuid())
+  userId     String
+  projectId  String?
+  requestId  String?
+  provider   String
+  model      String?
+  tokensUsed Int?
+  durationMs Int
+  success    Boolean
+  error      String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
