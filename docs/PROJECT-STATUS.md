@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-25
+> **Last updated:** 2026-03-26
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -100,7 +100,7 @@ AutoMapper/
 
 ---
 
-## Current Board State (2026-03-21)
+## Current Board State (2026-03-26)
 
 ### ✅ Done — Stable
 
@@ -120,6 +120,7 @@ AutoMapper/
 | **Salesforce connector enrichment (KAN-83)** | `RecordType` model in Prisma (`sfRecordTypeId`, `name`, `label`, `isDefault`, `isActive`); `Entity.recordTypes` relation; live path reads `recordTypeInfos` from jsforce describe; mock includes rep. record types for Account/IndividualApplication/FinancialAccount. `isUpsertKey` on `ConnectorField`; `upsertKeys` map on `ConnectorSchema`. FSC objects (`FinServ__FinancialAccount__c`, `FinServ__FinancialAccountTransaction__c`, `FinServ__BillingStatement__c`, `FinServ__IndividualApplication__c`, `FinServ__FinancialGoal__c`, `FinServ__ReciprocalRole__c`) added to mock catalog with domain-correct field lists including `ExternalAccountId__c`. |
 | **Upsert key + record type scoring (KAN-84)** | `MappingProposalAgent.scoreTargetCandidate()` — `externalIdScore`: +0.25 (source key → SF upsert key), +0.15 (source key → SF externalId), −0.10 penalty (non-key source → upsert key target). `AgentContext.targetRecordTypes` populated from ConnectorSchema. Rationale annotated with applicable record type variants. `upsertKeyMappings` + `recordTypeAnnotations` in step summary event. |
 | **Project history** | `GET /api/projects` list endpoint (sorted by updatedAt, per-user owner filter, canExport flag); `ProjectHistoryPanel` UI: past projects with source→target, mapping count, conflict count, "Open Review" / "Open Export" buttons; reopen bypass (loads stored mappings, skips pipeline re-run) |
+| **KAN-102 — Multi-project dashboard** | `DashboardPage.tsx` is now the default authenticated home route (`/` and `/dashboard`). Portfolio summary bar shows mapped fields, export-ready count, open conflicts, and active projects. Project cards support inline rename, reopen, duplicate, archive, and archived filtering. `/new` preserves the connector-first creation flow. Backend adds enriched `GET /api/projects`, `PATCH /api/projects/:id`, and `POST /api/projects/:id/duplicate` across both Prisma and FsStore paths. |
 | **Export (KAN-77)** | 6 formats: JSON, YAML, CSV, MuleSoft DataWeave, Dell Boomi, Workato; live mode uses `fetch(..., { credentials: 'include' })` against `API_BASE`; standalone/demo mode routes through `api<string>()` → `mockApiCall()`; inline `exportError` state shown on failure |
 | **Conflict resolution** | `conflicts.ts` service; `GET /api/projects/:id/conflicts`; `POST .../resolve`; `ConflictDrawer` slide-in with pick-winner UX |
 | **Audit trail** | `writeAuditEntry` helper; 7 action types; `GET /api/projects/:id/audit` cursor-paginated; `AuditLogTab` with icons, relative time, Load older |
@@ -129,7 +130,7 @@ AutoMapper/
 | **BOSL workbook ingestion** | `mappingWorkbookParser.ts` reads Excel mapping sheets; `POST /api/projects/:projectId/import-mapping-workbook` upserts derived mappings; returns import summary + unresolved rows |
 | **Custom connectors** | Add Your Own System modal (REST/file tabs); PostgreSQL persistence via Prisma `CustomConnector` model + file-store fallback; rehydrated on login/session refresh |
 | **Auth** | JWT header-based; bcryptjs; `GET /api/auth/setup` (first-user auto-admin); httpOnly cookie path; all async route handlers wrapped in try/catch (Express 4 safety); demo server includes auth stub endpoints; `SetupRoute` no longer redirects `unauthenticated` users away from `/setup` |
-| **Frontend workflow** | LandingPage → Connect → Orchestrate → Routing (one-to-many resolver) → Review → Export |
+| **Frontend workflow** | Dashboard → New Project (connector setup) → Orchestrate → Routing (one-to-many resolver) → Review → Export |
 | **Orchestration reliability** | SSE completes cleanly; stall detection uses heartbeat absence; ValidationAgent yields event loop in chunks; MappingRationaleAgent enforces LLM budget + degrades gracefully |
 | **KAN-85 — Embedding semantic scoring** | `EmbeddingService` with OpenAI-first / Gemini fallback; `embeddingCache` on `AgentContext`; `embeddings_ready/skipped/failed` events; `MappingProposalAgent` hybrid semantic scoring |
 | **KAN-86 — Top-K retrieval shortlist** | `candidateRetrieval.ts`, `DEFAULT_RETRIEVAL_TOP_K = 5`; `FieldMapping.retrievalShortlist` persisted; shortlist-consistency guard; isolated `automapper_vitest` Postgres test DB |
@@ -161,7 +162,6 @@ AutoMapper/
 ### 🟡 Parked (H2)
 
 - KAN-32: User Roles & Permissions EPIC
-- KAN-33: Multi-project dashboard
 - KAN-34: Collaboration & commenting
 - KAN-35: Native Salesforce deployment
 

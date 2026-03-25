@@ -93,6 +93,7 @@ model MappingProject {
   organisationId String?
   organisation   Organisation?   @relation(fields: [organisationId], references: [id])
   name           String
+  archived       Boolean         @default(false)
   userId         String
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   sourceSystemId String

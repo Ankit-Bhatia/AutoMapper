@@ -7,6 +7,7 @@ export interface Project {
   targetSystemId: string;
   createdAt: string;
   updatedAt: string;
+  archived?: boolean;
   resolvedOneToManyMappings?: Record<string, OneToManyResolution>;
 }
 
@@ -75,6 +76,11 @@ export interface FieldValidationRule {
   errorDisplayField?: string;
   referencedFields?: string[];
   kind?: 'rule' | 'unavailable';
+}
+
+export interface ProjectCoverageSummary {
+  mapped: number;
+  total: number;
 }
 
 export interface EntityMapping {
@@ -166,6 +172,7 @@ export type AuditAction =
   | 'mapping_modified'
   | 'conflict_resolved'
   | 'project_created'
+  | 'project_updated'
   | 'project_exported';
 
 export interface AuditActor {
@@ -270,9 +277,13 @@ export interface ProjectHistoryItem {
   project: Project;
   sourceSystem?: SystemSummary;
   targetSystem?: SystemSummary;
+  sourceConnectorName?: string;
+  targetConnectorName?: string;
+  coverage: ProjectCoverageSummary;
   fieldMappingCount: number;
   entityMappingCount: number;
   canExport: boolean;
+  openConflicts: number;
   unresolvedConflicts: number;
   unresolvedRoutingDecisions?: number;
 }

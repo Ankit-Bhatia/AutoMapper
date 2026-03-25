@@ -88,12 +88,6 @@ vi.mock('./auth/AuthContext', () => ({
   useAuth: () => authState,
 }));
 
-vi.mock('./components/LandingPage', () => ({
-  LandingPage: ({ onEnterStudio }: { onEnterStudio: () => void }) => (
-    <button onClick={onEnterStudio}>Enter Studio</button>
-  ),
-}));
-
 vi.mock('./components/Sidebar', () => ({
   Sidebar: ({
     currentStep,
@@ -109,21 +103,6 @@ vi.mock('./components/Sidebar', () => ({
       <button onClick={() => onStepClick('llm-settings')}>Open LLM Settings</button>
       <button onClick={() => onThemeChange('light')}>Switch Light Theme</button>
       <button onClick={() => onThemeChange('dark')}>Switch Dark Theme</button>
-    </div>
-  ),
-}));
-
-vi.mock('./components/CommandCenter', () => ({
-  CommandCenter: ({
-    onNewProject,
-    onOpenLLMSettings,
-  }: {
-    onNewProject: () => void;
-    onOpenLLMSettings: () => void;
-  }) => (
-    <div>
-      <button onClick={onNewProject}>Open New Project</button>
-      <button onClick={onOpenLLMSettings}>Open LLM Settings</button>
     </div>
   ),
 }));
@@ -280,10 +259,8 @@ describe('MappingStudioApp export gating', () => {
 
   it('allows navigation to Export from Review even when required target fields are still unmapped', async () => {
     const user = userEvent.setup();
-    render(<MappingStudioApp />);
+    render(<MappingStudioApp initialView="new" />);
 
-    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
-    await user.click(screen.getByRole('button', { name: 'Open New Project' }));
     await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
 
     await waitFor(() => {
@@ -360,10 +337,8 @@ describe('MappingStudioApp export gating', () => {
       return {};
     });
 
-    render(<MappingStudioApp />);
+    render(<MappingStudioApp initialView="new" />);
 
-    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
-    await user.click(screen.getByRole('button', { name: 'Open New Project' }));
     await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
 
     await waitFor(() => {
@@ -441,10 +416,8 @@ describe('MappingStudioApp export gating', () => {
       return {};
     });
 
-    render(<MappingStudioApp />);
+    render(<MappingStudioApp initialView="new" />);
 
-    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
-    await user.click(screen.getByRole('button', { name: 'Open New Project' }));
     await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
 
     await waitFor(() => {
@@ -466,9 +439,8 @@ describe('MappingStudioApp export gating', () => {
 
   it('shows admin persona settings when an admin opens LLM settings', async () => {
     const user = userEvent.setup();
-    render(<MappingStudioApp />);
+    render(<MappingStudioApp initialView="new" />);
 
-    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
     await user.click(screen.getAllByRole('button', { name: 'Open LLM Settings' })[0]);
 
     await waitFor(() => {
@@ -487,9 +459,8 @@ describe('MappingStudioApp export gating', () => {
       orgSlug: 'default',
     };
     const user = userEvent.setup();
-    render(<MappingStudioApp />);
+    render(<MappingStudioApp initialView="new" />);
 
-    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
     await user.click(screen.getAllByRole('button', { name: 'Open LLM Settings' })[0]);
 
     await waitFor(() => {
@@ -501,9 +472,8 @@ describe('MappingStudioApp export gating', () => {
 
   it('persists the selected UI theme', async () => {
     const user = userEvent.setup();
-    render(<MappingStudioApp />);
+    render(<MappingStudioApp initialView="new" />);
 
-    await user.click(screen.getByRole('button', { name: 'Enter Studio' }));
     await user.click(screen.getByRole('button', { name: 'Switch Light Theme' }));
 
     await waitFor(() => {

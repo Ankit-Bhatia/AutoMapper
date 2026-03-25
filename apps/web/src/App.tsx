@@ -73,18 +73,40 @@ function SetupRoute() {
 }
 
 export default function App() {
+  function StudioRoute({ initialView }: { initialView: 'dashboard' | 'new' }) {
+    const navigate = useNavigate();
+    return <MappingStudioApp initialView={initialView} onNavigate={(path) => navigate(path)} />;
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/setup" element={<SetupRoute />} />
       <Route
-        path="*"
+        path="/"
         element={(
           <ProtectedRoute>
-            <MappingStudioApp />
+            <StudioRoute initialView="dashboard" />
           </ProtectedRoute>
         )}
       />
+      <Route
+        path="/dashboard"
+        element={(
+          <ProtectedRoute>
+            <StudioRoute initialView="dashboard" />
+          </ProtectedRoute>
+        )}
+      />
+      <Route
+        path="/new"
+        element={(
+          <ProtectedRoute>
+            <StudioRoute initialView="new" />
+          </ProtectedRoute>
+        )}
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

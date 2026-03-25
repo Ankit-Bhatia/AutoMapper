@@ -18,6 +18,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   mapping_modified: 'modified a mapping',
   conflict_resolved: 'resolved a conflict',
   project_created: 'created the project',
+  project_updated: 'updated the project',
   project_exported: 'exported the project',
 };
 
@@ -28,6 +29,7 @@ const ACTION_ICONS: Record<AuditAction, string> = {
   mapping_modified: '✏️',
   conflict_resolved: '⚖️',
   project_created: '🗂️',
+  project_updated: '🛠️',
   project_exported: '📤',
 };
 
@@ -68,6 +70,20 @@ function formatAuditSummary(entry: AuditEntry): string | null {
   switch (entry.action) {
     case 'project_created':
       return typeof after?.name === 'string' ? `Project: ${after.name}` : 'Project workspace initialized.';
+    case 'project_updated': {
+      const previousName = typeof before?.name === 'string' ? before.name : null;
+      const nextName = typeof after?.name === 'string' ? after.name : null;
+      const previousArchived = typeof before?.archived === 'boolean' ? before.archived : null;
+      const nextArchived = typeof after?.archived === 'boolean' ? after.archived : null;
+
+      if (previousName && nextName && previousName !== nextName) {
+        return `Renamed project from ${previousName} to ${nextName}.`;
+      }
+      if (previousArchived !== null && nextArchived !== null && previousArchived !== nextArchived) {
+        return nextArchived ? 'Project archived.' : 'Project restored from archive.';
+      }
+      return 'Project details updated.';
+    }
     case 'mapping_suggested': {
       const entityCount = typeof after?.entityMappings === 'number' ? after.entityMappings : null;
       const fieldCount = typeof after?.fieldMappings === 'number' ? after.fieldMappings : null;

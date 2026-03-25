@@ -8,14 +8,13 @@ import { ConflictDrawer } from './components/ConflictDrawer';
 import { ExportPanel } from './components/ExportPanel';
 import { OneToManyResolverPanel } from './components/OneToManyResolverPanel';
 import { BulkActionBar, type BulkOperationResult } from './components/BulkActionBar';
-import { LandingPage } from './components/LandingPage';
 import { SeedSummaryCard } from './components/SeedSummaryCard';
-import { CommandCenter } from './components/CommandCenter';
 import { LLMSettingsPage } from './components/LLMSettingsPage';
 import { type LLMConfigUpdatePayload } from './components/LLMSettingsPanel';
 import { getActiveFormulaTargetIds } from './components/schemaIntelligence';
 import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
 import { useAuth } from './auth/AuthContext';
+import { DashboardPage } from './DashboardPage';
 import type {
   Entity,
   EntityMapping,
@@ -79,10 +78,17 @@ type UiTheme = 'dark' | 'light';
 
 const UI_THEME_STORAGE_KEY = 'automapper-ui-theme';
 
-export function MappingStudioApp() {
+interface MappingStudioAppProps {
+  initialView?: 'dashboard' | 'new';
+  onNavigate?: (path: string) => void;
+}
+
+export function MappingStudioApp({
+  initialView = 'dashboard',
+  onNavigate,
+}: MappingStudioAppProps) {
   const { user } = useAuth();
   const demoUiMode = isDemoUiMode();
-  const [showLanding, setShowLanding] = useState<boolean>(true);
   const [theme, setTheme] = useState<UiTheme>(() => {
     if (typeof window === 'undefined') return 'dark';
     const savedTheme = window.localStorage.getItem(UI_THEME_STORAGE_KEY);
@@ -92,8 +98,10 @@ export function MappingStudioApp() {
     return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   });
   // ── Workflow state ──────────────────────────────────────────────────────────
-  const [step, setStep] = useState<WorkflowStep>('command-center');
-  const [workflowContextStep, setWorkflowContextStep] = useState<Exclude<WorkflowStep, 'llm-settings'>>('command-center');
+  const [step, setStep] = useState<WorkflowStep>(initialView === 'new' ? 'connect' : 'command-center');
+  const [workflowContextStep, setWorkflowContextStep] = useState<Exclude<WorkflowStep, 'llm-settings'>>(
+    initialView === 'new' ? 'connect' : 'command-center',
+  );
   const [loadingSetup, setLoadingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
 
@@ -160,6 +168,20 @@ export function MappingStudioApp() {
     }
   }, [step]);
 
+  useEffect(() => {
+    if (initialView === 'new') {
+      setStep('connect');
+      setWorkflowContextStep('connect');
+      return;
+    }
+    if (step === 'llm-settings') {
+      setWorkflowContextStep('command-center');
+      return;
+    }
+    setStep('command-center');
+    setWorkflowContextStep('command-center');
+  }, [initialView]);
+
   // ── Reload project data from API ────────────────────────────────────────────
   const loadProject = useCallback(async (pid: string) => {
     const data = await api<ProjectPayload>(`/api/projects/${pid}`);
@@ -203,10 +225,12 @@ export function MappingStudioApp() {
     try {
       const data = await api<ProjectListResponse>('/api/projects');
       setProjectHistory(data.projects ?? []);
+      return data.projects ?? [];
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load project history';
       setProjectHistoryError(message);
       setProjectHistory([]);
+      return [] as ProjectHistoryItem[];
     } finally {
       setProjectHistoryLoading(false);
     }
@@ -270,7 +294,11 @@ export function MappingStudioApp() {
     }
   }, []);
 
-  const openPastProject = useCallback(async (projectId: string, destination: 'review' | 'export') => {
+  const openPastProject = useCallback(async (
+    projectId: string,
+    destination: 'review' | 'export',
+    historySnapshot?: ProjectHistoryItem[],
+  ) => {
     setLoadingSetup(true);
     setSetupError(null);
     setReviewGateMessage(null);
@@ -283,7 +311,7 @@ export function MappingStudioApp() {
 
     try {
       const payload = await loadProject(projectId);
-      const history = projectHistory.find((item) => item.project.id === projectId);
+      const history = (historySnapshot ?? projectHistory).find((item) => item.project.id === projectId);
 
       const sourceId =
         connectorIdFromSystemName(history?.sourceSystem?.name)
@@ -341,10 +369,9 @@ export function MappingStudioApp() {
   }, [loadProject, projectHistory, refreshConflicts, refreshPreflight]);
 
   useEffect(() => {
-    if (showLanding) return;
     void loadProjectHistory();
     void refreshLlmTelemetry();
-  }, [loadProjectHistory, refreshLlmTelemetry, showLanding]);
+  }, [loadProjectHistory, refreshLlmTelemetry]);
 
   // ── Step 1: ConnectorGrid → proceed ────────────────────────────────────────
   async function handleConnectorProceed(
@@ -448,6 +475,7 @@ export function MappingStudioApp() {
 
       // 7. Move to orchestrate step
       void loadProjectHistory();
+      onNavigate?.('/new');
       setStep('orchestrate');
     } catch (err) {
       const rawMsg = err instanceof Error ? err.message : 'Setup failed';
@@ -489,6 +517,7 @@ export function MappingStudioApp() {
   // ── Reset: go back to connector selection ──────────────────────────────────
   function handleReset() {
     resetMockState();
+    onNavigate?.('/new');
     setStep('connect');
     setProject(null);
     setSourceConnectorId(null);
@@ -628,14 +657,14 @@ export function MappingStudioApp() {
       attemptOpenExport();
       return;
     }
+    if (nextStep === 'command-center') {
+      onNavigate?.('/dashboard');
+    }
+    if (nextStep === 'connect') {
+      onNavigate?.('/new');
+    }
     setReviewGateMessage(null);
     setStep(nextStep);
-  }
-
-  function handleEnterCommandCenter() {
-    setShowLanding(false);
-    setStep('command-center');
-    setWorkflowContextStep('command-center');
   }
 
   function handleNewProject() {
@@ -661,6 +690,7 @@ export function MappingStudioApp() {
     setReviewGateMessage(null);
     setSelectedMappingIds(new Set());
     setAcknowledgedFormulaMappingIds(new Set());
+    onNavigate?.('/new');
     setStep('connect');
   }
 
@@ -669,19 +699,65 @@ export function MappingStudioApp() {
     switch (step) {
       case 'command-center':
         return (
-          <CommandCenter
-            userName={userName}
-            userRole={user?.role}
+          <DashboardPage
             projects={projectHistory}
-            llmUsage={llmUsage}
-            isDemoMode={demoUiMode}
             loading={projectHistoryLoading}
             error={projectHistoryError}
-            onNewProject={handleNewProject}
-            onOpenReview={(projectId) => { void openPastProject(projectId, 'review'); }}
-            onOpenExport={(projectId) => { void openPastProject(projectId, 'export'); }}
-            onOpenLLMSettings={() => setStep('llm-settings')}
+            activeProjectId={project?.id ?? null}
             onRefresh={() => { void loadProjectHistory(); }}
+            onNewProject={handleNewProject}
+            onOpen={(projectId) => { void openPastProject(projectId, 'review'); }}
+            onDuplicate={async (projectId) => {
+              const response = await api<{ newProjectId: string }>(`/api/projects/${projectId}/duplicate`, {
+                method: 'POST',
+                body: '{}',
+              });
+              const refreshedHistory = await loadProjectHistory();
+              await openPastProject(response.newProjectId, 'review', refreshedHistory);
+            }}
+            onArchive={async (projectId, archived) => {
+              const response = await api<{ project: Project }>(`/api/projects/${projectId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ archived }),
+              });
+              setProjectHistory((previous) => previous.map((entry) => (
+                entry.project.id === projectId
+                  ? {
+                    ...entry,
+                    project: {
+                      ...entry.project,
+                      archived: response.project.archived,
+                      name: response.project.name,
+                      updatedAt: response.project.updatedAt,
+                    },
+                  }
+                  : entry
+              )));
+              if (project?.id === projectId) {
+                setProject(response.project);
+              }
+            }}
+            onRename={async (projectId, name) => {
+              const response = await api<{ project: Project }>(`/api/projects/${projectId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ name }),
+              });
+              setProjectHistory((previous) => previous.map((entry) => (
+                entry.project.id === projectId
+                  ? {
+                    ...entry,
+                    project: {
+                      ...entry.project,
+                      name: response.project.name,
+                      updatedAt: response.project.updatedAt,
+                    },
+                  }
+                  : entry
+              )));
+              if (project?.id === projectId) {
+                setProject(response.project);
+              }
+            }}
           />
         );
 
@@ -847,33 +923,29 @@ export function MappingStudioApp() {
   }
 
   return (
-    showLanding ? (
-      <LandingPage onEnterStudio={handleEnterCommandCenter} />
-    ) : (
-      <div className="app-shell">
-        <Sidebar
-          currentStep={step}
-          workflowStep={workflowContextStep}
-          onStepClick={handleStepClick}
-          theme={theme}
-          onThemeChange={setTheme}
-          onReset={handleReset}
-          userName={userName}
-          userRole={user?.role}
-          projectName={project?.name}
-          sourceConnector={sourceConnectorName}
-          targetConnector={targetConnectorName}
-          sourceSchemaMode={sourceSchemaMode ?? undefined}
-          targetSchemaMode={targetSchemaMode ?? undefined}
-          mappingCount={fieldMappings.length}
-          unresolvedRoutingDecisions={preflight?.unresolvedRoutingDecisions ?? 0}
-          isOrchestrated={isOrchestrated}
-          isDemoMode={demoUiMode}
-        />
-        <main className="main-content">
-          {renderContent()}
-        </main>
-      </div>
-    )
+    <div className="app-shell">
+      <Sidebar
+        currentStep={step}
+        workflowStep={workflowContextStep}
+        onStepClick={handleStepClick}
+        theme={theme}
+        onThemeChange={setTheme}
+        onReset={handleReset}
+        userName={userName}
+        userRole={user?.role}
+        projectName={project?.name}
+        sourceConnector={sourceConnectorName}
+        targetConnector={targetConnectorName}
+        sourceSchemaMode={sourceSchemaMode ?? undefined}
+        targetSchemaMode={targetSchemaMode ?? undefined}
+        mappingCount={fieldMappings.length}
+        unresolvedRoutingDecisions={preflight?.unresolvedRoutingDecisions ?? 0}
+        isOrchestrated={isOrchestrated}
+        isDemoMode={demoUiMode}
+      />
+      <main className="main-content">
+        {renderContent()}
+      </main>
+    </div>
   );
 }
