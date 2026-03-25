@@ -51,12 +51,15 @@ export class RelationshipGraph {
       indegree.set(entityId, 0);
     }
 
-    for (const relationship of this.relationships) {
-      if (!scoped.has(relationship.fromEntityId) || !scoped.has(relationship.toEntityId)) continue;
-      indegree.set(
-        relationship.toEntityId,
-        (indegree.get(relationship.toEntityId) ?? 0) + 1,
-      );
+    for (const [fromEntityId, outgoing] of this.adjacency.entries()) {
+      if (!scoped.has(fromEntityId)) continue;
+      for (const toEntityId of outgoing) {
+        if (!scoped.has(toEntityId)) continue;
+        indegree.set(
+          toEntityId,
+          (indegree.get(toEntityId) ?? 0) + 1,
+        );
+      }
     }
 
     const queue = Array.from(scoped).filter((entityId) => (indegree.get(entityId) ?? 0) === 0).sort();

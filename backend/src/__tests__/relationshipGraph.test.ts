@@ -44,4 +44,24 @@ describe('RelationshipGraph', () => {
     expect(graph.isInScope('Account', ['financial-account-id', 'account-id'])).toBe(true);
     expect(graph.isInScope('Contact', ['financial-account-id', 'account-id'])).toBe(false);
   });
+
+  it('deduplicates parallel edges when computing topological order', () => {
+    const entities = [
+      entity('financial-account-id', 'FinancialAccount'),
+      entity('account-id', 'Account'),
+      entity('contact-id', 'Contact'),
+    ];
+    const relationships = [
+      rel('financial-account-id', 'account-id', 'PrimaryAccountId'),
+      rel('financial-account-id', 'account-id', 'ServicingAccountId'),
+      rel('account-id', 'contact-id', 'PrimaryContactId'),
+    ];
+    const graph = buildRelationshipGraph(entities, relationships);
+
+    expect(graph.topologicalOrder()).toEqual([
+      'financial-account-id',
+      'account-id',
+      'contact-id',
+    ]);
+  });
 });
