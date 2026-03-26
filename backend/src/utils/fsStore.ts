@@ -45,6 +45,12 @@ export class FsStore {
     return {
       ...EMPTY_STATE,
       ...loaded,
+      projects: Array.isArray(loaded.projects)
+        ? loaded.projects.map((project) => ({
+          ...project,
+          archived: project.archived ?? false,
+        }))
+        : [],
       auditEntries: Array.isArray(loaded.auditEntries) ? loaded.auditEntries : [],
     };
   }
@@ -105,6 +111,7 @@ export class FsStore {
       targetSystemId: targetSystem.id,
       createdAt: now,
       updatedAt: now,
+      archived: false,
       resolvedOneToManyMappings: {},
     };
     this.state.projects.push(project);
@@ -133,6 +140,66 @@ export class FsStore {
     project.updatedAt = new Date().toISOString();
     this.persist();
     return project;
+  }
+
+  patchProject(
+    projectId: string,
+    patch: Partial<Pick<MappingProject, 'name' | 'archived'>>,
+  ): MappingProject | undefined {
+    const project = this.state.projects.find((candidate) => candidate.id === projectId);
+    if (!project) return undefined;
+    if (patch.name !== undefined) {
+      project.name = patch.name;
+    }
+    if (patch.archived !== undefined) {
+      project.archived = patch.archived;
+    }
+    project.updatedAt = new Date().toISOString();
+    this.persist();
+    return project;
+  }
+
+  duplicateProject(projectId: string): MappingProject | undefined {
+    const original = this.state.projects.find((candidate) => candidate.id === projectId);
+    if (!original) return undefined;
+
+    const now = new Date().toISOString();
+    const duplicate: MappingProject = {
+      ...structuredClone(original),
+      id: uuidv4(),
+      name: `Copy of ${original.name}`,
+      createdAt: now,
+      updatedAt: now,
+      archived: false,
+      resolvedOneToManyMappings: structuredClone(original.resolvedOneToManyMappings ?? {}),
+    };
+
+    const entityMappings = this.state.entityMappings.filter((mapping) => mapping.projectId === projectId);
+    const entityMappingIds = new Set(entityMappings.map((mapping) => mapping.id));
+    const fieldMappings = this.state.fieldMappings.filter((mapping) => entityMappingIds.has(mapping.entityMappingId));
+    const entityMappingIdMap = new Map<string, string>();
+
+    const duplicatedEntityMappings = entityMappings.map((mapping) => {
+      const nextId = uuidv4();
+      entityMappingIdMap.set(mapping.id, nextId);
+      return {
+        ...structuredClone(mapping),
+        id: nextId,
+        projectId: duplicate.id,
+      };
+    });
+
+    const duplicatedFieldMappings = fieldMappings.map((mapping) => ({
+      ...structuredClone(mapping),
+      id: uuidv4(),
+      entityMappingId: entityMappingIdMap.get(mapping.entityMappingId) ?? mapping.entityMappingId,
+    }));
+
+    this.state.projects.push(duplicate);
+    this.state.entityMappings.push(...duplicatedEntityMappings);
+    this.state.fieldMappings.push(...duplicatedFieldMappings);
+    this.persist();
+    return duplicate;
   }
 
   replaceSystemSchema(

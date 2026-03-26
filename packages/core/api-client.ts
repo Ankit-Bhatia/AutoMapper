@@ -54,10 +54,18 @@ let _mockLlmConfig: LLMConfigResponse = {
 
 let _mockLlmUsageEvents: LLMUsageEvent[] = [];
 
-let _mockProject: Project = {
+const _initialMockProject: Project = {
   ...mockProjectPayload.project,
+  archived: false,
   resolvedOneToManyMappings: {},
 };
+
+let _mockProjects: Project[] = [{ ..._initialMockProject }];
+let _activeProjectId = _initialMockProject.id;
+
+function getMockProject(projectId = _activeProjectId): Project {
+  return _mockProjects.find((project) => project.id === projectId) ?? _mockProjects[0] ?? _initialMockProject;
+}
 
 function isOneToManyMapping(mapping: FieldMapping): boolean {
   return mapping.rationale.includes('⚠️ One-to-Many field:');
@@ -67,8 +75,8 @@ function getMockOneToManyMappings(mappings = getLiveMappings()): FieldMapping[] 
   return mappings.filter((mapping) => mapping.status !== 'rejected' && mapping.status !== 'unmatched' && isOneToManyMapping(mapping));
 }
 
-function getMockProjectPayload(): ProjectPayload {
-  return { ...mockProjectPayload, project: _mockProject, fieldMappings: getLiveMappings() };
+function getMockProjectPayload(projectId?: string): ProjectPayload {
+  return { ...mockProjectPayload, project: getMockProject(projectId), fieldMappings: getLiveMappings() };
 }
 
 function summarizeUsage(events: LLMUsageEvent[]): LLMUsageResponse['summary'] {
@@ -96,29 +104,36 @@ function summarizeUsage(events: LLMUsageEvent[]): LLMUsageResponse['summary'] {
 
 function buildMockProjectList(): ProjectListResponse {
   const mappings = getLiveMappings();
-  const unresolvedConflicts = buildMockConflicts(mappings).length;
-  const preflight = buildMockPreflight(mappings);
   return {
-    projects: [
-      {
-        project: _mockProject,
+    projects: _mockProjects.map((project) => {
+      const unresolvedConflicts = buildMockConflicts(mappings).length;
+      const preflight = buildMockPreflight(project.id, mappings);
+      return {
+        project,
         sourceSystem: {
-          id: _mockProject.sourceSystemId,
+          id: project.sourceSystemId,
           name: 'SilverLake',
           type: 'core-banking',
         },
         targetSystem: {
-          id: _mockProject.targetSystemId,
+          id: project.targetSystemId,
           name: 'Salesforce',
           type: 'crm',
+        },
+        sourceConnectorName: 'Jack Henry SilverLake',
+        targetConnectorName: 'Salesforce CRM',
+        coverage: {
+          mapped: preflight.mappedTargetCount,
+          total: preflight.targetFieldCount,
         },
         fieldMappingCount: mappings.length,
         entityMappingCount: mockProjectPayload.entityMappings.length,
         canExport: preflight.canExport,
+        openConflicts: unresolvedConflicts,
         unresolvedConflicts,
         unresolvedRoutingDecisions: preflight.unresolvedRoutingDecisions,
-      },
-    ],
+      };
+    }),
   };
 }
 
@@ -157,7 +172,7 @@ function buildMockConflicts(mappings = getLiveMappings()): MappingConflict[] {
   return conflicts;
 }
 
-function buildMockPreflight(mappings = getLiveMappings()): ProjectPreflight {
+function buildMockPreflight(projectId = _activeProjectId, mappings = getLiveMappings()): ProjectPreflight {
   const targetEntityIds = new Set(mockProjectPayload.targetEntities.map((entity) => entity.id));
   const targetFields = mockProjectPayload.fields.filter((field) => targetEntityIds.has(field.entityId));
   const targetFieldIds = new Set(targetFields.map((field) => field.id));
@@ -177,12 +192,13 @@ function buildMockPreflight(mappings = getLiveMappings()): ProjectPreflight {
     .map((field) => ({ id: field.id, name: field.name, label: field.label }));
 
   const unresolvedConflicts = buildMockConflicts(mappings).length;
+  const project = getMockProject(projectId);
   const unresolvedRoutingDecisions = getMockOneToManyMappings(mappings).filter((mapping) => {
-    const resolution = _mockProject.resolvedOneToManyMappings?.[mapping.sourceFieldId];
+    const resolution = project.resolvedOneToManyMappings?.[mapping.sourceFieldId];
     return resolution?.targetFieldId !== mapping.targetFieldId;
   }).length;
   return {
-    projectId: _mockProject.id,
+    projectId: project.id,
     mappedTargetCount: new Set(nonRejectedMappings.map((mapping) => mapping.targetFieldId)).size,
     targetFieldCount: targetFields.length,
     acceptedMappingsCount: scopedMappings.filter((mapping) => mapping.status === 'accepted').length,
@@ -200,17 +216,57 @@ function buildMockPreflight(mappings = getLiveMappings()): ProjectPreflight {
 // ── Mock request router ───────────────────────────────────────────────────────
 function mockApiCall<T>(path: string, init?: RequestInit): T {
   const method = (init?.method ?? 'GET').toUpperCase();
-  const body = init?.body ? JSON.parse(init.body as string) : {};
+  const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
 
   // POST /api/projects → create project
   if (method === 'POST' && path === '/api/projects') {
-    const name = (body.name as string | undefined) ?? _mockProject.name;
-    _mockProject = { ..._mockProject, name, updatedAt: new Date().toISOString() };
-    return { project: _mockProject } as T;
+    const name = (body.name as string | undefined) ?? getMockProject().name;
+    const project: Project = {
+      ..._initialMockProject,
+      id: crypto.randomUUID(),
+      name,
+      archived: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      resolvedOneToManyMappings: {},
+    };
+    _mockProjects = [project, ..._mockProjects];
+    _activeProjectId = project.id;
+    return { project } as T;
   }
 
   if (method === 'GET' && path === '/api/projects') {
     return buildMockProjectList() as T;
+  }
+
+  if (method === 'PATCH' && /\/api\/projects\/[^/]+$/.test(path)) {
+    const projectId = path.split('/').pop() ?? '';
+    const project = getMockProject(projectId);
+    const updated: Project = {
+      ...project,
+      ...(typeof body.name === 'string' ? { name: body.name } : {}),
+      ...(typeof body.archived === 'boolean' ? { archived: body.archived } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    _mockProjects = _mockProjects.map((item) => (item.id === projectId ? updated : item));
+    return { project: updated } as T;
+  }
+
+  if (method === 'POST' && /\/api\/projects\/[^/]+\/duplicate$/.test(path)) {
+    const match = path.match(/\/api\/projects\/([^/]+)\/duplicate$/);
+    const original = getMockProject(match?.[1]);
+    const duplicate: Project = {
+      ...original,
+      id: crypto.randomUUID(),
+      name: `Copy of ${original.name}`,
+      archived: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      resolvedOneToManyMappings: { ...(original.resolvedOneToManyMappings ?? {}) },
+    };
+    _mockProjects = [duplicate, ..._mockProjects];
+    _activeProjectId = duplicate.id;
+    return { newProjectId: duplicate.id, project: duplicate } as T;
   }
 
   if (method === 'POST' && path === '/api/review-decisions') {
@@ -239,12 +295,16 @@ function mockApiCall<T>(path: string, init?: RequestInit): T {
 
   // GET /api/projects/:id → full project payload
   if (method === 'GET' && /\/api\/projects\/[^/]+$/.test(path)) {
-    return getMockProjectPayload() as T;
+    const match = path.match(/\/api\/projects\/([^/]+)$/);
+    const projectId = match?.[1];
+    _activeProjectId = projectId ?? _activeProjectId;
+    return getMockProjectPayload(projectId) as T;
   }
 
   // GET /api/projects/:id/preflight
   if (method === 'GET' && /\/api\/projects\/[^/]+\/preflight$/.test(path)) {
-    return buildMockPreflight() as T;
+    const match = path.match(/\/api\/projects\/([^/]+)\/preflight$/);
+    return buildMockPreflight(match?.[1]) as T;
   }
 
   // GET /api/projects/:id/conflicts
@@ -351,7 +411,8 @@ function mockApiCall<T>(path: string, init?: RequestInit): T {
     const mappings = getLiveMappings();
     const fieldsById = new Map(mockProjectPayload.fields.map((field) => [field.id, field]));
     const entitiesById = new Map([...mockProjectPayload.sourceEntities, ...mockProjectPayload.targetEntities].map((entity) => [entity.id, entity]));
-    const nextResolved: Record<string, OneToManyResolution> = { ...(_mockProject.resolvedOneToManyMappings ?? {}) };
+    const projectIdFromPath = path.match(/\/api\/projects\/([^/]+)\/one-to-many-resolutions$/)?.[1] ?? _activeProjectId;
+    const nextResolved: Record<string, OneToManyResolution> = { ...(getMockProject(projectIdFromPath).resolvedOneToManyMappings ?? {}) };
 
     for (const resolution of resolutions) {
       const idx = mappings.findIndex((mapping) => mapping.id === resolution.fieldMappingId);
@@ -374,8 +435,14 @@ function mockApiCall<T>(path: string, init?: RequestInit): T {
         resolvedAt: new Date().toISOString(),
       };
     }
-    _mockProject = { ..._mockProject, resolvedOneToManyMappings: nextResolved, updatedAt: new Date().toISOString() };
-    return { project: _mockProject, fieldMappings: mappings } as T;
+    const projectId = projectIdFromPath;
+    const updatedProject: Project = {
+      ...getMockProject(projectId),
+      resolvedOneToManyMappings: nextResolved,
+      updatedAt: new Date().toISOString(),
+    };
+    _mockProjects = _mockProjects.map((project) => (project.id === projectId ? updatedProject : project));
+    return { project: updatedProject, fieldMappings: mappings } as T;
   }
 
   // Auth endpoints for standalone preview
@@ -563,7 +630,8 @@ export function getEventSource(url: string): EventSource | MockEventSource {
 /** Call this when the user resets the workflow (e.g. "Change connectors") */
 export function resetMockState(): void {
   _liveMappings = null;
-  _mockProject = { ...mockProjectPayload.project, resolvedOneToManyMappings: {} };
+  _mockProjects = [{ ..._initialMockProject, resolvedOneToManyMappings: {}, archived: false }];
+  _activeProjectId = _initialMockProject.id;
   _mockLlmUsageEvents = [];
   _mockLlmConfig = {
     config: {

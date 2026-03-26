@@ -157,6 +157,7 @@ export class DbStore {
         targetSystemId: p.targetSystemId,
         createdAt: p.createdAt.toISOString(),
         updatedAt: p.updatedAt.toISOString(),
+        archived: (p as { archived?: boolean | null }).archived ?? false,
         resolvedOneToManyMappings: readResolvedOneToManyMappings((p as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
       })),
       entityMappings: entityMappings.map((em) => ({
@@ -198,6 +199,7 @@ export class DbStore {
           organisationId: owner?.organisationId ?? null,
           sourceSystemId: src.id,
           targetSystemId: tgt.id,
+          archived: false,
           resolvedOneToManyMappings: {},
         } as never,
       });
@@ -214,6 +216,7 @@ export class DbStore {
       targetSystemId: project.targetSystemId,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
+      archived: (project as { archived?: boolean | null }).archived ?? false,
       resolvedOneToManyMappings: readResolvedOneToManyMappings((project as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
     };
   }
@@ -228,6 +231,7 @@ export class DbStore {
       targetSystemId: project.targetSystemId,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
+      archived: (project as { archived?: boolean | null }).archived ?? false,
       resolvedOneToManyMappings: readResolvedOneToManyMappings((project as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
     };
   }
@@ -250,7 +254,119 @@ export class DbStore {
       targetSystemId: project.targetSystemId,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
+      archived: (project as { archived?: boolean | null }).archived ?? false,
       resolvedOneToManyMappings: readResolvedOneToManyMappings((project as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
+    };
+  }
+
+  async patchProject(
+    projectId: string,
+    patch: Partial<Pick<MappingProject, 'name' | 'archived'>>,
+  ): Promise<MappingProject | undefined> {
+    const project = await this.prisma.mappingProject.update({
+      where: { id: projectId },
+      data: {
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.archived !== undefined ? { archived: patch.archived } : {}),
+      },
+    }).catch(() => null);
+
+    if (!project) return undefined;
+
+    return {
+      id: project.id,
+      name: project.name,
+      sourceSystemId: project.sourceSystemId,
+      targetSystemId: project.targetSystemId,
+      createdAt: project.createdAt.toISOString(),
+      updatedAt: project.updatedAt.toISOString(),
+      archived: (project as { archived?: boolean | null }).archived ?? false,
+      resolvedOneToManyMappings: readResolvedOneToManyMappings((project as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
+    };
+  }
+
+  async duplicateProject(projectId: string, userId?: string): Promise<MappingProject | undefined> {
+    const original = await this.prisma.mappingProject.findUnique({ where: { id: projectId } });
+    if (!original) return undefined;
+
+    const duplicate = await this.prisma.$transaction(async (tx) => {
+      const createdProjectId = uuidv4();
+      const createdEntityMappings = new Map<string, string>();
+
+      const createdProject = await tx.mappingProject.create({
+        data: {
+          id: createdProjectId,
+          name: `Copy of ${original.name}`,
+          userId: userId ?? original.userId,
+          organisationId: original.organisationId,
+          sourceSystemId: original.sourceSystemId,
+          targetSystemId: original.targetSystemId,
+          archived: false,
+          resolvedOneToManyMappings: (original.resolvedOneToManyMappings ?? {}) as Prisma.InputJsonValue,
+        } as never,
+      });
+
+      const entityMappings = await tx.entityMapping.findMany({
+        where: { projectId: original.id },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      if (entityMappings.length > 0) {
+        await tx.entityMapping.createMany({
+          data: entityMappings.map((mapping) => {
+            const nextId = uuidv4();
+            createdEntityMappings.set(mapping.id, nextId);
+            return {
+              id: nextId,
+              projectId: createdProjectId,
+              sourceEntityId: mapping.sourceEntityId,
+              targetEntityId: mapping.targetEntityId,
+              confidence: mapping.confidence,
+              rationale: mapping.rationale,
+            };
+          }),
+        });
+      }
+
+      const fieldMappings = entityMappings.length > 0
+        ? await tx.fieldMapping.findMany({
+          where: { entityMappingId: { in: entityMappings.map((mapping) => mapping.id) } },
+          orderBy: { createdAt: 'asc' },
+        })
+        : [];
+
+      if (fieldMappings.length > 0) {
+        await tx.fieldMapping.createMany({
+          data: fieldMappings.map((mapping) => ({
+            id: uuidv4(),
+            entityMappingId: createdEntityMappings.get(mapping.entityMappingId) ?? mapping.entityMappingId,
+            sourceFieldId: mapping.sourceFieldId,
+            targetFieldId: mapping.targetFieldId,
+            transform: mapping.transform as object,
+            confidence: mapping.confidence,
+            rationale: mapping.rationale,
+            status: mapping.status,
+            seedSource: mapping.seedSource,
+            retrievalShortlist: (mapping.retrievalShortlist ?? null) as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
+            rerankerDecision: (mapping.rerankerDecision ?? null) as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
+            optimizerDisplacement: (mapping.optimizerDisplacement ?? null) as Prisma.InputJsonValue | Prisma.JsonNullValueInput,
+            lowConfidenceFallback: mapping.lowConfidenceFallback,
+          })),
+        });
+      }
+
+      return createdProject;
+    });
+
+    return {
+      id: duplicate.id,
+      name: duplicate.name,
+      sourceSystemId: duplicate.sourceSystemId,
+      targetSystemId: duplicate.targetSystemId,
+      createdAt: duplicate.createdAt.toISOString(),
+      updatedAt: duplicate.updatedAt.toISOString(),
+      archived: (duplicate as { archived?: boolean | null }).archived ?? false,
+      resolvedOneToManyMappings: readResolvedOneToManyMappings((duplicate as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
     };
   }
 

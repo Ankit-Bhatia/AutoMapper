@@ -115,6 +115,9 @@ function makeBuildInput(): BuildInput {
       typeMismatch: 0,
       missingRequired: 0,
       picklistCoverage: 0,
+      validationRule: 0,
+      partialCoverageRisk: 0,
+      validationRulesUnavailable: 0,
     },
   };
 
@@ -159,10 +162,8 @@ describe('exporter load order', () => {
       'target-account',
       'target-contact',
     ]);
-  System,
-  ValidationReport,
-} from '../types.js';
-import { buildJsonExport } from '../services/exporter.js';
+  });
+});
 
 describe('exporter validationRuleSafety', () => {
   it('includes validationRuleSafety in the canonical JSON export', () => {
@@ -186,24 +187,28 @@ describe('exporter validationRuleSafety', () => {
       { id: 'src-field', entityId: 'src-entity', name: 'AMT_PAYMENT', dataType: 'decimal' },
       { id: 'tgt-field', entityId: 'tgt-entity', name: 'Amount', dataType: 'decimal' },
     ];
-    const entityMappings: EntityMapping[] = [{
-      id: 'em-1',
-      projectId: project.id,
-      sourceEntityId: 'src-entity',
-      targetEntityId: 'tgt-entity',
-      confidence: 0.82,
-      rationale: 'test',
-    }];
-    const fieldMappings: FieldMapping[] = [{
-      id: 'fm-1',
-      entityMappingId: 'em-1',
-      sourceFieldId: 'src-field',
-      targetFieldId: 'tgt-field',
-      transform: { type: 'direct', config: {} },
-      confidence: 0.82,
-      rationale: 'test',
-      status: 'accepted',
-    }];
+    const entityMappings: EntityMapping[] = [
+      {
+        id: 'em-1',
+        projectId: project.id,
+        sourceEntityId: 'src-entity',
+        targetEntityId: 'tgt-entity',
+        confidence: 0.82,
+        rationale: 'test',
+      },
+    ];
+    const fieldMappings: FieldMapping[] = [
+      {
+        id: 'fm-1',
+        entityMappingId: 'em-1',
+        sourceFieldId: 'src-field',
+        targetFieldId: 'tgt-field',
+        transform: { type: 'direct', config: {} },
+        confidence: 0.82,
+        rationale: 'test',
+        status: 'accepted',
+      },
+    ];
     const validation: ValidationReport = {
       warnings: [],
       summary: {

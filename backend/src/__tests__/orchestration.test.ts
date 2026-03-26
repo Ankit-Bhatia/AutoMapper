@@ -34,6 +34,16 @@ vi.mock('../agents/OrchestratorAgent.js', () => ({
   },
 }));
 
+vi.mock('../services/llmSettingsStore.js', () => ({
+  llmSettingsStore: {
+    getRuntimeConfig: vi.fn(async () => ({
+      useDefault: true,
+      paused: false,
+    })),
+    captureUsage: vi.fn(async () => undefined),
+  },
+}));
+
 interface SseEvent {
   type?: string;
   [key: string]: unknown;

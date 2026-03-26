@@ -99,6 +99,7 @@ export interface MappingProject {
   targetSystemId: string;
   createdAt: string;
   updatedAt: string;
+  archived?: boolean;
   resolvedOneToManyMappings?: Record<string, OneToManyResolution>;
 }
 
@@ -275,6 +276,7 @@ export type AuditAction =
   | 'mapping_modified'
   | 'conflict_resolved'
   | 'project_created'
+  | 'project_updated'
   | 'project_exported';
 
 export interface AuditActor {

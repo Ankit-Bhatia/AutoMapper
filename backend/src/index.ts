@@ -49,6 +49,7 @@ import {
 } from './services/reviewDecisionLearning.js';
 import {
   CreateProjectSchema,
+  PatchProjectSchema,
   SalesforceSchemaSchema,
   PatchFieldMappingSchema,
   ConflictResolutionRequestSchema,
@@ -58,6 +59,7 @@ import {
 import { captureException, sendHttpError } from './utils/httpErrors.js';
 import type { AppState, FieldMapping, MappingProject } from './types.js';
 import { getOneToManyPatternCandidates, getSchemaIntelligencePatternCandidates, isOneToManyFieldName } from './services/schemaIntelligencePatterns.js';
+import { defaultRegistry } from '../../packages/connectors/ConnectorRegistry.js';
 // Register all built-in connectors into the defaultRegistry (side-effect import)
 import '../../packages/connectors/registerConnectors.js';
 
@@ -221,6 +223,26 @@ function buildProjectPreflight(
   };
 }
 
+function resolveConnectorName(system?: { name: string; type: string } | undefined): string | undefined {
+  if (!system) return undefined;
+
+  const byName = defaultRegistry.getMeta(system.name);
+  if (byName?.displayName) {
+    return byName.displayName;
+  }
+
+  const normalized = system.name.trim().toLowerCase();
+  if (normalized.includes('core director') || normalized.includes('coredirector')) return 'Jack Henry Core Director';
+  if (normalized.includes('silverlake')) return 'Jack Henry SilverLake';
+  if (normalized.includes('symitar')) return 'Jack Henry Symitar (Episys)';
+  if (normalized.includes('salesforce')) return 'Salesforce CRM';
+  if (normalized.includes('sap')) return 'SAP S/4HANA';
+
+  const fallbackConnectorId = defaultRegistry.resolveSystemType(system.type);
+  const fallbackMeta = fallbackConnectorId ? defaultRegistry.getMeta(fallbackConnectorId) : undefined;
+  return fallbackMeta?.displayName ?? system.name;
+}
+
 async function withLLMContext<T>(
   req: Request,
   res: Response,
@@ -314,7 +336,7 @@ app.get('/api/projects', async (req, res) => {
   const systemsById = new Map(state.systems.map((system) => [system.id, system]));
 
   let visibleProjects = state.projects;
-  if (process.env.REQUIRE_AUTH !== 'false') {
+  if (process.env.REQUIRE_AUTH !== 'false' && process.env.DATABASE_URL?.trim()) {
     const userId = req.user?.userId;
     if (!userId) {
       sendError(req, res, 401, 'UNAUTHORIZED', 'User not authenticated');
@@ -338,15 +360,89 @@ app.get('/api/projects', async (req, res) => {
         project,
         sourceSystem,
         targetSystem,
+        sourceConnectorName: resolveConnectorName(sourceSystem),
+        targetConnectorName: resolveConnectorName(targetSystem),
+        coverage: {
+          mapped: preflight.mappedTargetCount,
+          total: preflight.targetFieldCount,
+        },
         fieldMappingCount: scoped.fieldMappings.length,
         entityMappingCount: scoped.entityMappings.length,
         canExport: preflight.canExport,
+        openConflicts: preflight.unresolvedConflicts,
         unresolvedConflicts: preflight.unresolvedConflicts,
+        unresolvedRoutingDecisions: preflight.unresolvedRoutingDecisions,
       };
     })
     .sort((left, right) => Date.parse(right.project.updatedAt) - Date.parse(left.project.updatedAt));
 
   res.json({ projects });
+});
+
+app.patch('/api/projects/:id', async (req, res) => {
+  const parsed = PatchProjectSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(req, res, 400, 'VALIDATION_ERROR', 'Invalid project patch payload', parsed.error.flatten());
+    return;
+  }
+
+  const existing = await store.getProject(req.params.id);
+  if (!existing) {
+    sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  const updated = await store.patchProject(req.params.id, parsed.data);
+  if (!updated) {
+    sendError(req, res, 500, 'PROJECT_UPDATE_FAILED', 'Could not update project');
+    return;
+  }
+
+  writeAuditEntrySafe({
+    projectId: updated.id,
+    actor: toAuditActor(req),
+    action: 'project_updated',
+    targetType: 'project',
+    targetId: updated.id,
+    before: {
+      name: existing.name,
+      archived: existing.archived ?? false,
+    },
+    after: {
+      name: updated.name,
+      archived: updated.archived ?? false,
+    },
+  });
+
+  res.json({ project: updated });
+});
+
+app.post('/api/projects/:id/duplicate', async (req, res) => {
+  const original = await store.getProject(req.params.id);
+  if (!original) {
+    sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  const duplicated = await store.duplicateProject(req.params.id, req.user?.userId);
+  if (!duplicated) {
+    sendError(req, res, 500, 'PROJECT_DUPLICATE_FAILED', 'Could not duplicate project');
+    return;
+  }
+
+  writeAuditEntrySafe({
+    projectId: duplicated.id,
+    actor: toAuditActor(req),
+    action: 'project_created',
+    targetType: 'project',
+    targetId: duplicated.id,
+    after: {
+      name: duplicated.name,
+      duplicatedFromProjectId: original.id,
+    },
+  });
+
+  res.status(201).json({ newProjectId: duplicated.id, project: duplicated });
 });
 
 app.get('/api/projects/:id', async (req, res) => {

@@ -22,8 +22,8 @@ interface SidebarProps {
 }
 
 const STEPS: { id: Exclude<WorkflowStep, 'llm-settings'>; label: string; icon: string; description: string }[] = [
-  { id: 'command-center', label: 'Command Center', icon: '◉', description: 'Projects, telemetry, and launchpad' },
-  { id: 'connect', label: 'Connect', icon: '⬡', description: 'Choose source & target systems' },
+  { id: 'command-center', label: 'Dashboard', icon: '◉', description: 'Portfolio view and project launchpad' },
+  { id: 'connect', label: 'New Project', icon: '⬡', description: 'Choose source & target systems' },
   { id: 'orchestrate', label: 'Orchestrate', icon: '◈', description: 'Run AI mapping pipeline' },
   { id: 'review', label: 'Review', icon: '◻', description: 'Inspect & refine mappings' },
   { id: 'routing', label: 'Routing', icon: '↳', description: 'Resolve one-to-many field routes' },

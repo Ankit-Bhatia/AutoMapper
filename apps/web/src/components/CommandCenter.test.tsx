@@ -23,9 +23,16 @@ const baseProject: ProjectHistoryItem = {
     name: 'Salesforce',
     type: 'salesforce',
   },
+  sourceConnectorName: 'RiskClam',
+  targetConnectorName: 'Salesforce CRM',
+  coverage: {
+    mapped: 42,
+    total: 60,
+  },
   fieldMappingCount: 42,
   entityMappingCount: 19,
   canExport: true,
+  openConflicts: 0,
   unresolvedConflicts: 0,
 };
 

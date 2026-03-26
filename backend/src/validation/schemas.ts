@@ -17,6 +17,13 @@ export const CreateProjectSchema = z.object({
   targetSystemName: z.string().min(1).max(100).optional(),
 });
 
+export const PatchProjectSchema = z.object({
+  name: z.string().trim().min(1).max(255).optional(),
+  archived: z.boolean().optional(),
+}).refine((value) => value.name !== undefined || value.archived !== undefined, {
+  message: 'At least one field must be provided',
+});
+
 export const SalesforceSchemaSchema = z.object({
   objects: z.array(z.string()).optional(),
   credentials: z
@@ -91,6 +98,7 @@ export const LoginSchema = z.object({
 });
 
 export type CreateProjectInput = z.infer<typeof CreateProjectSchema>;
+export type PatchProjectInput = z.infer<typeof PatchProjectSchema>;
 export type SalesforceSchemaInput = z.infer<typeof SalesforceSchemaSchema>;
 export type PatchFieldMappingInput = z.infer<typeof PatchFieldMappingSchema>;
 export type ConflictResolutionRequestInput = z.infer<typeof ConflictResolutionRequestSchema>;
