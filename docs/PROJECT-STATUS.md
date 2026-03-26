@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-26
+> **Last updated:** 2026-03-27
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -121,6 +121,7 @@ AutoMapper/
 | **Upsert key + record type scoring (KAN-84)** | `MappingProposalAgent.scoreTargetCandidate()` — `externalIdScore`: +0.25 (source key → SF upsert key), +0.15 (source key → SF externalId), −0.10 penalty (non-key source → upsert key target). `AgentContext.targetRecordTypes` populated from ConnectorSchema. Rationale annotated with applicable record type variants. `upsertKeyMappings` + `recordTypeAnnotations` in step summary event. |
 | **Project history** | `GET /api/projects` list endpoint (sorted by updatedAt, per-user owner filter, canExport flag); `ProjectHistoryPanel` UI: past projects with source→target, mapping count, conflict count, "Open Review" / "Open Export" buttons; reopen bypass (loads stored mappings, skips pipeline re-run) |
 | **KAN-102 — Multi-project dashboard** | `DashboardPage.tsx` is now the default authenticated home route (`/` and `/dashboard`). Portfolio summary bar shows mapped fields, export-ready count, open conflicts, and active projects. Project cards support inline rename, reopen, duplicate, archive, and archived filtering. `/new` preserves the connector-first creation flow. Backend adds enriched `GET /api/projects`, `PATCH /api/projects/:id`, and `POST /api/projects/:id/duplicate` across both Prisma and FsStore paths. |
+| **KAN-103 — Versioned exports + schema drift** | `buildJsonExport()` now embeds a deterministic source/target `schemaFingerprint`. JSON exports persist versioned `ExportVersion` records in Prisma or FsStore (latest 10 retained) with stored field snapshots, and `GET /api/projects/:id/versions` returns newest-first export history. `SchemaDiscoveryAgent` compares the current schema against the latest approved export and emits `schema_drift_detected` with blocker/warning/info drift classification. Frontend surfaces blockers via `SchemaDriftModal.tsx` and warning-only changes via `SchemaDriftBanner.tsx`. |
 | **Export (KAN-77)** | 6 formats: JSON, YAML, CSV, MuleSoft DataWeave, Dell Boomi, Workato; live mode uses `fetch(..., { credentials: 'include' })` against `API_BASE`; standalone/demo mode routes through `api<string>()` → `mockApiCall()`; inline `exportError` state shown on failure |
 | **Conflict resolution** | `conflicts.ts` service; `GET /api/projects/:id/conflicts`; `POST .../resolve`; `ConflictDrawer` slide-in with pick-winner UX |
 | **Audit trail** | `writeAuditEntry` helper; 7 action types; `GET /api/projects/:id/audit` cursor-paginated; `AuditLogTab` with icons, relative time, Load older |

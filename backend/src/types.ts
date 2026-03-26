@@ -112,6 +112,54 @@ export interface OneToManyResolution {
   resolvedAt: string;
 }
 
+export interface SchemaFingerprint {
+  sourceHash: string;
+  targetHash: string;
+  computedAt: string;
+  fieldCount: {
+    source: number;
+    target: number;
+  };
+}
+
+export type DriftChangeType = 'added' | 'removed' | 'type_changed';
+
+export interface DriftItem {
+  scope: 'source' | 'target';
+  fieldId: string;
+  fieldName: string;
+  entityId?: string;
+  entityName: string;
+  changeType: DriftChangeType;
+  previousType?: string;
+  currentType?: string;
+  required?: boolean;
+}
+
+export interface SchemaDriftEvent {
+  sourceChanged: boolean;
+  targetChanged: boolean;
+  blockers: DriftItem[];
+  warnings: DriftItem[];
+  additions: DriftItem[];
+}
+
+export interface ExportVersionRecord {
+  id: string;
+  projectId: string;
+  version: number;
+  schemaFingerprint: SchemaFingerprint;
+  exportedAt: string;
+  exportedByUserId?: string;
+}
+
+export interface StoredExportVersionRecord extends ExportVersionRecord {
+  fieldsSnapshot: {
+    source: Field[];
+    target: Field[];
+  };
+}
+
 export interface SchemaIntelligencePatternCandidate {
   xmlField: string;
   normalizedFieldKey: string;

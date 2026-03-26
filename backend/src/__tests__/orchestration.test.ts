@@ -147,6 +147,7 @@ describe('orchestration SSE route', () => {
           },
         ],
       })),
+      getLatestExportVersion: vi.fn(async () => undefined),
       upsertMappings: vi.fn(async () => undefined),
     } as unknown as DbStore;
 

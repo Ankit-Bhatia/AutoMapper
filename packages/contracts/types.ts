@@ -83,6 +83,47 @@ export interface ProjectCoverageSummary {
   total: number;
 }
 
+export interface SchemaFingerprint {
+  sourceHash: string;
+  targetHash: string;
+  computedAt: string;
+  fieldCount: {
+    source: number;
+    target: number;
+  };
+}
+
+export type DriftChangeType = 'added' | 'removed' | 'type_changed';
+
+export interface DriftItem {
+  scope: 'source' | 'target';
+  fieldId: string;
+  fieldName: string;
+  entityId?: string;
+  entityName: string;
+  changeType: DriftChangeType;
+  previousType?: string;
+  currentType?: string;
+  required?: boolean;
+}
+
+export interface SchemaDriftEvent {
+  sourceChanged: boolean;
+  targetChanged: boolean;
+  blockers: DriftItem[];
+  warnings: DriftItem[];
+  additions: DriftItem[];
+}
+
+export interface ExportVersionRecord {
+  id: string;
+  projectId: string;
+  version: number;
+  schemaFingerprint: SchemaFingerprint;
+  exportedAt: string;
+  exportedByUserId?: string;
+}
+
 export interface EntityMapping {
   id: string;
   projectId: string;
@@ -290,6 +331,10 @@ export interface ProjectHistoryItem {
 
 export interface ProjectListResponse {
   projects: ProjectHistoryItem[];
+}
+
+export interface ProjectVersionsResponse {
+  versions: ExportVersionRecord[];
 }
 
 export type LLMRuntimeProvider = 'openai' | 'anthropic' | 'gemini' | 'custom' | 'heuristic';

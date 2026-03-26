@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AgentStepState, EntityMapping, FieldMapping, OrchestrationEvent, ValidationReport } from '@contracts';
+import { AgentStepState, EntityMapping, FieldMapping, OrchestrationEvent, SchemaDriftEvent, ValidationReport } from '@contracts';
 import { api, apiBase, getEventSource, isDemoUiMode, MockEventSource } from '@core/api-client';
 
 // All 10 agents in pipeline execution order.
@@ -141,6 +141,7 @@ interface AgentPipelineProps {
   onComplete: (result: PipelineResult) => void;
   onReviewReady?: () => void;
   onError?: (msg: string) => void;
+  onSchemaDrift?: (drift: SchemaDriftEvent) => void;
   sourceConnectorName?: string;
   targetConnectorName?: string;
   sourceSchemaMode?: 'live' | 'mock' | 'uploaded';
@@ -267,6 +268,7 @@ export function AgentPipeline({
   onComplete,
   onReviewReady,
   onError,
+  onSchemaDrift,
   sourceConnectorName,
   targetConnectorName,
   sourceSchemaMode,
@@ -533,6 +535,7 @@ export function AgentPipeline({
         agentName?: string;
         action?: string;
         detail?: string;
+        metadata?: unknown;
         hasLLM?: boolean;
         llmProvider?: string;
         complianceSummary?: { errors?: number; warnings?: number };
@@ -610,6 +613,16 @@ export function AgentPipeline({
 
         if (eventType === 'step') {
           const action = normalizedAction;
+          if (action === 'schema_drift_detected') {
+            const drift = data.metadata as SchemaDriftEvent | undefined;
+            if (drift) {
+              onSchemaDrift?.(drift);
+            }
+            if (eventAgent) {
+              markStepRunning(eventAgent, data.detail ?? data.output);
+            }
+            return;
+          }
           if (action === 'orchestrate_complete' || action === 'pipeline_complete') {
             completeEventSeenRef.current = true;
             setAllowReviewBypass(true);
@@ -699,6 +712,7 @@ export function AgentPipeline({
     finalizePipelineState,
     markStepRunning,
     onError,
+    onSchemaDrift,
     projectId,
     resetSteps,
     running,

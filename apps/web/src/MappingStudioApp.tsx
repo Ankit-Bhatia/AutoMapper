@@ -10,6 +10,8 @@ import { OneToManyResolverPanel } from './components/OneToManyResolverPanel';
 import { BulkActionBar, type BulkOperationResult } from './components/BulkActionBar';
 import { SeedSummaryCard } from './components/SeedSummaryCard';
 import { LLMSettingsPage } from './components/LLMSettingsPage';
+import { SchemaDriftBanner } from './components/SchemaDriftBanner';
+import { SchemaDriftModal } from './components/SchemaDriftModal';
 import { type LLMConfigUpdatePayload } from './components/LLMSettingsPanel';
 import { getActiveFormulaTargetIds } from './components/schemaIntelligence';
 import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
@@ -29,6 +31,7 @@ import type {
   ProjectListResponse,
   ProjectPayload,
   SeedSummary,
+  SchemaDriftEvent,
   ValidationReport,
   WorkflowStep,
 } from '@contracts';
@@ -127,6 +130,9 @@ export function MappingStudioApp({
   const [conflictDrawerOpen, setConflictDrawerOpen] = useState(false);
   const [preflight, setPreflight] = useState<ProjectPreflight | null>(null);
   const [reviewGateMessage, setReviewGateMessage] = useState<string | null>(null);
+  const [driftResult, setDriftResult] = useState<SchemaDriftEvent | null>(null);
+  const [driftBannerDismissed, setDriftBannerDismissed] = useState(false);
+  const [driftModalDismissed, setDriftModalDismissed] = useState(false);
   const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(new Set());
   const [acknowledgedFormulaMappingIds, setAcknowledgedFormulaMappingIds] = useState<Set<string>>(new Set());
   const [validation, setValidation] = useState<ValidationReport>({
@@ -306,6 +312,9 @@ export function MappingStudioApp({
     setSeedSummaryAcknowledged(true);
     setSourceSchemaMode(null);
     setTargetSchemaMode(null);
+    setDriftResult(null);
+    setDriftBannerDismissed(false);
+    setDriftModalDismissed(false);
     setSelectedMappingIds(new Set());
     setAcknowledgedFormulaMappingIds(new Set());
 
@@ -381,6 +390,9 @@ export function MappingStudioApp({
   ) {
     setLoadingSetup(true);
     setSetupError(null);
+    setDriftResult(null);
+    setDriftBannerDismissed(false);
+    setDriftModalDismissed(false);
     setSourceConnectorId(srcId);
     setTargetConnectorId(tgtId);
 
@@ -514,6 +526,12 @@ export function MappingStudioApp({
     setIsOrchestrated(true);
   }
 
+  function handleSchemaDrift(drift: SchemaDriftEvent) {
+    setDriftResult(drift);
+    setDriftBannerDismissed(false);
+    setDriftModalDismissed(false);
+  }
+
   // ── Reset: go back to connector selection ──────────────────────────────────
   function handleReset() {
     resetMockState();
@@ -538,6 +556,9 @@ export function MappingStudioApp({
     setConflictDrawerOpen(false);
     setPreflight(null);
     setReviewGateMessage(null);
+    setDriftResult(null);
+    setDriftBannerDismissed(false);
+    setDriftModalDismissed(false);
     setSelectedMappingIds(new Set());
     setAcknowledgedFormulaMappingIds(new Set());
     void loadProjectHistory();
@@ -620,6 +641,25 @@ export function MappingStudioApp({
 
   const sourceConnectorName = sourceConnectorId ? CONNECTOR_NAMES[sourceConnectorId] ?? sourceConnectorId : undefined;
   const targetConnectorName = targetConnectorId ? CONNECTOR_NAMES[targetConnectorId] ?? targetConnectorId : undefined;
+  const showSchemaDriftModal = Boolean(driftResult && driftResult.blockers.length > 0 && !driftModalDismissed);
+  const showSchemaDriftBanner = Boolean(
+    driftResult
+      && driftResult.blockers.length === 0
+      && driftResult.warnings.length > 0
+      && !driftBannerDismissed,
+  );
+
+  function handleDriftCancel() {
+    setDriftResult(null);
+    setDriftBannerDismissed(false);
+    setDriftModalDismissed(false);
+    onNavigate?.('/dashboard');
+    setStep('command-center');
+  }
+
+  function handleDriftProceed() {
+    setDriftModalDismissed(true);
+  }
 
   function attemptOpenExport() {
     const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
@@ -688,6 +728,9 @@ export function MappingStudioApp({
     setConflictDrawerOpen(false);
     setPreflight(null);
     setReviewGateMessage(null);
+    setDriftResult(null);
+    setDriftBannerDismissed(false);
+    setDriftModalDismissed(false);
     setSelectedMappingIds(new Set());
     setAcknowledgedFormulaMappingIds(new Set());
     onNavigate?.('/new');
@@ -788,6 +831,7 @@ export function MappingStudioApp({
             <AgentPipeline
               projectId={project.id}
               onComplete={handlePipelineComplete}
+              onSchemaDrift={handleSchemaDrift}
               sourceConnectorName={sourceConnectorName}
               targetConnectorName={targetConnectorName}
               sourceSchemaMode={sourceSchemaMode ?? undefined}
@@ -944,7 +988,20 @@ export function MappingStudioApp({
         isDemoMode={demoUiMode}
       />
       <main className="main-content">
+        {showSchemaDriftBanner && driftResult && (
+          <SchemaDriftBanner
+            drift={driftResult}
+            onDismiss={() => setDriftBannerDismissed(true)}
+          />
+        )}
         {renderContent()}
+        {showSchemaDriftModal && driftResult && (
+          <SchemaDriftModal
+            drift={driftResult}
+            onCancel={handleDriftCancel}
+            onProceed={handleDriftProceed}
+          />
+        )}
       </main>
     </div>
   );

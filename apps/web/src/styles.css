@@ -5157,3 +5157,129 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.schema-drift-banner {
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 18px;
+  background: rgba(245, 158, 11, 0.08);
+  display: grid;
+  gap: 14px;
+}
+
+.schema-drift-banner-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.schema-drift-banner-header h3,
+.schema-drift-modal h2 {
+  margin: 0;
+}
+
+.schema-drift-banner-eyebrow,
+.schema-drift-eyebrow {
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.schema-drift-banner-actions,
+.schema-drift-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.schema-drift-banner-list,
+.schema-drift-list {
+  display: grid;
+  gap: 10px;
+}
+
+.schema-drift-banner-item,
+.schema-drift-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(10, 15, 28, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.schema-drift-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 40;
+}
+
+.schema-drift-modal {
+  width: min(760px, 100%);
+  max-height: min(80vh, 720px);
+  overflow: auto;
+  padding: 24px;
+  border-radius: 24px;
+  border: 1px solid rgba(239, 68, 68, 0.24);
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+  display: grid;
+  gap: 16px;
+}
+
+.schema-drift-copy {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.schema-drift-summary {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.schema-drift-summary span,
+.schema-drift-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.schema-drift-item-header,
+.schema-drift-item-change {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.schema-drift-item-meta {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .schema-drift-banner-header,
+  .schema-drift-item-header,
+  .schema-drift-item-change {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .schema-drift-modal {
+    padding: 18px;
+  }
+}

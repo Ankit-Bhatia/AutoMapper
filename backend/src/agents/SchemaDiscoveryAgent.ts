@@ -14,6 +14,7 @@ import { AgentBase } from './AgentBase.js';
 import type { AgentContext, AgentResult, AgentStep } from './types.js';
 import type { ConnectorField } from '../../../packages/connectors/IConnector.js';
 import type { Field } from '../types.js';
+import { buildFieldsSnapshot, buildSchemaFingerprint, detectSchemaDrift } from '../services/schemaFingerprint.js';
 
 /** Semantic purpose classification for a field */
 export type FieldPurpose =
@@ -101,6 +102,47 @@ export class SchemaDiscoveryAgent extends AgentBase {
 
       this.annotations.set(field.id, annotation);
       purposeCount[purpose] = (purposeCount[purpose] ?? 0) + 1;
+    }
+
+    const currentFields = fields.map((field) => ({ ...field })) as Field[];
+    const currentSnapshot = buildFieldsSnapshot(
+      {
+        id: context.projectId,
+        name: '',
+        sourceSystemId: context.sourceEntities[0]?.systemId ?? '',
+        targetSystemId: context.targetEntities[0]?.systemId ?? '',
+        createdAt: '',
+        updatedAt: '',
+      },
+      [...context.sourceEntities, ...context.targetEntities],
+      currentFields,
+    );
+    const currentFingerprint = buildSchemaFingerprint(
+      {
+        id: context.projectId,
+        name: '',
+        sourceSystemId: context.sourceEntities[0]?.systemId ?? '',
+        targetSystemId: context.targetEntities[0]?.systemId ?? '',
+        createdAt: '',
+        updatedAt: '',
+      },
+      [...context.sourceEntities, ...context.targetEntities],
+      currentFields,
+    );
+    const drift = detectSchemaDrift(
+      context.latestExportVersion,
+      currentFingerprint,
+      currentSnapshot,
+      [...context.sourceEntities, ...context.targetEntities],
+    );
+
+    if (drift) {
+      this.info(
+        context,
+        'schema_drift_detected',
+        `Schema drift detected: ${drift.blockers.length} blockers, ${drift.warnings.length} warnings, ${drift.additions.length} additions`,
+        drift as unknown as Record<string, unknown>,
+      );
     }
 
     const summary = Object.entries(purposeCount)

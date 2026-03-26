@@ -26,6 +26,7 @@ import type {
 } from '../types.js';
 import { isActiveFieldMapping } from '../utils/mappingStatus.js';
 import { buildRelationshipGraph } from './relationshipGraph.js';
+import { buildSchemaFingerprint } from './schemaFingerprint.js';
 
 // ─── Shared input shape ────────────────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ export function buildJsonExport(input: BuildInput): object {
   const fields = fieldById(input);
   const fmByEm = groupFieldMappings(input);
   const loadOrder = buildLoadOrder(input);
+  const schemaFingerprint = buildSchemaFingerprint(input.project, input.entities, input.fields);
 
   const srcName = systemName(input.project.sourceSystemId, input.systems);
   const tgtName = systemName(input.project.targetSystemId, input.systems);
@@ -180,6 +182,7 @@ export function buildJsonExport(input: BuildInput): object {
         highConfidenceMappings: input.fieldMappings.filter((fm) => isActiveFieldMapping(fm) && fm.confidence >= 0.8).length,
         complianceWarnings: input.validation?.warnings.length ?? 0,
         loadOrder,
+        schemaFingerprint,
       },
     },
   };

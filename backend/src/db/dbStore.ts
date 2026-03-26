@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import type {
   AppState,
   Entity,
+  ExportVersionRecord,
   Field,
   FieldValidationRule,
   FieldMapping,
@@ -12,7 +13,9 @@ import type {
   RetrievalShortlist,
   RerankerDecision,
   Relationship,
+  SchemaFingerprint,
   System,
+  StoredExportVersionRecord,
   TransformType,
 } from '../types.js';
 
@@ -128,6 +131,36 @@ function readResolvedOneToManyMappings(value: unknown): Record<string, OneToMany
     return undefined;
   }
   return value as Record<string, OneToManyResolution>;
+}
+
+function readSchemaFingerprint(value: unknown): SchemaFingerprint {
+  return value as SchemaFingerprint;
+}
+
+function readFieldsSnapshot(value: unknown): StoredExportVersionRecord['fieldsSnapshot'] {
+  const snapshot = value as { source?: Field[]; target?: Field[] } | null | undefined;
+  return {
+    source: Array.isArray(snapshot?.source) ? snapshot.source.map((field) => ({ ...field })) : [],
+    target: Array.isArray(snapshot?.target) ? snapshot.target.map((field) => ({ ...field })) : [],
+  };
+}
+
+function toExportVersion(record: {
+  id: string;
+  projectId: string;
+  version: number;
+  schemaFingerprint: unknown;
+  exportedAt: Date;
+  exportedByUserId: string | null;
+}): ExportVersionRecord {
+  return {
+    id: record.id,
+    projectId: record.projectId,
+    version: record.version,
+    schemaFingerprint: readSchemaFingerprint(record.schemaFingerprint),
+    exportedAt: record.exportedAt.toISOString(),
+    exportedByUserId: record.exportedByUserId ?? undefined,
+  };
 }
 
 export class DbStore {
@@ -367,6 +400,63 @@ export class DbStore {
       updatedAt: duplicate.updatedAt.toISOString(),
       archived: (duplicate as { archived?: boolean | null }).archived ?? false,
       resolvedOneToManyMappings: readResolvedOneToManyMappings((duplicate as { resolvedOneToManyMappings?: unknown }).resolvedOneToManyMappings),
+    };
+  }
+
+  async createExportVersion(args: {
+    projectId: string;
+    schemaFingerprint: SchemaFingerprint;
+    fieldsSnapshot: StoredExportVersionRecord['fieldsSnapshot'];
+    exportedByUserId?: string;
+  }): Promise<ExportVersionRecord> {
+    return this.prisma.$transaction(async (tx) => {
+      const latest = await tx.exportVersion.findFirst({
+        where: { projectId: args.projectId },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      const created = await tx.exportVersion.create({
+        data: {
+          id: uuidv4(),
+          projectId: args.projectId,
+          version: (latest?.version ?? 0) + 1,
+          schemaFingerprint: args.schemaFingerprint as unknown as Prisma.InputJsonValue,
+          fieldsSnapshot: args.fieldsSnapshot as unknown as Prisma.InputJsonValue,
+          exportedByUserId: args.exportedByUserId ?? null,
+        } as never,
+      });
+      const retained = await tx.exportVersion.findMany({
+        where: { projectId: args.projectId },
+        orderBy: [{ exportedAt: 'desc' }, { version: 'desc' }],
+        select: { id: true },
+      });
+      const overflowIds = retained.slice(10).map((record) => record.id);
+      if (overflowIds.length > 0) {
+        await tx.exportVersion.deleteMany({
+          where: { id: { in: overflowIds } },
+        });
+      }
+      return toExportVersion(created);
+    });
+  }
+
+  async listExportVersions(projectId: string): Promise<ExportVersionRecord[]> {
+    const versions = await this.prisma.exportVersion.findMany({
+      where: { projectId },
+      orderBy: [{ exportedAt: 'desc' }, { version: 'desc' }],
+    });
+    return versions.map(toExportVersion);
+  }
+
+  async getLatestExportVersion(projectId: string): Promise<StoredExportVersionRecord | undefined> {
+    const version = await this.prisma.exportVersion.findFirst({
+      where: { projectId },
+      orderBy: [{ exportedAt: 'desc' }, { version: 'desc' }],
+    });
+    if (!version) return undefined;
+    return {
+      ...toExportVersion(version),
+      fieldsSnapshot: readFieldsSnapshot(version.fieldsSnapshot),
     };
   }
 
