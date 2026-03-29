@@ -1,12 +1,20 @@
 import type { SchemaIntelligencePatternCandidate } from '../types.js';
 import { CONFIRMED_PATTERNS } from '../agents/schemaIntelligenceData.js';
+import { COREDIR_FSC_PATTERNS } from '../agents/coreDirSchemaData.js';
+
+const ALL_PATTERNS = [CONFIRMED_PATTERNS, COREDIR_FSC_PATTERNS].reduce<Record<string, typeof CONFIRMED_PATTERNS[string]>>((acc, corpus) => {
+  for (const [key, patterns] of Object.entries(corpus)) {
+    acc[key] = (acc[key] ?? []).concat(patterns);
+  }
+  return acc;
+}, {});
 
 export function normalizeSchemaIntelligenceFieldName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function toCandidates(patternKey: string): SchemaIntelligencePatternCandidate[] {
-  return (CONFIRMED_PATTERNS[patternKey] ?? []).flatMap((pattern) =>
+  return (ALL_PATTERNS[patternKey] ?? []).flatMap((pattern) =>
     pattern.sfApiNames.map((targetFieldName) => ({
       xmlField: pattern.xmlField,
       normalizedFieldKey: patternKey,
@@ -23,7 +31,7 @@ function toCandidates(patternKey: string): SchemaIntelligencePatternCandidate[] 
 
 export function getSchemaIntelligencePatternCandidates(fieldName?: string): SchemaIntelligencePatternCandidate[] {
   if (!fieldName) {
-    return Object.keys(CONFIRMED_PATTERNS)
+    return Object.keys(ALL_PATTERNS)
       .flatMap((patternKey) => toCandidates(patternKey))
       .sort((left, right) => left.xmlField.localeCompare(right.xmlField) || left.targetFieldName.localeCompare(right.targetFieldName));
   }

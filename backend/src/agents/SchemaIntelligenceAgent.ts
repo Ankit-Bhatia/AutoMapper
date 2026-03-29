@@ -52,6 +52,10 @@ import {
   CARIBBEAN_DOMAIN_TOKENS,
   type ConfirmedPattern,
 } from './schemaIntelligenceData.js';
+import {
+  COREDIR_FSC_PATTERNS,
+  COREDIR_ONE_TO_MANY_FIELDS,
+} from './coreDirSchemaData.js';
 
 // ─── Scoring constants ────────────────────────────────────────────────────────
 
@@ -66,6 +70,19 @@ const SYSTEM_AUDIT_PENALTY = -0.40;
 /** Boost when both source and target are FSC-namespace aware */
 const FSC_NAMESPACE_BOOST = 0.06;
 
+const BOSL_PREFIXES = ['AMT_', 'PERC_', 'DATE_', 'CODE_', 'NAME_', 'NBR_', 'Y_', 'PHONE_', 'ADDRESS_', 'DESC_'];
+const COREDIR_PREFIXES = ['CUST_', 'CIF_', 'LOAN_', 'ACCT_', 'COL_', 'COLL_', 'EMPL_', 'LIAB_', 'ADDR_', 'DEP_'];
+const BOSL_INDICATORS = new Set(['AMT_NET_WORTH', 'DATE_BOARDING', 'CODE_ENTITY_TYPE']);
+
+type CorpusName = 'bosl' | 'coredir';
+
+interface ActiveCorpus {
+  name: CorpusName;
+  label: string;
+  patterns: Record<string, ConfirmedPattern[]>;
+  oneToManyFields: Set<string>;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function normalize(s: string): string {
@@ -78,6 +95,63 @@ function clamp(v: number): number {
 
 function getField(id: string, fields: (Field | ConnectorField)[]): Field | ConnectorField | undefined {
   return fields.find((f) => f.id === id);
+}
+
+function countPrefixMatches(fieldNames: string[], prefixes: string[]): number {
+  return fieldNames.filter((name) => {
+    const upper = name.toUpperCase();
+    return prefixes.some((prefix) => upper.startsWith(prefix));
+  }).length;
+}
+
+function detectCoreDirSection(fieldName: string): { prefix: string; category: string } | null {
+  const PREFIXES: Array<[string, string]> = [
+    ['CUST_', 'demographic'],
+    ['CIF_', 'demographic'],
+    ['LOAN_', 'financial'],
+    ['ACCT_', 'account'],
+    ['DEP_', 'account'],
+    ['COL_', 'collateral'],
+    ['COLL_', 'collateral'],
+    ['EMPL_', 'employment'],
+    ['LIAB_', 'liability'],
+    ['ADDR_', 'address'],
+  ];
+
+  const upper = fieldName.toUpperCase();
+  for (const [prefix, category] of PREFIXES) {
+    if (upper.startsWith(prefix)) return { prefix, category };
+  }
+  return null;
+}
+
+function selectCorpus(sourceFieldNames: string[]): ActiveCorpus | null {
+  if (sourceFieldNames.length === 0) return null;
+
+  const upperNames = sourceFieldNames.map((name) => name.toUpperCase());
+  const boslRatio = countPrefixMatches(sourceFieldNames, BOSL_PREFIXES) / sourceFieldNames.length;
+  const coreDirRatio = countPrefixMatches(sourceFieldNames, COREDIR_PREFIXES) / sourceFieldNames.length;
+  const hasBoslIndicator = upperNames.some((name) => BOSL_INDICATORS.has(name));
+
+  if (coreDirRatio > 0.30 && !hasBoslIndicator && boslRatio <= 0.30) {
+    return {
+      name: 'coredir',
+      label: 'CoreDirector→FSC',
+      patterns: COREDIR_FSC_PATTERNS,
+      oneToManyFields: new Set(COREDIR_ONE_TO_MANY_FIELDS.map((value) => normalize(value))),
+    };
+  }
+
+  if (hasBoslIndicator || boslRatio > 0.30) {
+    return {
+      name: 'bosl',
+      label: 'BOSL→FSC',
+      patterns: CONFIRMED_PATTERNS,
+      oneToManyFields: ONE_TO_MANY_FIELDS,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -132,23 +206,24 @@ function isPrefixTypeCompatible(prefix: string, sfDataType: string): boolean | n
  * or null if there is no confirmed pattern for this (source, target) pair.
  */
 function findConfirmedPattern(
+  patterns: Record<string, ConfirmedPattern[]>,
   srcNorm: string,
   tgtName: string,
 ): ConfirmedPattern | null {
-  const patterns = CONFIRMED_PATTERNS[srcNorm];
-  if (!patterns || patterns.length === 0) return null;
+  const candidatePatterns = patterns[srcNorm];
+  if (!candidatePatterns || candidatePatterns.length === 0) return null;
 
   const tgtNorm = normalize(tgtName);
 
   // First pass: exact API name match
-  for (const pattern of patterns) {
+  for (const pattern of candidatePatterns) {
     if (pattern.sfApiNames.some((api) => normalize(api) === tgtNorm)) {
       return pattern;
     }
   }
 
   // Second pass: partial match (handles minor variations)
-  for (const pattern of patterns) {
+  for (const pattern of candidatePatterns) {
     if (pattern.sfApiNames.some((api) => {
       const n = normalize(api);
       return tgtNorm.includes(n) || n.includes(tgtNorm);
@@ -158,6 +233,13 @@ function findConfirmedPattern(
   }
 
   return null;
+}
+
+function formatConfirmedPatternReason(corpusLabel: string, srcName: string, pattern: ConfirmedPattern): string {
+  const note = pattern.notes.trim();
+  return note
+    ? `✅ Confirmed ${corpusLabel} pattern: '${srcName}' → '${pattern.sfApiNames[0]}' on ${pattern.sfObject} [${pattern.confidence}]. ${note}`
+    : `✅ Confirmed ${corpusLabel} pattern: '${srcName}' → '${pattern.sfApiNames[0]}' on ${pattern.sfObject} [${pattern.confidence}].`;
 }
 
 /**
@@ -181,7 +263,7 @@ export class SchemaIntelligenceAgent extends AgentBase {
 
   async run(context: AgentContext): Promise<AgentResult> {
     const start = Date.now();
-    const { fields, fieldMappings, targetSystemType } = context;
+    const { fields, fieldMappings, targetSystemType, sourceEntities } = context;
 
     // Only active when the target is Salesforce
     if (targetSystemType !== 'salesforce') {
@@ -196,7 +278,7 @@ export class SchemaIntelligenceAgent extends AgentBase {
     this.info(
       context,
       'start',
-      `Applying 6-step Schema Intelligence pipeline (${CONFIRMED_PATTERNS ? Object.keys(CONFIRMED_PATTERNS).length : 0} confirmed BOSL→FSC patterns loaded)`,
+      `Applying 6-step Schema Intelligence pipeline (${Object.keys(CONFIRMED_PATTERNS).length} BOSL keys, ${Object.keys(COREDIR_FSC_PATTERNS).length} CoreDirector keys loaded)`,
     );
 
     const updatedMappings: FieldMapping[] = [];
@@ -205,7 +287,14 @@ export class SchemaIntelligenceAgent extends AgentBase {
     let flaggedOneToMany = 0;
     let flaggedSystemAudit = 0;
     let confirmedPatternHits = 0;
+    let confirmedFamilyHits = 0;
     const steps: AgentStep[] = [];
+    const sourceEntityIds = new Set(sourceEntities.map((entity) => entity.id));
+    const sourceFieldNames = fields
+      .filter((field) => sourceEntityIds.has(field.entityId))
+      .map((field) => field.name);
+    const activeCorpus = selectCorpus(sourceFieldNames);
+    const corpusLabel = activeCorpus?.label ?? 'corpus';
 
     for (const mapping of fieldMappings) {
       if (!mapping.sourceFieldId || !mapping.targetFieldId) {
@@ -271,36 +360,44 @@ export class SchemaIntelligenceAgent extends AgentBase {
       }
 
       // ── Step 2: XML Taxonomy Recognition ────────────────────────────────
-      const prefixInfo = detectXmlPrefix(srcName);
-      if (prefixInfo && tgtDataType) {
-        const compatible = isPrefixTypeCompatible(prefixInfo.prefix, tgtDataType);
-        if (compatible === true) {
-          delta += 0.08;
-          reasons.push(
-            `✓ Type taxonomy: source prefix '${prefixInfo.prefix}' (${prefixInfo.category}) ` +
-            `is type-compatible with SF field type '${tgtDataType}'.`,
-          );
-        } else if (compatible === false) {
-          delta -= 0.15;
-          reasons.push(
-            `⚠️ Type mismatch: source prefix '${prefixInfo.prefix}' (${prefixInfo.category}) ` +
-            `is NOT compatible with SF field type '${tgtDataType}' — a transform is required.`,
-          );
-          metadata.typeMismatch = true;
+      const coreDirSection = activeCorpus?.name === 'coredir' ? detectCoreDirSection(srcName) : null;
+      if (coreDirSection) {
+        reasons.push(
+          `ℹ️ CoreDirector section prefix '${coreDirSection.prefix}' classifies '${srcName}' as ${coreDirSection.category}.`,
+        );
+        metadata.sectionPrefix = coreDirSection.prefix;
+        metadata.sectionCategory = coreDirSection.category;
+      } else {
+        const prefixInfo = detectXmlPrefix(srcName);
+        if (prefixInfo && tgtDataType) {
+          const compatible = isPrefixTypeCompatible(prefixInfo.prefix, tgtDataType);
+          if (compatible === true) {
+            delta += 0.08;
+            reasons.push(
+              `✓ Type taxonomy: source prefix '${prefixInfo.prefix}' (${prefixInfo.category}) ` +
+              `is type-compatible with SF field type '${tgtDataType}'.`,
+            );
+          } else if (compatible === false) {
+            delta -= 0.15;
+            reasons.push(
+              `⚠️ Type mismatch: source prefix '${prefixInfo.prefix}' (${prefixInfo.category}) ` +
+              `is NOT compatible with SF field type '${tgtDataType}' — a transform is required.`,
+            );
+            metadata.typeMismatch = true;
+          }
+          metadata.xmlPrefix = prefixInfo.prefix;
+          metadata.xmlCategory = prefixInfo.category;
         }
-        metadata.xmlPrefix = prefixInfo.prefix;
-        metadata.xmlCategory = prefixInfo.category;
       }
 
       // ── Step 3: Confirmed Pattern Boost ──────────────────────────────────
-      const confirmedPattern = findConfirmedPattern(srcNorm, tgtName);
+      const confirmedPattern = activeCorpus
+        ? findConfirmedPattern(activeCorpus.patterns, srcNorm, tgtName)
+        : null;
       if (confirmedPattern) {
         delta += CONFIRMED_EXACT_BOOST;
         confirmedPatternHits++;
-        reasons.push(
-          `✅ Confirmed BOSL→FSC pattern: '${srcName}' → '${confirmedPattern.sfApiNames[0]}' ` +
-          `on ${confirmedPattern.sfObject} [${confirmedPattern.confidence}]. ${confirmedPattern.notes}`,
-        );
+        reasons.push(formatConfirmedPatternReason(corpusLabel, srcName, confirmedPattern));
         metadata.confirmedPattern = true;
         metadata.confirmedConfidenceTier = confirmedPattern.confidence;
         metadata.confirmedSfObject = confirmedPattern.sfObject;
@@ -310,22 +407,23 @@ export class SchemaIntelligenceAgent extends AgentBase {
           delta += FORMULA_TARGET_PENALTY;
           reasons.push(`(formula field warning from pattern corpus)`);
         }
-      } else if (CONFIRMED_PATTERNS[srcNorm]) {
+      } else if (activeCorpus?.patterns[srcNorm]) {
         // Source field is in the corpus but this target isn't the confirmed one
-        const allPatterns = CONFIRMED_PATTERNS[srcNorm];
+        const allPatterns = activeCorpus.patterns[srcNorm];
         const preferredTargets = allPatterns.flatMap((p) => p.sfApiNames).join(', ');
         delta += CONFIRMED_FAMILY_BOOST;
+        confirmedFamilyHits++;
         reasons.push(
-          `ℹ️ Source '${srcName}' is in the confirmed corpus — preferred targets: ${preferredTargets}`,
+          `ℹ️ Source '${srcName}' is in the ${corpusLabel} confirmed corpus — preferred targets: ${preferredTargets}`,
         );
         metadata.confirmedFamilyMatch = true;
       }
 
       // ── Step 4: One-to-Many Detection ────────────────────────────────────
-      if (ONE_TO_MANY_FIELDS.has(srcNorm)) {
+      if (activeCorpus?.oneToManyFields.has(srcNorm)) {
         flaggedOneToMany++;
         reasons.push(
-          `⚠️ One-to-Many field: '${srcName}' maps to multiple Salesforce targets in the BOSL corpus. ` +
+          `⚠️ One-to-Many field: '${srcName}' maps to multiple Salesforce targets in the ${corpusLabel} corpus. ` +
           `Human routing decision required — validate this specific target is correct for your lifecycle stage.`,
         );
         metadata.isOneToMany = true;
@@ -377,11 +475,32 @@ export class SchemaIntelligenceAgent extends AgentBase {
       updatedMappings.push(mapping);
     }
 
+    const corpusStep: Omit<AgentStep, 'agentName'> = activeCorpus
+      ? {
+          action: 'schema_intelligence_corpus',
+          detail: `Applied ${activeCorpus.name} corpus: ${confirmedPatternHits + confirmedFamilyHits} boosts, ${flaggedOneToMany} one-to-many`,
+          durationMs: 0,
+          metadata: {
+            corpus: activeCorpus.name,
+            boosts: confirmedPatternHits + confirmedFamilyHits,
+            oneToMany: flaggedOneToMany,
+          },
+        }
+      : {
+          action: 'schema_intelligence_corpus',
+          detail: 'No corpus matched',
+          durationMs: 0,
+          metadata: { corpus: 'none' },
+        };
+    this.emit(context, corpusStep);
+    steps.push({ agentName: this.name, ...corpusStep });
+
     const summary: Omit<AgentStep, 'agentName'> = {
       action: 'schema_intelligence_complete',
       detail:
         `Schema Intelligence pipeline complete — ` +
         `${confirmedPatternHits} confirmed pattern hits, ` +
+        `${confirmedFamilyHits} family boosts, ` +
         `${improved} mappings improved, ` +
         `${flaggedOneToMany} one-to-many flags, ` +
         `${flaggedFormulaTargets} formula target warnings, ` +
@@ -389,6 +508,7 @@ export class SchemaIntelligenceAgent extends AgentBase {
       durationMs: Date.now() - start,
       metadata: {
         confirmedPatternHits,
+        confirmedFamilyHits,
         improved,
         flaggedOneToMany,
         flaggedFormulaTargets,
@@ -405,6 +525,7 @@ export class SchemaIntelligenceAgent extends AgentBase {
       totalImproved: improved,
       metadata: {
         confirmedPatternHits,
+        confirmedFamilyHits,
         flaggedOneToMany,
         flaggedFormulaTargets,
         flaggedSystemAudit,
