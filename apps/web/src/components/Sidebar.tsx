@@ -19,6 +19,7 @@ interface SidebarProps {
   unresolvedRoutingDecisions?: number;
   isOrchestrated?: boolean;
   isDemoMode?: boolean;
+  canAccessExport?: boolean;
 }
 
 const STEPS: { id: Exclude<WorkflowStep, 'llm-settings'>; label: string; icon: string; description: string }[] = [
@@ -84,6 +85,7 @@ export function Sidebar({
   unresolvedRoutingDecisions = 0,
   isOrchestrated = false,
   isDemoMode = true,
+  canAccessExport = true,
 }: SidebarProps) {
   const order: Array<Exclude<WorkflowStep, 'llm-settings'>> = ['command-center', 'connect', 'orchestrate', 'review', 'routing', 'export'];
   const workflowCurrentStep = currentStep === 'llm-settings' ? workflowStep : currentStep;
@@ -101,7 +103,7 @@ export function Sidebar({
     if (step === 'orchestrate') return !!(projectName && sourceConnector && targetConnector);
     if (step === 'review') return isOrchestrated;
     if (step === 'routing') return isOrchestrated;
-    if (step === 'export') return isOrchestrated && unresolvedRoutingDecisions === 0;
+    if (step === 'export') return isOrchestrated && unresolvedRoutingDecisions === 0 && canAccessExport;
     return false;
   }
 

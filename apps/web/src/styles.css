@@ -5283,3 +5283,223 @@ body {
     padding: 18px;
   }
 }
+
+.workspace-project-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 28px 0;
+}
+
+.workspace-project-eyebrow {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.workspace-project-title {
+  font-family: var(--display-font);
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  color: var(--text);
+}
+
+.workspace-project-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.workspace-project-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.workspace-project-role {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.workspace-project-role--viewer {
+  background: color-mix(in srgb, var(--text-tertiary) 16%, transparent);
+  color: var(--text-secondary);
+}
+
+.workspace-project-role--mapper {
+  background: color-mix(in srgb, var(--sky) 14%, transparent);
+  border-color: color-mix(in srgb, var(--sky) 32%, var(--border));
+  color: var(--sky);
+}
+
+.workspace-project-role--approver {
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+  color: var(--warning);
+}
+
+.workspace-project-role--admin {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  color: var(--success);
+}
+
+.team-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(2, 6, 23, 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.team-panel {
+  width: min(520px, 100%);
+  height: 100%;
+  padding: 28px;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -24px 0 60px rgba(2, 6, 23, 0.32);
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.team-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.team-panel-eyebrow {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.team-panel-title {
+  font-family: var(--display-font);
+  font-size: 28px;
+  letter-spacing: -0.04em;
+}
+
+.team-panel-error,
+.team-panel-state {
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  font-size: 13px;
+}
+
+.team-panel-error {
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.team-panel-state {
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
+.team-panel-list {
+  display: grid;
+  gap: 12px;
+}
+
+.team-panel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.team-panel-member {
+  min-width: 0;
+}
+
+.team-panel-email {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.team-panel-added {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.team-panel-role {
+  min-width: 0;
+}
+
+.team-panel-invite {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--primary-light) 16%, var(--surface));
+}
+
+.team-panel-section-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.team-panel-input {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .workspace-project-header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 20px 18px 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .team-panel {
+    width: 100%;
+    padding: 20px;
+  }
+
+  .team-panel-row {
+    grid-template-columns: 1fr;
+  }
+}

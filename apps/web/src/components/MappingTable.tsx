@@ -37,6 +37,9 @@ interface MappingTableProps {
   acknowledgedFormulaMappingIds?: Set<string>;
   onAcknowledgeFormulaWarning?: (mappingId: string) => void;
   onProceedToExport?: () => void;
+  canEditMappings?: boolean;
+  canAccessExport?: boolean;
+  exportRestrictionReason?: string;
 }
 
 type StatusFilter = 'all' | 'suggested' | 'accepted' | 'rejected' | 'modified' | 'unmatched';
@@ -119,6 +122,9 @@ export function MappingTable({
   acknowledgedFormulaMappingIds,
   onAcknowledgeFormulaWarning,
   onProceedToExport,
+  canEditMappings = true,
+  canAccessExport = true,
+  exportRestrictionReason,
 }: MappingTableProps) {
   const { user } = useAuth();
   const orgSlug = user?.orgSlug || 'default';
@@ -289,6 +295,7 @@ export function MappingTable({
   }
 
   async function patchStatus(fm: FieldMapping, newStatus: FieldMapping['status']) {
+    if (!canEditMappings) return;
     setSaving(fm.id);
     try {
       const response = await api<FieldMapping | { fieldMapping: FieldMapping }>(`/api/field-mappings/${fm.id}`, {
@@ -317,6 +324,7 @@ export function MappingTable({
   }
 
   async function patchTransform(fm: FieldMapping, newType: string) {
+    if (!canEditMappings) return;
     setSaving(fm.id);
     try {
       const response = await api<FieldMapping | { fieldMapping: FieldMapping }>(`/api/field-mappings/${fm.id}`, {
@@ -356,6 +364,7 @@ export function MappingTable({
         return;
       }
       if (!focusedMappingId) return;
+      if (!canEditMappings) return;
       const focused = fieldMappings.find((fm) => fm.id === focusedMappingId);
       if (!focused) return;
 
@@ -377,7 +386,7 @@ export function MappingTable({
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [fieldMappings, focusedMappingId]);
+  }, [canEditMappings, fieldMappings, focusedMappingId]);
 
   useEffect(() => {
     void refreshAuditSummary();
@@ -406,7 +415,9 @@ export function MappingTable({
         <div>
           <h1 className="page-title">Review Mappings</h1>
           <p className="page-subtitle">
-            Inspect every field mapping, adjust transforms, and accept or reject suggestions.
+            {canEditMappings
+              ? 'Inspect every field mapping, adjust transforms, and accept or reject suggestions.'
+              : 'Inspect every field mapping in read-only mode. Viewer access cannot change mapping decisions.'}
           </p>
         </div>
         <div className="mapping-header-actions">
@@ -426,13 +437,27 @@ export function MappingTable({
               ⚠ {unresolvedConflicts} conflict{unresolvedConflicts > 1 ? 's' : ''}
             </button>
           )}
-          {onProceedToExport && (
+          {onProceedToExport && canAccessExport && (
             <button className="btn btn--primary" onClick={onProceedToExport}>
               Proceed to Export
             </button>
           )}
+          {onProceedToExport && !canAccessExport && exportRestrictionReason && (
+            <button className="btn btn--ghost" disabled title={exportRestrictionReason}>
+              Export Locked
+            </button>
+          )}
         </div>
       </div>
+
+      {!canEditMappings && (
+        <div className="validation-box validation-box--warn" style={{ marginBottom: '16px' }}>
+          <div className="validation-box-title">Read-only access</div>
+          <p style={{ margin: 0, fontSize: '14px' }}>
+            Viewer role can inspect mappings but cannot accept, reject, or modify them.
+          </p>
+        </div>
+      )}
 
       <div className="mapping-summary-grid">
         <div className="mapping-summary-card">
@@ -839,7 +864,7 @@ export function MappingTable({
                               Route
                             </button>
                           )}
-                          {fm.status !== 'accepted' && (
+                          {canEditMappings && fm.status !== 'accepted' && (
                             <button
                               className="btn btn--success btn--xs"
                               onClick={() => patchStatus(fm, 'accepted')}
@@ -847,7 +872,7 @@ export function MappingTable({
                               title="Accept"
                             >✓</button>
                           )}
-                          {fm.status !== 'rejected' && (
+                          {canEditMappings && fm.status !== 'rejected' && (
                             <button
                               className="btn btn--danger btn--xs"
                               onClick={() => patchStatus(fm, 'rejected')}
@@ -855,15 +880,17 @@ export function MappingTable({
                               title="Reject"
                             >✕</button>
                           )}
-                          <button
-                            className="btn btn--ghost btn--xs"
-                            onClick={() => {
-                              setEditingTransform(fm.id);
-                              setPendingTransform(fm.transform.type);
-                            }}
-                            disabled={isSaving}
-                            title="Edit transform"
-                          >⚙</button>
+                          {canEditMappings && (
+                            <button
+                              className="btn btn--ghost btn--xs"
+                              onClick={() => {
+                                setEditingTransform(fm.id);
+                                setPendingTransform(fm.transform.type);
+                              }}
+                              disabled={isSaving}
+                              title="Edit transform"
+                            >⚙</button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1009,12 +1036,18 @@ export function MappingTable({
               </>
             )}
           </div>
-          <button className="btn btn--primary" onClick={onProceedToExport}>
-            Proceed to Export
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ marginLeft: 6 }}>
-              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+          {canAccessExport ? (
+            <button className="btn btn--primary" onClick={onProceedToExport}>
+              Proceed to Export
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ marginLeft: 6 }}>
+                <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          ) : (
+            <button className="btn btn--ghost" disabled title={exportRestrictionReason ?? 'Requires Approver role'}>
+              Requires Approver role
+            </button>
+          )}
         </div>
       )}
         </>

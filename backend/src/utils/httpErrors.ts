@@ -7,6 +7,24 @@ import {
   type ErrorSource,
 } from '../services/errorReporting.js';
 
+export class AppError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly details: unknown;
+
+  constructor(status: number, code: string, message: string, details: unknown = null) {
+    super(message);
+    this.name = 'AppError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+export function isAppError(error: unknown): error is AppError {
+  return error instanceof AppError;
+}
+
 function resolveRequestId(req: Request, res: Response): string {
   const existingFromLocals = typeof res.locals.requestId === 'string' ? res.locals.requestId : null;
   if (existingFromLocals) return existingFromLocals;
