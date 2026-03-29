@@ -57,9 +57,10 @@ import {
   ReviewDecisionSchema,
 } from './validation/schemas.js';
 import { captureException, sendHttpError } from './utils/httpErrors.js';
-import type { AppState, FieldMapping, MappingProject } from './types.js';
+import type { AppState, FieldMapping, MappingProject, SchemaFingerprint } from './types.js';
 import { getOneToManyPatternCandidates, getSchemaIntelligencePatternCandidates, isOneToManyFieldName } from './services/schemaIntelligencePatterns.js';
 import { defaultRegistry } from '../../packages/connectors/ConnectorRegistry.js';
+import { buildFieldsSnapshot } from './services/schemaFingerprint.js';
 // Register all built-in connectors into the defaultRegistry (side-effect import)
 import '../../packages/connectors/registerConnectors.js';
 
@@ -914,6 +915,17 @@ app.get('/api/projects/:id/export/formats', (_req, res) => {
   res.json({ formats: EXPORT_FORMATS });
 });
 
+app.get('/api/projects/:id/versions', async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) {
+    sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  const versions = await Promise.resolve(store.listExportVersions(project.id));
+  res.json({ versions });
+});
+
 app.get('/api/projects/:id/export', async (req, res) => {
   const format = String(req.query.format || 'json') as ExportFormat;
   const project = await store.getProject(req.params.id);
@@ -931,6 +943,7 @@ app.get('/api/projects/:id/export', async (req, res) => {
   }
 
   const state = await store.getState();
+  const scoped = getProjectScopedState(state, project);
   const entityMappings = state.entityMappings.filter((e) => e.projectId === project.id);
   const entityMappingIds = new Set(entityMappings.map((e) => e.id));
   const fieldMappings = state.fieldMappings.filter((f) => entityMappingIds.has(f.entityMappingId));
@@ -955,6 +968,25 @@ app.get('/api/projects/:id/export', async (req, res) => {
     relationships: state.relationships,
     validation,
   });
+
+  if (format === 'json' && typeof result.content === 'object') {
+    const schemaFingerprint = (result.content as {
+      automapper?: { metadata?: { schemaFingerprint?: unknown } };
+    }).automapper?.metadata?.schemaFingerprint;
+
+    if (!schemaFingerprint) {
+      sendError(req, res, 500, 'EXPORT_VERSION_FAILED', 'Schema fingerprint missing from JSON export');
+      return;
+    }
+
+    await Promise.resolve(store.createExportVersion({
+      projectId: project.id,
+      schemaFingerprint: schemaFingerprint as SchemaFingerprint,
+      fieldsSnapshot: buildFieldsSnapshot(project, [...scoped.sourceEntities, ...scoped.targetEntities], scoped.scopedFields),
+      exportedByUserId: req.user?.userId,
+    }));
+  }
+
   writeAuditEntrySafe({
     projectId: project.id,
     actor: toAuditActor(req),

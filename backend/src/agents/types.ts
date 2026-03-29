@@ -11,7 +11,7 @@
  *     ├─ MappingProposalAgent   (LLM-assisted mapping generation)
  *     └─ ValidationAgent        (type-compatibility + coverage checks)
  */
-import type { SystemType, Entity, Field, EntityMapping, FieldMapping } from '../types.js';
+import type { SystemType, Entity, Field, EntityMapping, FieldMapping, StoredExportVersionRecord } from '../types.js';
 import type { Relationship } from '../types.js';
 import type { ConnectorField, ComplianceTag } from '../../../packages/connectors/IConnector.js';
 import type { EmbeddingCache } from '../services/EmbeddingService.js';
@@ -44,6 +44,8 @@ export interface AgentContext {
   embeddingCache?: EmbeddingCache;
   /** Relationship graph built once per pipeline run for scope checks and ordering. */
   relationshipGraph?: RelationshipGraph;
+  /** Most recent persisted export snapshot for schema drift detection, when present. */
+  latestExportVersion?: StoredExportVersionRecord;
   /** Called by agents to emit progress events (used for SSE streaming) */
   onStep?: (step: AgentStep) => void;
 }

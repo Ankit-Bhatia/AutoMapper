@@ -104,6 +104,11 @@ export function setupAgentRoutes(app: Express, store: DbStore | FsStore): void {
     const entityMappings = state.entityMappings.filter((m) => m.projectId === project.id);
     const entityMappingIds = new Set(entityMappings.map((e) => e.id));
     const fieldMappings = state.fieldMappings.filter((f) => entityMappingIds.has(f.entityMappingId));
+    const latestExportVersion = await withTimeout(
+      Promise.resolve(store.getLatestExportVersion(project.id)),
+      DB_CALL_TIMEOUT_MS,
+      'getLatestExportVersion',
+    );
 
     if (!fieldMappings.length) {
       sendError(req, res, 400, 'NO_MAPPINGS', 'Run suggest-mappings first to generate initial field mappings');
@@ -151,6 +156,7 @@ export function setupAgentRoutes(app: Express, store: DbStore | FsStore): void {
           relationships,
           entityMappings,
           fieldMappings,
+          latestExportVersion,
           onStep: (step) => {
             writeEvent({ type: 'step', ...step });
           },

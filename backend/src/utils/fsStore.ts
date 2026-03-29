@@ -5,11 +5,14 @@ import type {
   AppState,
   AuditEntry,
   Entity,
+  ExportVersionRecord,
   Field,
   FieldMapping,
   MappingProject,
   OneToManyResolution,
   Relationship,
+  SchemaFingerprint,
+  StoredExportVersionRecord,
   System,
 } from '../types.js';
 
@@ -57,6 +60,36 @@ export class FsStore {
 
   private persist() {
     fs.writeFileSync(this.dbPath, JSON.stringify(this.state, null, 2), 'utf8');
+  }
+
+  private versionsDir(projectId: string): string {
+    return path.join(path.dirname(this.dbPath), 'projects', projectId, 'versions');
+  }
+
+  private readStoredExportVersion(filePath: string): StoredExportVersionRecord | null {
+    try {
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as StoredExportVersionRecord;
+      return {
+        ...raw,
+        fieldsSnapshot: {
+          source: Array.isArray(raw.fieldsSnapshot?.source) ? raw.fieldsSnapshot.source.map((field) => ({ ...field })) : [],
+          target: Array.isArray(raw.fieldsSnapshot?.target) ? raw.fieldsSnapshot.target.map((field) => ({ ...field })) : [],
+        },
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private toExportVersionRecord(version: StoredExportVersionRecord): ExportVersionRecord {
+    return {
+      id: version.id,
+      projectId: version.projectId,
+      version: version.version,
+      schemaFingerprint: version.schemaFingerprint,
+      exportedAt: version.exportedAt,
+      exportedByUserId: version.exportedByUserId,
+    };
   }
 
   getState(): AppState {
@@ -200,6 +233,82 @@ export class FsStore {
     this.state.fieldMappings.push(...duplicatedFieldMappings);
     this.persist();
     return duplicate;
+  }
+
+  createExportVersion(args: {
+    projectId: string;
+    schemaFingerprint: SchemaFingerprint;
+    fieldsSnapshot: StoredExportVersionRecord['fieldsSnapshot'];
+    exportedByUserId?: string;
+  }): ExportVersionRecord {
+    const dir = this.versionsDir(args.projectId);
+    fs.mkdirSync(dir, { recursive: true });
+
+    const existing = this.listExportVersions(args.projectId);
+    const versionNumber = existing.length + 1;
+    const exportedAt = new Date().toISOString();
+    const stored: StoredExportVersionRecord = {
+      id: uuidv4(),
+      projectId: args.projectId,
+      version: versionNumber,
+      schemaFingerprint: args.schemaFingerprint,
+      exportedAt,
+      exportedByUserId: args.exportedByUserId,
+      fieldsSnapshot: {
+        source: args.fieldsSnapshot.source.map((field) => ({ ...field })),
+        target: args.fieldsSnapshot.target.map((field) => ({ ...field })),
+      },
+    };
+
+    const timestamp = exportedAt.replace(/[:.]/g, '-');
+    const filePath = path.join(dir, `${timestamp}-v${versionNumber}.automapper.json`);
+    fs.writeFileSync(filePath, JSON.stringify(stored, null, 2), 'utf8');
+
+    const files = fs.readdirSync(dir)
+      .map((name) => path.join(dir, name))
+      .filter((candidate) => candidate.endsWith('.automapper.json'))
+      .map((candidate) => this.readStoredExportVersion(candidate))
+      .filter((candidate): candidate is StoredExportVersionRecord => Boolean(candidate))
+      .sort((left, right) => left.version - right.version);
+
+    while (files.length > 10) {
+      const oldest = files.shift();
+      if (!oldest) break;
+      const oldestFile = fs.readdirSync(dir)
+        .map((name) => path.join(dir, name))
+        .find((candidate) => {
+          const parsed = this.readStoredExportVersion(candidate);
+          return parsed?.id === oldest.id;
+        });
+      if (oldestFile && fs.existsSync(oldestFile)) {
+        fs.rmSync(oldestFile, { force: true });
+      }
+    }
+
+    return this.toExportVersionRecord(stored);
+  }
+
+  listExportVersions(projectId: string): ExportVersionRecord[] {
+    const dir = this.versionsDir(projectId);
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir)
+      .map((name) => path.join(dir, name))
+      .filter((candidate) => candidate.endsWith('.automapper.json'))
+      .map((candidate) => this.readStoredExportVersion(candidate))
+      .filter((candidate): candidate is StoredExportVersionRecord => Boolean(candidate))
+      .sort((left, right) => Date.parse(right.exportedAt) - Date.parse(left.exportedAt) || right.version - left.version)
+      .map((version) => this.toExportVersionRecord(version));
+  }
+
+  getLatestExportVersion(projectId: string): StoredExportVersionRecord | undefined {
+    const dir = this.versionsDir(projectId);
+    if (!fs.existsSync(dir)) return undefined;
+    return fs.readdirSync(dir)
+      .map((name) => path.join(dir, name))
+      .filter((candidate) => candidate.endsWith('.automapper.json'))
+      .map((candidate) => this.readStoredExportVersion(candidate))
+      .filter((candidate): candidate is StoredExportVersionRecord => Boolean(candidate))
+      .sort((left, right) => Date.parse(right.exportedAt) - Date.parse(left.exportedAt) || right.version - left.version)[0];
   }
 
   replaceSystemSchema(

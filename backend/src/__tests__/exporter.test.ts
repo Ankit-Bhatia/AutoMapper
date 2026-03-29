@@ -139,6 +139,12 @@ describe('exporter load order', () => {
       automapper: {
         metadata: {
           loadOrder: string[];
+          schemaFingerprint: {
+            sourceHash: string;
+            targetHash: string;
+            fieldCount: { source: number; target: number };
+            computedAt: string;
+          };
         };
       };
     };
@@ -148,6 +154,12 @@ describe('exporter load order', () => {
       'target-account',
       'target-contact',
     ]);
+    expect(exportSpec.automapper.metadata.schemaFingerprint).toMatchObject({
+      fieldCount: { source: 3, target: 3 },
+    });
+    expect(exportSpec.automapper.metadata.schemaFingerprint.sourceHash).toHaveLength(64);
+    expect(exportSpec.automapper.metadata.schemaFingerprint.targetHash).toHaveLength(64);
+    expect(Date.parse(exportSpec.automapper.metadata.schemaFingerprint.computedAt)).not.toBeNaN();
   });
 
   it('adds relationship-graph topological order to workato metadata', () => {

@@ -106,9 +106,23 @@ model MappingProject {
   entityMappings EntityMapping[]
   mappingEvents  MappingEvent[]
   auditEntries   AuditEntry[]
+  exportVersions ExportVersion[]
 
   @@index([organisationId])
   @@index([userId])
+}
+
+model ExportVersion {
+  id                String         @id @default(uuid())
+  projectId         String
+  project           MappingProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version           Int
+  schemaFingerprint Json
+  fieldsSnapshot    Json?
+  exportedAt        DateTime       @default(now())
+  exportedByUserId  String?
+
+  @@index([projectId, exportedAt])
 }
 
 model AuditEntry {

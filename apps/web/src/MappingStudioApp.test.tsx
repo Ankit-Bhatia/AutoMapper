@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { EntityMapping, Field, FieldMapping, Project } from '@contracts';
+import type { EntityMapping, Field, FieldMapping, Project, SchemaDriftEvent } from '@contracts';
 import { MappingStudioApp } from './MappingStudioApp';
 
 const apiMock = vi.fn();
@@ -72,6 +72,7 @@ const fieldMapping: FieldMapping = {
 };
 
 let pipelineFieldMappings: FieldMapping[] = [fieldMapping];
+let pipelineDriftEvent: SchemaDriftEvent | null = null;
 
 vi.mock('@core/api-client', () => ({
   api: (...args: unknown[]) => apiMock(...args),
@@ -117,6 +118,7 @@ vi.mock('./components/AgentPipeline', () => ({
   AgentPipeline: ({
     onComplete,
     onReviewReady,
+    onSchemaDrift,
   }: {
     onComplete: (result: {
       entityMappings: typeof entityMapping[];
@@ -136,9 +138,13 @@ vi.mock('./components/AgentPipeline', () => ({
       processingMs: number;
     }) => void;
     onReviewReady?: () => void;
+    onSchemaDrift?: (drift: SchemaDriftEvent) => void;
   }) => (
     <button
       onClick={() => {
+        if (pipelineDriftEvent) {
+          onSchemaDrift?.(pipelineDriftEvent);
+        }
         onComplete({
           entityMappings: [entityMapping],
           fieldMappings: pipelineFieldMappings,
@@ -192,6 +198,7 @@ describe('MappingStudioApp export gating', () => {
       orgSlug: 'default',
     };
     pipelineFieldMappings = [fieldMapping];
+    pipelineDriftEvent = null;
     apiMock.mockReset();
     apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
       const method = (init?.method ?? 'GET').toUpperCase();
@@ -487,5 +494,75 @@ describe('MappingStudioApp export gating', () => {
       expect(document.documentElement.dataset.theme).toBe('dark');
     });
     expect(window.localStorage.getItem('automapper-ui-theme')).toBe('dark');
+  });
+
+  it('shows a blocking schema drift modal when blockers are detected', async () => {
+    const user = userEvent.setup();
+    pipelineDriftEvent = {
+      sourceChanged: true,
+      targetChanged: true,
+      blockers: [
+        {
+          scope: 'target',
+          fieldId: 'target-field-1',
+          fieldName: 'LoanAmount__c',
+          entityName: 'FinancialAccount',
+          changeType: 'type_changed',
+          previousType: 'decimal',
+          currentType: 'string',
+          required: true,
+        },
+      ],
+      warnings: [],
+      additions: [],
+    };
+
+    render(<MappingStudioApp initialView="new" onNavigate={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Finish Pipeline' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Finish Pipeline' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByText('LoanAmount__c')).toBeInTheDocument();
+    });
+  });
+
+  it('shows a dismissable schema drift banner when warnings exist without blockers', async () => {
+    const user = userEvent.setup();
+    pipelineDriftEvent = {
+      sourceChanged: true,
+      targetChanged: false,
+      blockers: [],
+      warnings: [
+        {
+          scope: 'source',
+          fieldId: 'source-field-1',
+          fieldName: 'AMT_APPROVED_LOAN',
+          entityName: 'LOAN',
+          changeType: 'removed',
+          previousType: 'decimal',
+          required: false,
+        },
+      ],
+      additions: [],
+    };
+
+    render(<MappingStudioApp initialView="new" onNavigate={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Finish Pipeline' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Finish Pipeline' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/schema drift warning/i)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/schema drift warning/i)).not.toBeInTheDocument();
+    });
   });
 });
