@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const UserRoleSchema = z.enum(['viewer', 'mapper', 'approver', 'admin']);
+
 const TransformTypeSchema = z.enum([
   'direct',
   'concat',
@@ -22,6 +24,15 @@ export const PatchProjectSchema = z.object({
   archived: z.boolean().optional(),
 }).refine((value) => value.name !== undefined || value.archived !== undefined, {
   message: 'At least one field must be provided',
+});
+
+export const AddProjectMemberSchema = z.object({
+  email: z.string().email(),
+  role: UserRoleSchema,
+});
+
+export const PatchProjectMemberSchema = z.object({
+  role: UserRoleSchema,
 });
 
 export const SalesforceSchemaSchema = z.object({
@@ -99,6 +110,8 @@ export const LoginSchema = z.object({
 
 export type CreateProjectInput = z.infer<typeof CreateProjectSchema>;
 export type PatchProjectInput = z.infer<typeof PatchProjectSchema>;
+export type AddProjectMemberInput = z.infer<typeof AddProjectMemberSchema>;
+export type PatchProjectMemberInput = z.infer<typeof PatchProjectMemberSchema>;
 export type SalesforceSchemaInput = z.infer<typeof SalesforceSchemaSchema>;
 export type PatchFieldMappingInput = z.infer<typeof PatchFieldMappingSchema>;
 export type ConflictResolutionRequestInput = z.infer<typeof ConflictResolutionRequestSchema>;

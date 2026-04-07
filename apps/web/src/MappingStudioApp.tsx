@@ -12,10 +12,12 @@ import { SeedSummaryCard } from './components/SeedSummaryCard';
 import { LLMSettingsPage } from './components/LLMSettingsPage';
 import { SchemaDriftBanner } from './components/SchemaDriftBanner';
 import { SchemaDriftModal } from './components/SchemaDriftModal';
+import { TeamPanel } from './components/TeamPanel';
 import { type LLMConfigUpdatePayload } from './components/LLMSettingsPanel';
 import { getActiveFormulaTargetIds } from './components/schemaIntelligence';
 import { reportFrontendError, setErrorReportingContext } from './telemetry/errorReporting';
 import { useAuth } from './auth/AuthContext';
+import { useProjectRole } from './hooks/useProjectRole';
 import { DashboardPage } from './DashboardPage';
 import type {
   Entity,
@@ -145,6 +147,7 @@ export function MappingStudioApp({
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmSaving, setLlmSaving] = useState(false);
   const [llmError, setLlmError] = useState<string | null>(null);
+  const [teamPanelOpen, setTeamPanelOpen] = useState(false);
 
   // ── Salesforce OAuth callback handling ──────────────────────────────────────
   useEffect(() => {
@@ -315,6 +318,7 @@ export function MappingStudioApp({
     setDriftResult(null);
     setDriftBannerDismissed(false);
     setDriftModalDismissed(false);
+    setTeamPanelOpen(false);
     setSelectedMappingIds(new Set());
     setAcknowledgedFormulaMappingIds(new Set());
 
@@ -393,6 +397,7 @@ export function MappingStudioApp({
     setDriftResult(null);
     setDriftBannerDismissed(false);
     setDriftModalDismissed(false);
+    setTeamPanelOpen(false);
     setSourceConnectorId(srcId);
     setTargetConnectorId(tgtId);
 
@@ -559,6 +564,7 @@ export function MappingStudioApp({
     setDriftResult(null);
     setDriftBannerDismissed(false);
     setDriftModalDismissed(false);
+    setTeamPanelOpen(false);
     setSelectedMappingIds(new Set());
     setAcknowledgedFormulaMappingIds(new Set());
     void loadProjectHistory();
@@ -627,6 +633,10 @@ export function MappingStudioApp({
   const normalizedRole = (user?.role ?? '').toUpperCase();
   const isAdmin = normalizedRole === 'ADMIN' || normalizedRole === 'OWNER';
   const userName = user?.name || user?.email || undefined;
+  const projectRole = useProjectRole(project?.id);
+  const canEditMappings = projectRole.canPerform(projectRole.role, 'mapper');
+  const canAccessExport = projectRole.canPerform(projectRole.role, 'approver');
+  const canManageTeam = projectRole.canPerform(projectRole.role, 'admin');
 
   useEffect(() => {
     const activeIds = new Set(activeFormulaTargetIds);
@@ -662,6 +672,12 @@ export function MappingStudioApp({
   }
 
   function attemptOpenExport() {
+    if (!canAccessExport) {
+      setReviewGateMessage('Requires Approver role');
+      setStep('review');
+      return;
+    }
+
     const unresolved = preflight?.unresolvedConflicts ?? conflicts.length;
     const unresolvedRouting = preflight?.unresolvedRoutingDecisions ?? 0;
     if (unresolved > 0) {
@@ -731,6 +747,7 @@ export function MappingStudioApp({
     setDriftResult(null);
     setDriftBannerDismissed(false);
     setDriftModalDismissed(false);
+    setTeamPanelOpen(false);
     setSelectedMappingIds(new Set());
     setAcknowledgedFormulaMappingIds(new Set());
     onNavigate?.('/new');
@@ -863,14 +880,16 @@ export function MappingStudioApp({
                 <p style={{ margin: 0, fontSize: '14px' }}>{reviewGateMessage}</p>
               </div>
             )}
-            <BulkActionBar
-              projectId={project.id}
-              selectedIds={[...selectedMappingIds]}
-              onComplete={(result) => {
-                void handleBulkComplete(result);
-              }}
-              onClear={() => setSelectedMappingIds(new Set())}
-            />
+            {canEditMappings && (
+              <BulkActionBar
+                projectId={project.id}
+                selectedIds={[...selectedMappingIds]}
+                onComplete={(result) => {
+                  void handleBulkComplete(result);
+                }}
+                onClear={() => setSelectedMappingIds(new Set())}
+              />
+            )}
             <MappingTable
               projectId={project.id}
               sourceEntities={sourceEntities}
@@ -885,12 +904,15 @@ export function MappingStudioApp({
               onOpenConflicts={() => setConflictDrawerOpen(true)}
               onOpenRouting={() => { setReviewGateMessage(null); setStep('routing'); }}
               selectedIds={selectedMappingIds}
-              onSelectionChange={handleSelectionChange}
+              onSelectionChange={canEditMappings ? handleSelectionChange : undefined}
               selectionCap={200}
               onMappingUpdate={handleMappingUpdate}
               acknowledgedFormulaMappingIds={acknowledgedFormulaMappingIds}
               onAcknowledgeFormulaWarning={handleAcknowledgeFormulaWarning}
               onProceedToExport={attemptOpenExport}
+              canEditMappings={canEditMappings}
+              canAccessExport={canAccessExport}
+              exportRestrictionReason="Requires Approver role"
             />
             <ConflictDrawer
               projectId={project.id}
@@ -927,7 +949,7 @@ export function MappingStudioApp({
               setReviewGateMessage(null);
             }}
             onBackToReview={() => setStep('review')}
-            onProceedToExport={() => attemptOpenExport()}
+            onProceedToExport={canAccessExport ? () => attemptOpenExport() : undefined}
           />
         ) : null;
 
@@ -986,8 +1008,32 @@ export function MappingStudioApp({
         unresolvedRoutingDecisions={preflight?.unresolvedRoutingDecisions ?? 0}
         isOrchestrated={isOrchestrated}
         isDemoMode={demoUiMode}
+        canAccessExport={canAccessExport}
       />
       <main className="main-content">
+        {project && step !== 'command-center' && step !== 'llm-settings' && (
+          <header className="workspace-project-header">
+            <div>
+              <div className="workspace-project-eyebrow">Active project</div>
+              <h1 className="workspace-project-title">{project.name}</h1>
+              <div className="workspace-project-route">
+                <span>{sourceConnectorName ?? project.sourceSystemId}</span>
+                <span>→</span>
+                <span>{targetConnectorName ?? project.targetSystemId}</span>
+              </div>
+            </div>
+            <div className="workspace-project-actions">
+              <span className={`workspace-project-role workspace-project-role--${projectRole.role}`}>
+                {projectRole.role}
+              </span>
+              {canManageTeam && (
+                <button type="button" className="btn btn--secondary" onClick={() => setTeamPanelOpen(true)}>
+                  Team
+                </button>
+              )}
+            </div>
+          </header>
+        )}
         {showSchemaDriftBanner && driftResult && (
           <SchemaDriftBanner
             drift={driftResult}
@@ -1000,6 +1046,14 @@ export function MappingStudioApp({
             drift={driftResult}
             onCancel={handleDriftCancel}
             onProceed={handleDriftProceed}
+          />
+        )}
+        {project && (
+          <TeamPanel
+            open={teamPanelOpen}
+            projectId={project.id}
+            onClose={() => setTeamPanelOpen(false)}
+            onMembersChanged={() => { void projectRole.refresh(); }}
           />
         )}
       </main>

@@ -37,6 +37,7 @@ import { setupOrgRoutes } from './routes/orgRoutes.js';
 import { setupLLMRoutes } from './routes/llmRoutes.js';
 import { createBulkRouter } from './routes/bulkRoutes.js';
 import { authMiddleware } from './auth/authMiddleware.js';
+import { requireRole } from './middleware/requireRole.js';
 import { runWithLLMRuntimeContext } from './services/llmRuntimeContext.js';
 import { llmSettingsStore } from './services/llmSettingsStore.js';
 import {
@@ -50,13 +51,15 @@ import {
 import {
   CreateProjectSchema,
   PatchProjectSchema,
+  AddProjectMemberSchema,
+  PatchProjectMemberSchema,
   SalesforceSchemaSchema,
   PatchFieldMappingSchema,
   ConflictResolutionRequestSchema,
   ResolveOneToManyMappingsSchema,
   ReviewDecisionSchema,
 } from './validation/schemas.js';
-import { captureException, sendHttpError } from './utils/httpErrors.js';
+import { AppError, captureException, isAppError, sendHttpError } from './utils/httpErrors.js';
 import type { AppState, FieldMapping, MappingProject, SchemaFingerprint } from './types.js';
 import { getOneToManyPatternCandidates, getSchemaIntelligencePatternCandidates, isOneToManyFieldName } from './services/schemaIntelligencePatterns.js';
 import { defaultRegistry } from '../../packages/connectors/ConnectorRegistry.js';
@@ -244,6 +247,18 @@ function resolveConnectorName(system?: { name: string; type: string } | undefine
   return fallbackMeta?.displayName ?? system.name;
 }
 
+async function resolveMemberUserId(email: string): Promise<string> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (process.env.DATABASE_URL?.trim()) {
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    });
+    return user?.id ?? normalizedEmail;
+  }
+  return normalizedEmail;
+}
+
 async function withLLMContext<T>(
   req: Request,
   res: Response,
@@ -320,7 +335,7 @@ app.post('/api/projects', async (req, res) => {
   }
   const { name, sourceSystemName, targetSystemName } = parsed.data;
   const userId = req.user!.userId;
-  const project = await store.createProject(name, userId, sourceSystemName, targetSystemName);
+  const project = await store.createProject(name, userId, sourceSystemName, targetSystemName, req.user?.email);
   writeAuditEntrySafe({
     projectId: project.id,
     actor: toAuditActor(req),
@@ -343,12 +358,17 @@ app.get('/api/projects', async (req, res) => {
       sendError(req, res, 401, 'UNAUTHORIZED', 'User not authenticated');
       return;
     }
-    const owned = await prisma.mappingProject.findMany({
-      where: { userId },
+    const visible = await prisma.mappingProject.findMany({
+      where: {
+        OR: [
+          { userId },
+          { members: { some: { userId } } },
+        ],
+      },
       select: { id: true },
     });
-    const ownedIds = new Set(owned.map((project) => project.id));
-    visibleProjects = state.projects.filter((project) => ownedIds.has(project.id));
+    const visibleIds = new Set(visible.map((project) => project.id));
+    visibleProjects = state.projects.filter((project) => visibleIds.has(project.id));
   }
 
   const projects = visibleProjects
@@ -416,6 +436,130 @@ app.patch('/api/projects/:id', async (req, res) => {
   });
 
   res.json({ project: updated });
+});
+
+app.get('/api/projects/:id/members', requireRole('viewer'), async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) {
+    sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  const members = await Promise.resolve(store.listProjectMembers(project.id));
+  res.json({ members });
+});
+
+app.post('/api/projects/:id/members', requireRole('admin'), async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) {
+    sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  const parsed = AddProjectMemberSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(req, res, 400, 'VALIDATION_ERROR', 'Invalid project member payload', parsed.error.issues);
+    return;
+  }
+
+  try {
+    const member = await Promise.resolve(store.addProjectMember(project.id, {
+      userId: await resolveMemberUserId(parsed.data.email),
+      email: parsed.data.email,
+      role: parsed.data.role,
+      addedAt: new Date().toISOString(),
+    }));
+    writeAuditEntrySafe({
+      projectId: project.id,
+      actor: toAuditActor(req),
+      action: 'member_added',
+      targetType: 'project',
+      targetId: member.userId,
+      after: member,
+    });
+    res.status(201).json(member);
+  } catch (error) {
+    if (isAppError(error)) {
+      sendError(req, res, error.status, error.code, error.message, error.details);
+      return;
+    }
+    throw error;
+  }
+});
+
+app.patch('/api/projects/:id/members/:userId', requireRole('admin'), async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) {
+    sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  const parsed = PatchProjectMemberSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(req, res, 400, 'VALIDATION_ERROR', 'Invalid project member patch payload', parsed.error.issues);
+    return;
+  }
+
+  try {
+    const before = (await Promise.resolve(store.listProjectMembers(project.id)))
+      .find((member) => member.userId === req.params.userId);
+    if (!before) {
+      sendError(req, res, 404, 'PROJECT_MEMBER_NOT_FOUND', 'Project member not found');
+      return;
+    }
+
+    const updated = await Promise.resolve(store.patchProjectMember(project.id, req.params.userId, parsed.data.role));
+    writeAuditEntrySafe({
+      projectId: project.id,
+      actor: toAuditActor(req),
+      action: 'role_changed',
+      targetType: 'project',
+      targetId: updated.userId,
+      before: { role: before.role },
+      after: { role: updated.role },
+    });
+    res.json(updated);
+  } catch (error) {
+    if (isAppError(error)) {
+      sendError(req, res, error.status, error.code, error.message, error.details);
+      return;
+    }
+    throw error;
+  }
+});
+
+app.delete('/api/projects/:id/members/:userId', requireRole('admin'), async (req, res) => {
+  const project = await store.getProject(req.params.id);
+  if (!project) {
+    sendError(req, res, 404, 'PROJECT_NOT_FOUND', 'Project not found');
+    return;
+  }
+
+  try {
+    const before = (await Promise.resolve(store.listProjectMembers(project.id)))
+      .find((member) => member.userId === req.params.userId);
+    if (!before) {
+      sendError(req, res, 404, 'PROJECT_MEMBER_NOT_FOUND', 'Project member not found');
+      return;
+    }
+
+    await Promise.resolve(store.removeProjectMember(project.id, req.params.userId));
+    writeAuditEntrySafe({
+      projectId: project.id,
+      actor: toAuditActor(req),
+      action: 'member_removed',
+      targetType: 'project',
+      targetId: req.params.userId,
+      before,
+    });
+    res.status(204).end();
+  } catch (error) {
+    if (isAppError(error)) {
+      sendError(req, res, error.status, error.code, error.message, error.details);
+      return;
+    }
+    throw error;
+  }
 });
 
 app.post('/api/projects/:id/duplicate', async (req, res) => {
@@ -926,7 +1070,7 @@ app.get('/api/projects/:id/versions', async (req, res) => {
   res.json({ versions });
 });
 
-app.get('/api/projects/:id/export', async (req, res) => {
+app.get('/api/projects/:id/export', requireRole('approver'), async (req, res) => {
   const format = String(req.query.format || 'json') as ExportFormat;
   const project = await store.getProject(req.params.id);
   if (!project) {

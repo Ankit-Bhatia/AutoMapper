@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { EntityMapping, Field, FieldMapping, Project, SchemaDriftEvent } from '@contracts';
+import type { EntityMapping, Field, FieldMapping, Project, SchemaDriftEvent, UserRole } from '@contracts';
 import { MappingStudioApp } from './MappingStudioApp';
 
 const apiMock = vi.fn();
@@ -73,6 +73,14 @@ const fieldMapping: FieldMapping = {
 
 let pipelineFieldMappings: FieldMapping[] = [fieldMapping];
 let pipelineDriftEvent: SchemaDriftEvent | null = null;
+let projectRoleState: {
+  role: UserRole;
+  members: unknown[];
+  loading: boolean;
+  error: string | null;
+  refresh: ReturnType<typeof vi.fn>;
+  canPerform: (role: UserRole, minRole: UserRole) => boolean;
+};
 
 vi.mock('@core/api-client', () => ({
   api: (...args: unknown[]) => apiMock(...args),
@@ -165,8 +173,18 @@ vi.mock('./components/AgentPipeline', () => ({
 }));
 
 vi.mock('./components/MappingTable', () => ({
-  MappingTable: ({ onProceedToExport }: { onProceedToExport?: () => void }) => (
-    <button onClick={onProceedToExport}>Proceed To Export</button>
+  MappingTable: ({
+    onProceedToExport,
+    canAccessExport = true,
+    exportRestrictionReason,
+  }: {
+    onProceedToExport?: () => void;
+    canAccessExport?: boolean;
+    exportRestrictionReason?: string;
+  }) => (
+    canAccessExport
+      ? <button onClick={onProceedToExport}>Proceed To Export</button>
+      : <button disabled>{exportRestrictionReason ?? 'Requires Approver role'}</button>
   ),
 }));
 
@@ -186,6 +204,16 @@ vi.mock('./components/SeedSummaryCard', () => ({
   SeedSummaryCard: () => null,
 }));
 
+vi.mock('./components/TeamPanel', () => ({
+  TeamPanel: ({ open }: { open: boolean }) => (
+    open ? <div>Team Panel Visible</div> : null
+  ),
+}));
+
+vi.mock('./hooks/useProjectRole', () => ({
+  useProjectRole: () => projectRoleState,
+}));
+
 describe('MappingStudioApp export gating', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -199,6 +227,22 @@ describe('MappingStudioApp export gating', () => {
     };
     pipelineFieldMappings = [fieldMapping];
     pipelineDriftEvent = null;
+    projectRoleState = {
+      role: 'admin',
+      members: [],
+      loading: false,
+      error: null,
+      refresh: vi.fn(async () => undefined),
+      canPerform: (role: UserRole, minRole: UserRole) => {
+        const rank: Record<UserRole, number> = {
+          viewer: 0,
+          mapper: 1,
+          approver: 2,
+          admin: 3,
+        };
+        return rank[role] >= rank[minRole];
+      },
+    };
     apiMock.mockReset();
     apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
       const method = (init?.method ?? 'GET').toUpperCase();
@@ -564,5 +608,44 @@ describe('MappingStudioApp export gating', () => {
     await waitFor(() => {
       expect(screen.queryByText(/schema drift warning/i)).not.toBeInTheDocument();
     });
+  });
+
+  it('shows the Team button for admin users on an active project', async () => {
+    const user = userEvent.setup();
+    render(<MappingStudioApp initialView="new" />);
+
+    await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Finish Pipeline' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Finish Pipeline' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Team' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Team' }));
+    expect(screen.getByText('Team Panel Visible')).toBeInTheDocument();
+  });
+
+  it('blocks export affordances for mapper users', async () => {
+    projectRoleState.role = 'mapper';
+    const user = userEvent.setup();
+    render(<MappingStudioApp initialView="new" />);
+
+    await user.click(screen.getByRole('button', { name: 'Connect Systems' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Finish Pipeline' })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Finish Pipeline' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Requires Approver role' })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Export Panel Visible')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Team' })).not.toBeInTheDocument();
   });
 });

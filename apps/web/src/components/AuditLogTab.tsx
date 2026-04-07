@@ -20,6 +20,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   project_created: 'created the project',
   project_updated: 'updated the project',
   project_exported: 'exported the project',
+  role_changed: 'changed a project role',
+  member_added: 'added a project member',
+  member_removed: 'removed a project member',
 };
 
 const ACTION_ICONS: Record<AuditAction, string> = {
@@ -31,6 +34,9 @@ const ACTION_ICONS: Record<AuditAction, string> = {
   project_created: '🗂️',
   project_updated: '🛠️',
   project_exported: '📤',
+  role_changed: '🔐',
+  member_added: '➕',
+  member_removed: '➖',
 };
 
 function formatRelativeTime(timestamp: string): string {
@@ -118,6 +124,29 @@ function formatAuditSummary(entry: AuditEntry): string | null {
     case 'project_exported': {
       const format = typeof after?.format === 'string' ? after.format.toUpperCase() : null;
       return format ? `${format} export downloaded.` : 'Project export downloaded.';
+    }
+    case 'member_added': {
+      const email = typeof after?.email === 'string' ? after.email : null;
+      const role = typeof after?.role === 'string' ? after.role : null;
+      if (email && role) {
+        return `${email} added as ${role}.`;
+      }
+      return 'Project member added.';
+    }
+    case 'member_removed': {
+      const email = typeof before?.email === 'string' ? before.email : null;
+      return email ? `${email} removed from the project.` : 'Project member removed.';
+    }
+    case 'role_changed': {
+      const email = typeof after?.email === 'string'
+        ? after.email
+        : (typeof before?.email === 'string' ? before.email : null);
+      const previousRole = typeof before?.role === 'string' ? before.role : null;
+      const nextRole = typeof after?.role === 'string' ? after.role : null;
+      if (email && previousRole && nextRole) {
+        return `${email}: ${previousRole} → ${nextRole}.`;
+      }
+      return 'Project member role changed.';
     }
     default:
       return null;

@@ -78,7 +78,10 @@ const initialMapping: FieldMapping = {
   status: 'suggested',
 };
 
-function Harness() {
+function Harness(props?: {
+  canEditMappings?: boolean;
+  canAccessExport?: boolean;
+}) {
   const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([initialMapping]);
   const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
 
@@ -103,6 +106,9 @@ function Harness() {
         });
       }}
       onProceedToExport={() => {}}
+      canEditMappings={props?.canEditMappings}
+      canAccessExport={props?.canAccessExport}
+      exportRestrictionReason="Requires Approver role"
     />
   );
 }
@@ -237,5 +243,21 @@ describe('MappingTable', () => {
       expect(screen.getByText(/Acknowledged/i)).toBeInTheDocument();
       expect(screen.queryByText(/formula field acknowledgement required/i)).not.toBeInTheDocument();
     });
+  });
+
+  it('renders viewer mode as read-only with no accept or reject actions', () => {
+    render(<Harness canEditMappings={false} canAccessExport={false} />);
+
+    expect(screen.getByText(/viewer role can inspect mappings but cannot accept, reject, or modify them/i)).toBeInTheDocument();
+    expect(screen.queryByTitle('Accept')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Reject')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Edit transform')).not.toBeInTheDocument();
+  });
+
+  it('shows the approver restriction when a mapper cannot export', () => {
+    render(<Harness canEditMappings canAccessExport={false} />);
+
+    expect(screen.getAllByRole('button', { name: /requires approver role/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /proceed to export/i })).not.toBeInTheDocument();
   });
 });
