@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-30
+> **Last updated:** 2026-04-07
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -100,7 +100,7 @@ AutoMapper/
 
 ---
 
-## Current Board State (2026-03-26)
+## Current Board State (2026-03-29)
 
 ### ✅ Done — Stable
 
@@ -243,6 +243,14 @@ Two PRs awaiting fixes before re-review. One fresh dispatch in flight.
 ---
 
 ## Recent Delivery Log
+
+### 2026-03-29 — Codex (KAN-104 branch)
+- **KAN-104 — User Roles & Permissions foundation** — project-scoped Viewer / Mapper / Approver / Admin roles implemented across both backend and frontend.
+  - Added `ProjectMember` persistence in both Prisma and FsStore (`members.json` under `data/projects/:id/`) with add / patch / remove semantics and duplicate-email + last-admin guards.
+  - Added `requireRole()` middleware and wired project-member routes in `backend/src/index.ts`: list members, add member, role change, remove member, plus export gating at `approver`.
+  - Added audit actions `role_changed`, `member_added`, and `member_removed` with route coverage.
+  - Added frontend `useProjectRole()` hook, admin-only `TeamPanel`, review/export role gates, and read-only viewer experience in `MappingTable`.
+  - Validation on branch: backend `tsc --noEmit` **pass**, backend `npm test -- --run` **235/235**, frontend typecheck **pass**, frontend tests **52/52**, frontend build **pass**.
 
 ### 2026-03-25 — Codex (KAN-91 branch)
 - **KAN-91 — Salesforce validation rule extraction** — active Salesforce validation rules are now extracted through the existing jsforce connection, classified into full-coverage vs partial-coverage risk during validation, and surfaced in both Review and export metadata.

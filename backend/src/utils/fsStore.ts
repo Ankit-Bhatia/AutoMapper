@@ -9,12 +9,15 @@ import type {
   Field,
   FieldMapping,
   MappingProject,
+  ProjectMember,
   OneToManyResolution,
   Relationship,
   SchemaFingerprint,
   StoredExportVersionRecord,
   System,
+  UserRole,
 } from '../types.js';
+import { AppError } from './httpErrors.js';
 
 const EMPTY_STATE: AppState = {
   systems: [],
@@ -64,6 +67,10 @@ export class FsStore {
 
   private versionsDir(projectId: string): string {
     return path.join(path.dirname(this.dbPath), 'projects', projectId, 'versions');
+  }
+
+  private membersFile(projectId: string): string {
+    return path.join(path.dirname(this.dbPath), 'projects', projectId, 'members.json');
   }
 
   private readStoredExportVersion(filePath: string): StoredExportVersionRecord | null {
@@ -119,9 +126,10 @@ export class FsStore {
 
   createProject(
     name: string,
-    _userId?: string,
+    userId?: string,
     sourceSystemName = 'SAP',
     targetSystemName = 'Salesforce',
+    userEmail?: string,
   ): MappingProject {
     const now = new Date().toISOString();
     const sourceSystem: System = {
@@ -149,6 +157,14 @@ export class FsStore {
     };
     this.state.projects.push(project);
     this.persist();
+    if (userId && userEmail) {
+      void this.addProjectMember(project.id, {
+        userId,
+        email: userEmail,
+        role: 'admin',
+        addedAt: now,
+      });
+    }
     return project;
   }
 
@@ -232,7 +248,83 @@ export class FsStore {
     this.state.entityMappings.push(...duplicatedEntityMappings);
     this.state.fieldMappings.push(...duplicatedFieldMappings);
     this.persist();
+    const originalMembers = this.listProjectMembers(projectId);
+    if (originalMembers.length > 0) {
+      const memberFile = this.membersFile(duplicate.id);
+      fs.mkdirSync(path.dirname(memberFile), { recursive: true });
+      fs.writeFileSync(memberFile, JSON.stringify(originalMembers, null, 2), 'utf8');
+    }
     return duplicate;
+  }
+
+  listProjectMembers(projectId: string): ProjectMember[] {
+    const filePath = this.membersFile(projectId);
+    if (!fs.existsSync(filePath)) return [];
+    try {
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as ProjectMember[];
+      return Array.isArray(raw)
+        ? raw.map((member) => ({
+          userId: member.userId,
+          email: member.email,
+          role: member.role,
+          addedAt: member.addedAt,
+        }))
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async addProjectMember(projectId: string, member: ProjectMember): Promise<ProjectMember> {
+    const existing = this.listProjectMembers(projectId);
+    const normalizedEmail = member.email.trim().toLowerCase();
+    if (existing.some((candidate) => candidate.email.trim().toLowerCase() === normalizedEmail)) {
+      throw new AppError(409, 'MEMBER_ALREADY_EXISTS', 'A member with that email already exists');
+    }
+
+    const nextMember: ProjectMember = {
+      ...member,
+      email: normalizedEmail,
+    };
+    const filePath = this.membersFile(projectId);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify([...existing, nextMember], null, 2), 'utf8');
+    return nextMember;
+  }
+
+  async patchProjectMember(projectId: string, userId: string, role: UserRole): Promise<ProjectMember> {
+    const existing = this.listProjectMembers(projectId);
+    const memberIndex = existing.findIndex((candidate) => candidate.userId === userId);
+    if (memberIndex === -1) {
+      throw new AppError(404, 'PROJECT_MEMBER_NOT_FOUND', 'Project member not found');
+    }
+
+    existing[memberIndex] = {
+      ...existing[memberIndex],
+      role,
+    };
+    const filePath = this.membersFile(projectId);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(existing, null, 2), 'utf8');
+    return existing[memberIndex];
+  }
+
+  async removeProjectMember(projectId: string, userId: string): Promise<void> {
+    const existing = this.listProjectMembers(projectId);
+    const member = existing.find((candidate) => candidate.userId === userId);
+    if (!member) {
+      throw new AppError(404, 'PROJECT_MEMBER_NOT_FOUND', 'Project member not found');
+    }
+
+    const adminCount = existing.filter((candidate) => candidate.role === 'admin').length;
+    if (member.role === 'admin' && adminCount <= 1) {
+      throw new AppError(400, 'LAST_ADMIN', 'Cannot remove the last Admin');
+    }
+
+    const filePath = this.membersFile(projectId);
+    const remaining = existing.filter((candidate) => candidate.userId !== userId);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(remaining, null, 2), 'utf8');
   }
 
   createExportVersion(args: {

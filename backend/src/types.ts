@@ -103,6 +103,35 @@ export interface MappingProject {
   resolvedOneToManyMappings?: Record<string, OneToManyResolution>;
 }
 
+export type UserRole = 'viewer' | 'mapper' | 'approver' | 'admin';
+
+export const ROLE_RANK: Record<UserRole, number> = {
+  viewer: 0,
+  mapper: 1,
+  approver: 2,
+  admin: 3,
+};
+
+export interface ProjectMember {
+  userId: string;
+  email: string;
+  role: UserRole;
+  addedAt: string;
+}
+
+export interface ProjectMembersResponse {
+  members: ProjectMember[];
+}
+
+export interface AddMemberRequest {
+  email: string;
+  role: UserRole;
+}
+
+export interface PatchMemberRequest {
+  role: UserRole;
+}
+
 export interface OneToManyResolution {
   sourceFieldId: string;
   sourceFieldName: string;
@@ -325,7 +354,10 @@ export type AuditAction =
   | 'conflict_resolved'
   | 'project_created'
   | 'project_updated'
-  | 'project_exported';
+  | 'project_exported'
+  | 'role_changed'
+  | 'member_added'
+  | 'member_removed';
 
 export interface AuditActor {
   userId: string;

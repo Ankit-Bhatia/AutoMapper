@@ -107,9 +107,24 @@ model MappingProject {
   mappingEvents  MappingEvent[]
   auditEntries   AuditEntry[]
   exportVersions ExportVersion[]
+  members        ProjectMember[]
 
   @@index([organisationId])
   @@index([userId])
+}
+
+model ProjectMember {
+  id        String         @id @default(uuid())
+  projectId String
+  userId    String
+  email     String
+  role      String
+  addedAt   DateTime       @default(now())
+  project   MappingProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@unique([projectId, email])
+  @@index([projectId])
 }
 
 model ExportVersion {

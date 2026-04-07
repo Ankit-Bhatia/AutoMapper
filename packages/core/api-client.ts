@@ -5,6 +5,8 @@ import type {
   LLMUsageResponse,
   MappingConflict,
   OneToManyResolution,
+  ProjectMember,
+  ProjectMembersResponse,
   Project,
   ProjectListResponse,
   ProjectPayload,
@@ -62,9 +64,21 @@ const _initialMockProject: Project = {
 
 let _mockProjects: Project[] = [{ ..._initialMockProject }];
 let _activeProjectId = _initialMockProject.id;
+let _mockProjectMembers: Record<string, ProjectMember[]> = {
+  [_initialMockProject.id]: [{
+    userId: 'standalone-user',
+    email: 'demo@automapper.local',
+    role: 'admin',
+    addedAt: new Date().toISOString(),
+  }],
+};
 
 function getMockProject(projectId = _activeProjectId): Project {
   return _mockProjects.find((project) => project.id === projectId) ?? _mockProjects[0] ?? _initialMockProject;
+}
+
+function getMockProjectMembers(projectId = _activeProjectId): ProjectMember[] {
+  return _mockProjectMembers[projectId] ?? [];
 }
 
 function isOneToManyMapping(mapping: FieldMapping): boolean {
@@ -232,6 +246,12 @@ function mockApiCall<T>(path: string, init?: RequestInit): T {
     };
     _mockProjects = [project, ..._mockProjects];
     _activeProjectId = project.id;
+    _mockProjectMembers[project.id] = [{
+      userId: 'standalone-user',
+      email: 'demo@automapper.local',
+      role: 'admin',
+      addedAt: new Date().toISOString(),
+    }];
     return { project } as T;
   }
 
@@ -266,7 +286,59 @@ function mockApiCall<T>(path: string, init?: RequestInit): T {
     };
     _mockProjects = [duplicate, ..._mockProjects];
     _activeProjectId = duplicate.id;
+    _mockProjectMembers[duplicate.id] = getMockProjectMembers(original.id).map((member) => ({ ...member }));
     return { newProjectId: duplicate.id, project: duplicate } as T;
+  }
+
+  if (method === 'GET' && /\/api\/projects\/[^/]+\/members$/.test(path)) {
+    const match = path.match(/\/api\/projects\/([^/]+)\/members$/);
+    return {
+      members: getMockProjectMembers(match?.[1]),
+    } as T;
+  }
+
+  if (method === 'POST' && /\/api\/projects\/[^/]+\/members$/.test(path)) {
+    const match = path.match(/\/api\/projects\/([^/]+)\/members$/);
+    const projectId = match?.[1] ?? _activeProjectId;
+    const email = String(body.email ?? '').trim().toLowerCase();
+    const role = String(body.role ?? 'viewer') as ProjectMember['role'];
+    const existing = getMockProjectMembers(projectId);
+    if (existing.some((member) => member.email === email)) {
+      throw new Error('A member with that email already exists');
+    }
+    const nextMember: ProjectMember = {
+      userId: email,
+      email,
+      role,
+      addedAt: new Date().toISOString(),
+    };
+    _mockProjectMembers[projectId] = [...existing, nextMember];
+    return nextMember as T;
+  }
+
+  if (method === 'PATCH' && /\/api\/projects\/[^/]+\/members\/[^/]+$/.test(path)) {
+    const match = path.match(/\/api\/projects\/([^/]+)\/members\/([^/]+)$/);
+    const projectId = match?.[1] ?? _activeProjectId;
+    const userId = match?.[2] ?? '';
+    const role = String(body.role ?? 'viewer') as ProjectMember['role'];
+    _mockProjectMembers[projectId] = getMockProjectMembers(projectId).map((member) => (
+      member.userId === userId ? { ...member, role } : member
+    ));
+    return getMockProjectMembers(projectId).find((member) => member.userId === userId) as T;
+  }
+
+  if (method === 'DELETE' && /\/api\/projects\/[^/]+\/members\/[^/]+$/.test(path)) {
+    const match = path.match(/\/api\/projects\/([^/]+)\/members\/([^/]+)$/);
+    const projectId = match?.[1] ?? _activeProjectId;
+    const userId = match?.[2] ?? '';
+    const existing = getMockProjectMembers(projectId);
+    const target = existing.find((member) => member.userId === userId);
+    const adminCount = existing.filter((member) => member.role === 'admin').length;
+    if (target?.role === 'admin' && adminCount <= 1) {
+      throw new Error('Cannot remove the last Admin');
+    }
+    _mockProjectMembers[projectId] = existing.filter((member) => member.userId !== userId);
+    return undefined as T;
   }
 
   if (method === 'POST' && path === '/api/review-decisions') {
@@ -632,6 +704,14 @@ export function resetMockState(): void {
   _liveMappings = null;
   _mockProjects = [{ ..._initialMockProject, resolvedOneToManyMappings: {}, archived: false }];
   _activeProjectId = _initialMockProject.id;
+  _mockProjectMembers = {
+    [_initialMockProject.id]: [{
+      userId: 'standalone-user',
+      email: 'demo@automapper.local',
+      role: 'admin',
+      addedAt: new Date().toISOString(),
+    }],
+  };
   _mockLlmUsageEvents = [];
   _mockLlmConfig = {
     config: {

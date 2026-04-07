@@ -10,6 +10,7 @@ import type {
   MappingProject,
   OneToManyResolution,
   OptimizerDisplacement,
+  ProjectMember,
   RetrievalShortlist,
   RerankerDecision,
   Relationship,
@@ -17,7 +18,9 @@ import type {
   System,
   StoredExportVersionRecord,
   TransformType,
+  UserRole,
 } from '../types.js';
+import { AppError } from '../utils/httpErrors.js';
 
 function toSystem(s: { id: string; name: string; type: string }): System {
   return { id: s.id, name: s.name, type: s.type as System['type'] };
@@ -211,6 +214,7 @@ export class DbStore {
     userId: string,
     sourceSystemName = 'SAP',
     targetSystemName = 'Salesforce',
+    userEmail?: string,
   ): Promise<MappingProject> {
     const [sourceSystem, targetSystem, project] = await this.prisma.$transaction(async (tx) => {
       const src = await tx.system.create({
@@ -236,6 +240,17 @@ export class DbStore {
           resolvedOneToManyMappings: {},
         } as never,
       });
+      if (userEmail) {
+        await tx.projectMember.create({
+          data: {
+            id: uuidv4(),
+            projectId: proj.id,
+            userId,
+            email: userEmail.trim().toLowerCase(),
+            role: 'admin',
+          },
+        });
+      }
       return [src, tgt, proj] as const;
     });
 
@@ -388,6 +403,23 @@ export class DbStore {
         });
       }
 
+      const originalMembers = await tx.projectMember.findMany({
+        where: { projectId: original.id },
+        orderBy: { addedAt: 'asc' },
+      });
+      if (originalMembers.length > 0) {
+        await tx.projectMember.createMany({
+          data: originalMembers.map((member) => ({
+            id: uuidv4(),
+            projectId: createdProjectId,
+            userId: member.userId,
+            email: member.email,
+            role: member.role,
+            addedAt: member.addedAt,
+          })),
+        });
+      }
+
       return createdProject;
     });
 
@@ -458,6 +490,89 @@ export class DbStore {
       ...toExportVersion(version),
       fieldsSnapshot: readFieldsSnapshot(version.fieldsSnapshot),
     };
+  }
+
+  async listProjectMembers(projectId: string): Promise<ProjectMember[]> {
+    const members = await this.prisma.projectMember.findMany({
+      where: { projectId },
+      orderBy: [{ addedAt: 'asc' }, { email: 'asc' }],
+    });
+    return members.map((member) => ({
+      userId: member.userId,
+      email: member.email,
+      role: member.role as UserRole,
+      addedAt: member.addedAt.toISOString(),
+    }));
+  }
+
+  async addProjectMember(projectId: string, member: ProjectMember): Promise<ProjectMember> {
+    try {
+      const created = await this.prisma.projectMember.create({
+        data: {
+          id: uuidv4(),
+          projectId,
+          userId: member.userId,
+          email: member.email.trim().toLowerCase(),
+          role: member.role,
+          addedAt: new Date(member.addedAt),
+        },
+      });
+      return {
+        userId: created.userId,
+        email: created.email,
+        role: created.role as UserRole,
+        addedAt: created.addedAt.toISOString(),
+      };
+    } catch (error) {
+      if (
+        error instanceof Error
+        && 'code' in error
+        && (error as { code?: string }).code === 'P2002'
+      ) {
+        throw new AppError(409, 'MEMBER_ALREADY_EXISTS', 'A member with that email already exists');
+      }
+      throw error;
+    }
+  }
+
+  async patchProjectMember(projectId: string, userId: string, role: UserRole): Promise<ProjectMember> {
+    const existing = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (!existing) {
+      throw new AppError(404, 'PROJECT_MEMBER_NOT_FOUND', 'Project member not found');
+    }
+
+    const updated = await this.prisma.projectMember.update({
+      where: { projectId_userId: { projectId, userId } },
+      data: { role },
+    });
+    return {
+      userId: updated.userId,
+      email: updated.email,
+      role: updated.role as UserRole,
+      addedAt: updated.addedAt.toISOString(),
+    };
+  }
+
+  async removeProjectMember(projectId: string, userId: string): Promise<void> {
+    const members = await this.prisma.projectMember.findMany({
+      where: { projectId },
+      select: { userId: true, role: true },
+    });
+    const existing = members.find((member) => member.userId === userId);
+    if (!existing) {
+      throw new AppError(404, 'PROJECT_MEMBER_NOT_FOUND', 'Project member not found');
+    }
+
+    const adminCount = members.filter((member) => member.role === 'admin').length;
+    if (existing.role === 'admin' && adminCount <= 1) {
+      throw new AppError(400, 'LAST_ADMIN', 'Cannot remove the last Admin');
+    }
+
+    await this.prisma.projectMember.delete({
+      where: { projectId_userId: { projectId, userId } },
+    });
   }
 
   async updateProjectTimestamp(projectId: string): Promise<void> {
