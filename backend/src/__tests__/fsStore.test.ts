@@ -53,4 +53,25 @@ describe('FsStore system inference', () => {
     expect(reloadedProject?.resolvedOneToManyMappings?.['source-field-1']?.targetFieldName).toBe('Monthly_Payment__c');
     expect(reloadedProject?.resolvedOneToManyMappings?.['source-field-1']?.targetObject).toBe('Loan');
   });
+
+  it('reclassifies uploaded generic schemas as jackhenry when CoreDirector fields are present', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automapper-fsstore-'));
+    tempDirs.push(dir);
+
+    const store = new FsStore(dir);
+    const project = store.createProject('Upload Project', undefined, 'Uploaded XML', 'Salesforce');
+
+    store.replaceSystemSchema(
+      project.sourceSystemId,
+      [{ id: 'src-entity', systemId: project.sourceSystemId, name: 'Customer' }],
+      [
+        { id: 'src-field-1', entityId: 'src-entity', name: 'CIF_NBR', dataType: 'string' },
+        { id: 'src-field-2', entityId: 'src-entity', name: 'LOAN_NBR', dataType: 'string' },
+      ],
+      [],
+    );
+
+    const sourceSystem = store.getState().systems.find((system) => system.id === project.sourceSystemId);
+    expect(sourceSystem?.type).toBe('jackhenry');
+  });
 });

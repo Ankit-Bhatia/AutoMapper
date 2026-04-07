@@ -2,7 +2,7 @@
 
 > **Purpose:** Single source of truth for any new session, agent, or collaborator asking "what's going on with AutoMapper?"
 > **Owner:** Claude (Cowork) — update this file whenever board state or architecture meaningfully changes.
-> **Last updated:** 2026-03-29
+> **Last updated:** 2026-04-07
 > **Active repo:** `AutoMapper/` — this is the one canonical codebase. `AutoMapper-main/` is retired; do not use it.
 
 ---
@@ -110,7 +110,8 @@ AutoMapper/
 | **Connectors** | Jack Henry (SilverLake, CoreDirector, Symitar) — mock + live; Salesforce FSC — jsforce + mock + enriched FSC catalog; SAP S/4HANA — OData + sapParser; jXchange MCP stub |
 | **Agent pipeline** | 9-agent orchestration: SchemaDiscovery → SchemaIntelligence → Compliance → Banking/CRM/ERP/RiskClam → MappingProposal → MappingRationale → Validation |
 | **RiskClam / BOSL** | `RiskClamDomainAgent` with 3-layer confidence boost (synonym +0.22, prefix-type +0.10/−0.20, FSC namespace +0.06); `riskclam` added to `SystemType`; `inferSystemType()` detects BOSL/RiskClam names; entity boost table; registered in OrchestratorAgent |
-| **Schema Intelligence** | `SchemaIntelligenceAgent` (Step 2): 6-step pipeline — field classification, XML taxonomy recognition, 212-entry BOSL→FSC confirmed pattern boost (+0.30 exact / +0.08 family), one-to-many detection (23 flagged fields), Caribbean domain glossary annotation. `GET /api/schema-intelligence/patterns` and `/one-to-many` endpoints. Sync script at `backend/src/scripts/syncSchemaIntelligence.ts`. |
+| **Schema Intelligence** | `SchemaIntelligenceAgent` (Step 2): 6-step pipeline — field classification, taxonomy recognition, confirmed corpus boosts, one-to-many detection, and domain glossary annotation. BOSL/RiskClam uses the 212-entry BOSL→FSC corpus (+0.30 exact / +0.08 family). CoreDirector/Jack Henry now uses a parallel CoreDirector→FSC corpus (100+ patterns, section-prefix classification, 8 one-to-many fields, picklist translation notes). `GET /api/schema-intelligence/patterns` and `/one-to-many` endpoints now surface both corpora. Sync script at `backend/src/scripts/syncSchemaIntelligence.ts`. |
+| **KAN-106 — CoreDirector schema intelligence corpus** | Added `coreDirSchemaData.ts` with 100+ CoreDirector→FSC confirmed mappings across CIF/customer, address, employment, loan, deposit, collateral, and liabilities sections; CoreDirector-specific one-to-many set and picklist translation tables; field-based `inferSystemType()` upgrade so uploaded CoreDirector schemas classify as `jackhenry` instead of `generic`. |
 | **Schema Intelligence UI (KAN-78)** | `MappingTable` + `FieldMappingCard` surface all SchemaIntelligenceAgent metadata: confirmed-pattern green badge, formula-target amber warning (blocks Accept), one-to-many orange flag, Person Account blue annotation, Caribbean domain context. `SchemaIntelligenceMetadata` interface in `packages/contracts/types.ts`. |
 | **One-to-many resolver (KAN-79)** | `OneToManyResolverPanel.tsx` — dedicated routing step in workflow for 23 flagged BOSL source fields. Lists all candidate Salesforce targets with confidence and rationale. Pre/post-boarding lifecycle toggle hint. Export gated until all routing decisions confirmed. Persisted to `resolvedOneToManyMappings` on project. |
 | **Semantic mapping engine** | `fieldSemantics.ts` with semantic intent profiling, hard type-compatibility gates, LOS-prefix inference; `MappingProposalAgent` uses semantic+lexical+domain scoring |

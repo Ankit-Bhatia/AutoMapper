@@ -589,6 +589,11 @@ export class DbStore {
     relationships: Relationship[],
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      const system = await tx.system.findUnique({
+        where: { id: systemId },
+        select: { name: true },
+      });
+
       // Delete existing entities (cascades to fields via FK)
       await tx.entity.deleteMany({ where: { systemId } });
 
@@ -646,6 +651,13 @@ export class DbStore {
           })),
         });
       }
+
+      await tx.system.update({
+        where: { id: systemId },
+        data: {
+          type: inferSystemType(system?.name ?? '', fields.map((field) => field.name)),
+        },
+      });
     });
   }
 
@@ -747,14 +759,21 @@ export class DbStore {
   }
 }
 
-function inferSystemType(name: string): System['type'] {
+function inferSystemType(name: string, fieldNames: string[] = []): System['type'] {
   const n = name.toLowerCase();
+  const upperFieldNames = fieldNames.map((fieldName) => fieldName.toUpperCase());
+  const boslIndicators = ['AMT_NET_WORTH', 'DATE_BOARDING', 'CODE_ENTITY_TYPE'];
+  const hasCoreDir = upperFieldNames.some((fieldName) =>
+    ['CUST_', 'CIF_', 'LOAN_', 'ACCT_', 'COL_'].some((prefix) => fieldName.startsWith(prefix)),
+  );
+  const hasBosl = upperFieldNames.some((fieldName) => boslIndicators.includes(fieldName));
   if (n.includes('salesforce')) return 'salesforce';
   if (n.includes('sap')) return 'sap';
+  if (hasCoreDir && !hasBosl) return 'jackhenry';
   if (n.includes('jackhenry') || n.includes('silverlake') || n.includes('coredirector') || n.includes('symitar')) {
     return 'jackhenry';
   }
-  if (n.includes('riskclam') || n.includes('risk clam') || n.includes('bosl')) {
+  if (n.includes('riskclam') || n.includes('risk clam') || n.includes('bosl') || hasBosl) {
     return 'riskclam';
   }
   return 'generic';
